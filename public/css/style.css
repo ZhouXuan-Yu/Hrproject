@@ -368,6 +368,7 @@ tr.row-archived{opacity:0.4}
   --e-primary-hover:#6B84FF;
   --e-primary-active:#3D54D4;
   --e-primary-subtle:rgba(79,110,247,.1);
+  --e-on-primary:#FFFFFF;
   --e-cyan:#06B6D4;
   --e-green:#22C55E;
   --e-amber:#F59E0B;

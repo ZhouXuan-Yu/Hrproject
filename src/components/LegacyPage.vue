@@ -127,33 +127,33 @@ onBeforeUnmount(() => cleanupFns.forEach((fn) => fn()));
   display: grid;
   place-items: center;
   gap: 12px;
-  background: #f6f8fb;
-  color: #5b6475;
+  background: var(--e-bg, #f6f8fb);
+  color: var(--e-muted, #5b6475);
   font: 14px/1.5 Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
 }
 .legacy-state__skeleton {
   width: min(720px, calc(100vw - 48px));
   height: 220px;
-  border-radius: 8px;
-  border: 1px solid #e1e6ef;
+  border-radius: var(--e-radius-md, 8px);
+  border: 1px solid var(--e-border, #e1e6ef);
   background:
-    linear-gradient(90deg, transparent, rgba(79, 110, 247, .08), transparent),
-    linear-gradient(#fff, #f9fafc);
+    linear-gradient(90deg, transparent, var(--e-primary-subtle, rgba(79, 110, 247, .08)), transparent),
+    linear-gradient(var(--e-surface, #fff), var(--e-surface-soft, #f9fafc));
   background-size: 240px 100%, 100% 100%;
   animation: legacy-shimmer 1.2s linear infinite;
 }
 .legacy-state--error {
-  color: #172033;
+  color: var(--e-ink, #172033);
 }
 .legacy-state--error span {
-  color: #5b6475;
+  color: var(--e-muted, #5b6475);
 }
 .legacy-state--error button {
   height: 36px;
-  border: 1px solid #4f6ef7;
-  border-radius: 8px;
-  background: #4f6ef7;
-  color: #fff;
+  border: 1px solid var(--e-primary, #4f6ef7);
+  border-radius: var(--e-radius-md, 8px);
+  background: var(--e-primary, #4f6ef7);
+  color: var(--e-on-primary, #fff);
   padding: 0 14px;
   cursor: pointer;
 }

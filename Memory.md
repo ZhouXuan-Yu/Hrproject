@@ -127,3 +127,18 @@
 1. 继续把 `public/legacy/` 中最稳定的页面拆为 Vue 组件。
 2. 逐步清理动态 JS 中剩余的非正式符号和旧文案。
 3. 增加视觉回归基线，避免后续 UI token 调整造成页面错位。
+
+## 2026-07-17 Phase 1 任务固化与 Token 补齐
+
+- 已新增 `任务.md`，将 Phase 0 到 Phase 6 的 UI 优化改造步骤固化为长期任务清单。
+- 当前按用户要求完成“第二节阶段”，即 Phase 1：设计 Token 层。
+- 本次代码补齐：`LegacyPage.vue` 的 loading/error/retry 状态改为复用 `--e-*` token；`style.css` 增加 `--e-on-primary`。
+- 阶段验证：
+  - `npm run build`：通过
+  - `npm test`：通过，21/21
+  - Phase 1 截图巡检：16 张
+  - Console error：0
+  - 移动端横向溢出：0
+  - 报告：`test-results/phase1-token-console-report.json`
+
+下一步进入 Phase 2：全局框架重构复审，重点检查侧边栏、顶部栏、页面标题区、命令入口和工作台布局是否还有遗留不一致。
