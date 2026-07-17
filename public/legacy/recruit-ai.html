@@ -1,24 +1,24 @@
-<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>AI 智能自动化中心 · 智能招聘系统</title><link rel="stylesheet" href="css/style.css"></head><body>
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>招聘辅助中心 · 智能招聘系统</title><link rel="stylesheet" href="css/style.css"></head><body>
 <aside class="sidebar" id="sidebar"></aside>
 <main class="content">
-  <header class="topbar"><h1>AI 智能自动化中心</h1><div class="breadcrumb"><a href="recruit-dashboard.html">招聘管理</a> / AI 中心</div>
+  <header class="topbar"><h1>招聘辅助中心</h1><div class="breadcrumb"><a href="recruit-dashboard.html">招聘管理</a> / 辅助中心</div>
     <div class="spacer"></div>
     <span style="font-size:11px;color:var(--c-warn);background:#FFF7ED;padding:4px 10px;border-radius:10px;font-weight:600">二期开发中</span>
   </header>
   <div class="content-body">
 
     <div class="permission-bar">
-      本页面仅<b>系统管理员</b>可见 · 集中所有<b>用户主动发起</b>的 AI 能力 · 流程自动触发的 AI（简历解析/自动匹配/联系话术辅助）已嵌入各业务页面
+      本页面仅<b>系统管理员</b>可见 · 集中所有<b>用户主动发起</b>的招聘辅助能力 · 流程内嵌的简历解析、匹配评分、联系话术辅助已嵌入各业务页面
     </div>
 
     <!-- ===== 5 Tab（按招聘流程排序：JD→搜人→匹配→面试→报表） ===== -->
     <div class="tabs" id="aiTabs">
-      <div class="tab active" data-tab="jd">① JD 智能生成</div>
-      <div class="tab" data-tab="search">② 智能简历搜索</div>
-      <div class="tab" data-tab="match">③ 智能人岗匹配</div>
-      <div class="tab" data-tab="interview">④ AI 面试辅助</div>
+      <div class="tab active" data-tab="jd">① JD 草稿生成</div>
+      <div class="tab" data-tab="search">② 语义简历搜索</div>
+      <div class="tab" data-tab="match">③ 人岗匹配工作台</div>
+      <div class="tab" data-tab="interview">④ 面试辅助</div>
       <div class="tab" data-tab="report">⑤ 招聘深度报表</div>
-      <div class="tab" data-tab="chat">⑥ 候选人沟通智能体</div>
+      <div class="tab" data-tab="chat">⑥ 候选人沟通助手</div>
     </div>
 
     <!-- ① JD 智能生成 -->
@@ -26,17 +26,17 @@
       <div class="phase-card" style="margin-bottom:20px">
         <div style="position:relative">
           <span class="phase-badge" style="position:absolute;top:-8px;right:-8px">需新增 Dify 工作流</span>
-          <h3>JD 智能生成</h3>
+          <h3>JD 草稿生成</h3>
         </div>
         <div style="font-size:13px;color:var(--c-sub);margin:8px 0 14px;line-height:1.8">
-          输入岗位关键信息（职位名称/部门/职级/核心要求），AI <b>自动生成完整专业 JD</b>，包括岗位职责、必备技能、加分项、任职资格，可直接发布到招聘渠道。
+          输入岗位关键信息（职位名称/部门/职级/核心要求），系统<b>生成 JD 草稿</b>，包括岗位职责、必备技能、加分项、任职资格，经 HR 确认后发布到招聘渠道。
         </div>
         <ul>
           <li><b>结构化 JD 输出</b>：岗位职责（5-8条）+ 必备技能（带权重）+ 加分项 + 任职资格（学历/年限/行业背景）</li>
           <li><b>对标优化</b>：参考同行业同岗位 JD，自动匹配关键词提高渠道搜索曝光</li>
           <li>JD 模板库：系统预置常见岗位模板，AI 在此基础上微调</li>
           <li>一键发布：生成后直接关联到岗位管理，同步到 Boss/猎聘等渠道</li>
-          <li>入口：AI 中心独立使用，也可在「需求管理 → 岗位管理 → 新建岗位」中触发</li>
+          <li>入口：辅助中心独立使用，也可在「需求管理 → 岗位管理 → 新建岗位」中触发</li>
         </ul>
       </div>
     </div>
@@ -46,13 +46,13 @@
       <div class="phase-card" style="margin-bottom:20px">
         <div style="position:relative">
           <span class="phase-badge" style="position:absolute;top:-8px;right:-8px">对接 Dify 工作流②</span>
-          <h3>智能简历搜索</h3>
+          <h3>语义简历搜索</h3>
         </div>
         <div style="font-size:13px;color:var(--c-sub);margin:8px 0 14px;line-height:1.8">
-          用<b>自然语言</b>描述需求，AI 理解语义后在全人才库中搜索。不用记字段、不用拼关键词，直接说「5年Java 大厂背景 做过微服务架构」即可搜到匹配简历。
+          用<b>自然语言</b>描述需求，系统解析语义后在全人才库中搜索。不用记字段、不用拼关键词，直接说「5年Java 大厂背景 做过微服务架构」即可搜到匹配简历。
         </div>
         <ul>
-          <li><b>自然语言搜索</b>：输入描述语句 → AI 提取关键条件（技能/年限/公司/学历）→ 语义匹配全库候选人</li>
+          <li><b>自然语言搜索</b>：输入描述语句 → 系统提取关键条件（技能/年限/公司/学历）→ 语义匹配全库候选人</li>
           <li>搜索结果：按匹配度排序，每条结果附带匹配理由 + 简历链接，点击直接唤起抽屉</li>
           <li>搜索历史 + 收藏：保存常用搜索条件，关注候选人可收藏</li>
           <li><b>区别于人才库筛选</b>：人才库筛选是结构化字段精确匹配（姓名/手机/来源）；这里是语义理解模糊搜索（"做过高并发项目的大厂Java"）</li>
@@ -65,14 +65,14 @@
       <div class="phase-card" style="margin-bottom:20px">
         <div style="position:relative">
           <span class="phase-badge" style="position:absolute;top:-8px;right:-8px">对接 Dify 工作流②</span>
-          <h3>智能人岗匹配</h3>
+          <h3>人岗匹配工作台</h3>
         </div>
         <div style="font-size:13px;color:var(--c-sub);margin:8px 0 14px;line-height:1.8">
-          完整智能匹配工作台。支持<b>打字或语音对话</b>，直接说「帮高级Java岗位匹配候选人」→ AI 自动返回候选人列表，<b>点击候选人直接打开完整简历抽屉</b>，快速预览无需跳转。
+          完整匹配工作台。支持<b>打字或语音输入</b>，直接说「帮高级Java岗位匹配候选人」→ 系统返回候选人列表，<b>点击候选人直接打开完整简历抽屉</b>，快速预览无需跳转。
         </div>
         <ul>
           <li><b>智能体对话匹配</b>：自然语言输入 → AI 自动解析意图并匹配，返回候选人列表 + 简历快捷链接，直接唤起抽屉查看</li>
-          <li><b>语音交互</b>：支持语音指令发起匹配、筛选候选人、查看简历，全流程无需手动操作</li>
+          <li><b>语音交互</b>：支持语音输入发起匹配、筛选候选人、查看简历，减少重复筛选操作</li>
           <li>匹配排行榜：按综合得分降序（时效权重 30% + 技能匹配权重 50% + 经验权重 20%），点击候选人直接打开完整简历</li>
           <li>匹配详情：雷达图（技能/经验/学历/潜力/加分）+ AI 打分理由逐条展示</li>
           <li><b>反向匹配</b>：从某个候选人出发，自动匹配系统内所有适配岗位</li>
@@ -87,7 +87,7 @@
       <div class="phase-card" style="margin-bottom:20px">
         <div style="position:relative">
           <span class="phase-badge" style="position:absolute;top:-8px;right:-8px">对接 Dify 工作流③</span>
-          <h3>AI 面试辅助</h3>
+          <h3>面试辅助</h3>
         </div>
         <div style="font-size:13px;color:var(--c-sub);margin:8px 0 14px;line-height:1.8">
           对接<b>飞书会议</b>，AI 读取候选人简历 + 岗位 JD，<b>自动为面试官生成针对性问题</b>（技术追问 / 行为问题 / 项目深挖），面试中实时推送到飞书侧边栏，不打断面试节奏。
@@ -120,12 +120,12 @@
       </div>
     </div>
 
-    <!-- ⑥ 候选人沟通智能体 -->
+    <!-- ⑥ 候选人沟通助手 -->
     <div class="tab-panel" id="panel-chat">
       <div class="phase-card" style="margin-bottom:20px">
         <div style="position:relative">
           <span class="phase-badge" style="position:absolute;top:-8px;right:-8px">需新增候选人沟通工作流</span>
-          <h3>候选人沟通智能体</h3>
+          <h3>候选人沟通助手</h3>
         </div>
         <div style="font-size:13px;color:var(--c-sub);margin:8px 0 14px;line-height:1.8">
           面向已经表达意向的候选人，AI 负责生成沟通提纲、补全信息问题和简历收集清单。实际沟通仍通过电话、邮件或飞书由 HR 完成，并由系统记录结果。
@@ -142,11 +142,11 @@
 
     <!-- ===== 嵌入其他页面的 AI 能力 ===== -->
     <div style="margin-top:32px">
-      <div class="section-label" style="font-size:14px;margin-bottom:12px">已嵌入各业务页面的 AI 能力（流程自动触发，不在此页面操作）</div>
+      <div class="section-label" style="font-size:14px;margin-bottom:12px">已嵌入各业务页面的辅助能力（流程内触发，不在此页面操作）</div>
 
       <div class="table-wrap">
         <table>
-          <thead><tr><th>AI 能力</th><th>所属页面</th><th>触发方式</th><th>Dify 工作流</th><th>状态</th></tr></thead>
+          <thead><tr><th>辅助能力</th><th>所属页面</th><th>触发方式</th><th>Dify 工作流</th><th>状态</th></tr></thead>
           <tbody>
             <tr>
               <td>简历 AI 解析 + 画像生成 + 标签打标</td>
@@ -191,16 +191,16 @@
               <td><span class="st st-warn">二期</span></td>
             </tr>
             <tr>
-              <td><b>AI 智能体操作 Offer</b></td>
+              <td><b>Offer 草稿与审批辅助</b></td>
               <td>面试计划 → Offer管理</td>
-              <td>跟智能体说「发Offer给张三，薪资18K」→ 自动生成+发送</td>
+              <td>填写审批信息「张三，薪资18K」→ 生成草稿，审批后发送</td>
               <td>需新增 Offer 工作流</td>
               <td><span class="st st-draft">远期</span></td>
             </tr>
             <tr>
-              <td><b>AI 智能体推送入职包</b></td>
+              <td><b>入职包草稿与推送辅助</b></td>
               <td>面试计划 → 入职管理</td>
-              <td>候选人接受Offer → 智能体自动推送入职材料+指引</td>
+              <td>候选人接受 Offer → 系统生成入职材料清单，HR 确认后推送</td>
               <td>需新增入职工作流</td>
               <td><span class="st st-draft">远期</span></td>
             </tr>
@@ -221,7 +221,7 @@
       <b>API 调用规则</b>：所有 AI 能力统一走 <b>后端代理转发</b>（前端 → Flask 后端 → Dify），前端不直连 Dify。<br>
       <b>三个 Dify 工作流底座</b>：① 简历画像解析 &nbsp; ② 人岗匹配打分 &nbsp; ③ 面试问题生成 &nbsp; + 未来新增候选人沟通 / JD生成 / Offer / 入职<br>
       <b>数据存储</b>：解析结果 → <code>t_hr_resume</code> · 匹配分 → <code>t_hr_resume_match</code> · 画像标签 → <code>t_hr_candidate</code> + <code>t_hr_candidate_tag_rel</code><br>
-      <b>远期智能体</b>：可直接对话指令完成 Offer 发送、入职包推送、会议创建等操作，无需逐页点击
+      <b>远期辅助能力</b>：支持生成 Offer、入职包和会议安排草稿，关键动作必须经过人工确认
     </div>
 
   </div>

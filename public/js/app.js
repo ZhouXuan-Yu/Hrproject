@@ -7,7 +7,7 @@ var MENU_ROUTES = [
   { id:'recruit-demand',    label:'需求管理',   href:'/recruit-demand' },
   { id:'recruit-talent',    label:'人才库',     href:'/recruit-talent' },
   { id:'recruit-interview', label:'面试计划',   href:'/recruit-interview' },
-  { id:'recruit-ai',        label:'AI 智能自动化中心', href:'/recruit-ai' },
+  { id:'recruit-ai',        label:'招聘辅助中心', href:'/recruit-ai' },
   { id:'recruit-config',    label:'招聘基础配置',      href:'/recruit-config' },
 ];
 
@@ -164,8 +164,8 @@ function openCandidateDrawer(data){
   h += '<div class="info-row"><span class="k">最近公司</span><span class="v">'+data.company+'</span></div>';
   h += '</div>';
 
-  // 2. AI 画像卡片
-  h += '<div class="drawer-section"><div class="drawer-section-title">AI 画像</div>';
+  // 2. Candidate profile card
+  h += '<div class="drawer-section"><div class="drawer-section-title">候选人画像</div>';
   h += '<div class="portrait-card">';
   h += '<div class="portrait-header"><div><div class="portrait-grade">'+data.grade+'</div><div class="portrait-grade-label">综合评级</div></div><div style="text-align:right"><div style="font-size:12px;color:var(--c-sub)">薪资预估</div><div class="portrait-salary">'+data.salary+'</div></div></div>';
   h += '<div class="portrait-strengths"><span class="label">✦ 核心优势</span><ul>'+(data.strengths||[]).map(function(s){return '<li>'+s+'</li>';}).join('')+'</ul></div>';
@@ -452,7 +452,7 @@ function openEmployeeDrawer(data){
   // 4. 技能标签
   h += '<div class="drawer-section"><div class="drawer-section-title">技能标签</div>';
   h += '<div class="tag-cloud">'+(tagsHtml||'<span style="font-size:12px;color:var(--c-sub)">暂无标签</span>')+'</div>';
-  h += '<div style="font-size:11px;color:var(--c-sub);margin-top:6px">💡 标签来源于 AI 解析简历 + 历史项目 + 面试评价 + 培训记录，定期自动更新</div>';
+  h += '<div style="font-size:11px;color:var(--c-sub);margin-top:6px">标签来源于简历解析 + 历史项目 + 面试评价 + 培训记录，定期更新</div>';
   h += '</div>';
 
   // 5. 岗位匹配历史
@@ -701,7 +701,7 @@ function openContactModal(name){
   var html = '<div class="modal-box" style="width:400px"><h3>📞 联系 '+name+'</h3>';
   html += '<div style="font-size:13px;color:var(--c-sub);margin-bottom:16px">选择联系方式，记录联系结果</div>';
   html += '<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">';
-  html += '<button class="btn btn-primary" style="justify-content:flex-start;padding:12px 16px" onclick="alert(\'已生成联系话术草稿：\\n\\n您好，我是招聘团队。看到您与当前岗位较匹配，想和您确认近期机会意向与可面试时间。\\n\\n请通过电话、邮件或飞书人工确认后再约面。\');closeContactModal()">AI 辅助话术</button>';
+  html += '<button class="btn btn-primary" style="justify-content:flex-start;padding:12px 16px" onclick="alert(\'已生成联系话术草稿：\\n\\n您好，我是招聘团队。看到您与当前岗位较匹配，想和您确认近期机会意向与可面试时间。\\n\\n请通过电话、邮件或飞书人工确认后再约面。\');closeContactModal()">联系话术草稿</button>';
   html += '<button class="btn btn-outline" style="justify-content:flex-start;padding:12px 16px" onclick="alert(\'📱 已记录：电话联系 '+name+'\');closeContactModal()">📱 电话联系</button>';
   html += '<button class="btn btn-outline" style="justify-content:flex-start;padding:12px 16px" onclick="alert(\'📧 已记录：邮件联系 '+name+'\');closeContactModal()">📧 邮件联系</button>';
   html += '<button class="btn btn-outline" style="justify-content:flex-start;padding:12px 16px" onclick="alert(\'💬 已记录：飞书消息联系 '+name+'\');closeContactModal()">💬 飞书消息</button>';
@@ -741,4 +741,90 @@ function openInternalContactModal(name, manager){
     if(window.__legacyNavigate){ window.__legacyNavigate('/login'); }
     else { location.href = '/login'; }
   }
+})();
+
+// Enterprise command palette.
+(function(){
+  if(location.pathname.indexOf('/login') !== -1) return;
+  var commands = [
+    {label:'招聘看板', hint:'查看漏斗、KPI 与风险提醒', href:'/recruit-dashboard'},
+    {label:'需求管理', hint:'筛选、创建和审批招聘需求', href:'/recruit-demand'},
+    {label:'需求详情', hint:'查看岗位候选人、批量操作与匹配记录', href:'/recruit-demand-detail'},
+    {label:'人才库', hint:'检索候选人、联系记录与人才标签', href:'/recruit-talent'},
+    {label:'面试计划', hint:'安排面试、查看日程和评价状态', href:'/recruit-interview'},
+    {label:'招聘辅助中心', hint:'候选人沟通辅助、简历摘要与效率分析', href:'/recruit-ai'},
+    {label:'基础配置', hint:'维护部门、流程、通知和系统规则', href:'/recruit-config'}
+  ];
+
+  function go(href){
+    if(window.__legacyNavigate) window.__legacyNavigate(href);
+    else location.href = href;
+  }
+
+  function closePalette(){
+    var palette = document.getElementById('commandPalette');
+    if(palette) palette.remove();
+  }
+
+  function renderPalette(){
+    closePalette();
+    var overlay = document.createElement('div');
+    overlay.id = 'commandPalette';
+    overlay.className = 'command-palette-overlay';
+    overlay.innerHTML =
+      '<div class="command-palette" role="dialog" aria-modal="true" aria-label="快速跳转">' +
+        '<div class="command-input-row"><span>Ctrl K</span><input id="commandInput" type="search" placeholder="搜索页面或操作" autocomplete="off"></div>' +
+        '<div class="command-results" id="commandResults"></div>' +
+      '</div>';
+    overlay.addEventListener('click', function(e){ if(e.target === overlay) closePalette(); });
+    document.body.appendChild(overlay);
+    var input = document.getElementById('commandInput');
+    var results = document.getElementById('commandResults');
+    function draw(){
+      var q = input.value.trim().toLowerCase();
+      var items = commands.filter(function(item){
+        return !q || item.label.toLowerCase().indexOf(q) !== -1 || item.hint.toLowerCase().indexOf(q) !== -1;
+      });
+      results.innerHTML = (items.length ? items : commands).map(function(item){
+        return '<button class="command-result" data-href="'+item.href+'"><strong>'+item.label+'</strong><span>'+item.hint+'</span></button>';
+      }).join('');
+      Array.prototype.forEach.call(results.querySelectorAll('.command-result'), function(btn){
+        btn.onclick = function(){ go(btn.getAttribute('data-href')); closePalette(); };
+      });
+    }
+    input.addEventListener('input', draw);
+    input.addEventListener('keydown', function(e){
+      if(e.key === 'Enter'){
+        var first = results.querySelector('.command-result');
+        if(first){ go(first.getAttribute('data-href')); closePalette(); }
+      }
+      if(e.key === 'Escape') closePalette();
+    });
+    draw();
+    setTimeout(function(){ input.focus(); }, 0);
+  }
+
+  function installCommandTrigger(){
+    var topbar = document.querySelector('.topbar .spacer');
+    if(topbar && !document.getElementById('commandTrigger')){
+      var btn = document.createElement('button');
+      btn.id = 'commandTrigger';
+      btn.type = 'button';
+      btn.className = 'command-trigger';
+      btn.innerHTML = '<span>快速跳转</span><kbd>Ctrl K</kbd>';
+      btn.onclick = renderPalette;
+      topbar.parentNode.insertBefore(btn, topbar.nextSibling);
+    }
+  }
+
+  document.addEventListener('keydown', function(e){
+    if((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k'){
+      e.preventDefault();
+      renderPalette();
+    }
+    if(e.key === 'Escape') closePalette();
+  });
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', installCommandTrigger);
+  else installCommandTrigger();
+  setTimeout(installCommandTrigger, 100);
 })();

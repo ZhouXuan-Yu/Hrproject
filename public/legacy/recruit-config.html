@@ -18,7 +18,7 @@
       </div>
       <div class="accordion-body">
         <div style="font-size:12px;color:var(--c-sub);margin-bottom:12px;line-height:1.8">
-          配置收简历邮箱，系统自动定时拉取并 AI 解析入库。后台全自动管道，无需 HR 每日操作。<br>
+          配置收简历邮箱，系统按规则定时拉取并解析入库。后台负责同步与记录，HR 可在人才库复核结果。<br>
           解析完成的简历统一沉淀至<b>「人才库 - 简历储备库」</b>，标记来源渠道「邮箱采集」。
         </div>
         <table style="font-size:13px;margin-bottom:12px"><thead><tr><th>邮箱地址</th><th>类型</th><th>同步周期</th><th>连接状态</th><th>最近同步</th><th>操作</th></tr></thead><tbody>
@@ -28,7 +28,7 @@
         <button class="btn btn-primary btn-sm" onclick="openEmailModal()">+ 添加邮箱账号</button>
         <hr style="margin:16px 0;border-color:var(--c-border)">
         <div class="form-row">
-          <div class="form-group"><label>简历识别规则</label><select><option>AI 自动识别（推荐）</option><option>关键词匹配</option><option>发件人域名</option></select></div>
+          <div class="form-group"><label>简历识别规则</label><select><option>解析服务识别（推荐）</option><option>关键词匹配</option><option>发件人域名</option></select></div>
           <div class="form-group"><label>垃圾简历过滤</label><select><option>标准过滤（默认）</option><option>宽松</option><option>严格</option></select></div>
         </div>
         <div class="form-group"><label>附件格式白名单</label><input type="text" value="PDF, DOCX, DOC" readonly style="background:#fafbfc"></div>

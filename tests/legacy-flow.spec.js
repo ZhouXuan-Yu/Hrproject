@@ -6,7 +6,7 @@ const pages = [
   ['/recruit-demand-detail', '需求详情'],
   ['/recruit-talent', '人才库'],
   ['/recruit-interview', '面试计划'],
-  ['/recruit-ai', 'AI 智能自动化中心'],
+  ['/recruit-ai', '招聘辅助中心'],
   ['/recruit-config', '招聘基础配置'],
 ];
 
@@ -91,6 +91,16 @@ test('sidebar navigation stays inside Vue routes', async ({ page }) => {
   await expect(page.getByRole('heading', { name: '需求管理' })).toBeVisible();
 });
 
+test('command palette supports keyboard navigation', async ({ page }) => {
+  await page.goto('/recruit-dashboard');
+  await page.keyboard.press('Control+K');
+  await expect(page.locator('#commandPalette')).toBeVisible();
+  await page.locator('#commandInput').fill('人才库');
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/\/recruit-talent$/);
+  await expect(page.getByRole('heading', { name: '人才库' })).toBeVisible();
+});
+
 test('demand list supports filtering and create modal', async ({ page }) => {
   await page.goto('/recruit-demand');
   await page.locator('#demandSearch').fill('运营总监');
@@ -144,10 +154,10 @@ test('interview plan covers full six-state workflow and calendar', async ({ page
   await expect(page.locator('#calendarViewModal')).toBeVisible();
 });
 
-test('AI center includes candidate communication agent and no outbound-call copy', async ({ page }) => {
+test('recruiting assistant includes candidate communication helper and no outbound-call copy', async ({ page }) => {
   await page.goto('/recruit-ai');
-  await page.getByText('⑥ 候选人沟通智能体').click();
-  await expect(page.getByRole('heading', { name: '候选人沟通智能体' })).toBeVisible();
+  await page.getByText('⑥ 候选人沟通助手').click();
+  await expect(page.getByRole('heading', { name: '候选人沟通助手' })).toBeVisible();
   await expect(page.locator('body')).not.toContainText(/外呼|自动拨打/);
 });
 

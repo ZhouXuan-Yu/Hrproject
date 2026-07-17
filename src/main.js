@@ -10,7 +10,7 @@ const legacyPages = [
   { path: '/recruit-demand-detail', page: 'recruit-demand-detail', title: '需求详情' },
   { path: '/recruit-talent', page: 'recruit-talent', title: '人才库' },
   { path: '/recruit-interview', page: 'recruit-interview', title: '面试计划' },
-  { path: '/recruit-ai', page: 'recruit-ai', title: 'AI 智能自动化中心' },
+  { path: '/recruit-ai', page: 'recruit-ai', title: '招聘辅助中心' },
   { path: '/recruit-config', page: 'recruit-config', title: '招聘基础配置' },
 ];
 

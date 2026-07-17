@@ -20,7 +20,7 @@
   </header>
   <div class="content-body">
 
-    <!-- 需求信息卡片（基本信息 + 岗位描述 + 技能标签，AI 解析填充） -->
+    <!-- 需求信息卡片（基本信息 + 岗位描述 + 技能标签，解析服务填充） -->
     <div class="card" style="margin-bottom:var(--gap)">
       <div class="card-title">需求信息</div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px 32px;font-size:14px">
@@ -43,14 +43,14 @@
         </div>
       </div>
       <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--c-border)">
-        <div style="font-size:13px;font-weight:700;margin-bottom:6px;color:var(--c-text)">岗位描述 <span style="font-weight:400;font-size:11px;color:var(--c-sub)">— AI 解析扩写</span></div>
+        <div style="font-size:13px;font-weight:700;margin-bottom:6px;color:var(--c-text)">岗位描述 <span style="font-weight:400;font-size:11px;color:var(--c-sub)">— 解析辅助</span></div>
         <div style="font-size:14px;color:var(--c-body);line-height:1.8;background:var(--c-bg);padding:12px 14px;border-radius:var(--radius-sm);border:1px dashed var(--c-border)">
           负责公司电商中台核心服务的架构设计与开发，主导微服务拆分和容器化改造，参与技术选型和 code review，指导初中级工程师成长。直接汇报给技术总监，有转管理通道。
         </div>
       </div>
       <div style="margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:var(--gap)">
         <div>
-          <div style="font-size:13px;font-weight:700;color:var(--c-done);margin-bottom:8px">必备技能 <span style="font-weight:400;font-size:11px;color:var(--c-sub)">— AI 提取</span></div>
+          <div style="font-size:13px;font-weight:700;color:var(--c-done);margin-bottom:8px">必备技能 <span style="font-weight:400;font-size:11px;color:var(--c-sub)">— 系统提取</span></div>
           <div class="tag-cloud">
             <span class="tag-item tag-hit">Java &middot; 5年以上</span>
             <span class="tag-item tag-hit">Spring Boot/Cloud</span>
@@ -61,7 +61,7 @@
           </div>
         </div>
         <div>
-          <div style="font-size:13px;font-weight:700;color:var(--c-warn);margin-bottom:8px">加分项 <span style="font-weight:400;font-size:11px;color:var(--c-sub)">— AI 提取</span></div>
+          <div style="font-size:13px;font-weight:700;color:var(--c-warn);margin-bottom:8px">加分项 <span style="font-weight:400;font-size:11px;color:var(--c-sub)">— 系统提取</span></div>
           <div class="tag-cloud">
             <span class="tag-item tag-neutral">团队管理经验</span>
             <span class="tag-item tag-neutral">DevOps/CI-CD</span>
@@ -355,7 +355,7 @@ function addToDemand(){
 function batchContact(){
   var names = Object.keys(checkedSet);
   if(names.length===0){ alert('请先勾选候选人'); return; }
-  alert('批量联系 '+names.length+' 人\n\n请选择实际联系方式：电话 / 邮件 / 飞书。AI 仅辅助生成联系话术，不代替人工拨号。\n\n'+names.join('、'));
+  alert('批量联系 '+names.length+' 人\n\n请选择实际联系方式：电话 / 邮件 / 飞书。系统仅辅助生成联系话术，不代替人工拨号。\n\n'+names.join('、'));
 }
 
 function batchSchedule(){
