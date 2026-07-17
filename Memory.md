@@ -187,3 +187,22 @@
   - 报告：`test-results/phase3-components-console-report.json`
 
 下一步建议：继续 Phase 3 第二轮，重点把招聘看板、需求详情、人才库的具体数据可视化区域进一步 HeroUIPro 化，而不是只依赖全局增强器。
+
+## 2026-07-17 Phase 3 二次深化：HeroUIPro 浅玻璃工作台
+
+- 用户补充 7 张参考图，方向为浅色玻璃后台、左侧导航、顶部业务胶囊导航、KPI 卡片、趋势图、环形图、表格和轻量弹窗。
+- 本轮已将该方向落到当前项目，而不是照抄参考图：
+  - `public/css/style.css` 新增 `HeroUIPro glass-light page-level refinement` 覆盖层。
+  - `public/js/app.js` 新增页面级模块 tabs、招聘看板趋势图/候选人分布图、非看板页关键指标摘要。
+  - `tests/legacy-flow.spec.js` 修正导航测试定位，避免新增顶部模块导航后出现同名链接歧义。
+- 当前视觉基线：浅色企业工作台 + 暗色 active 胶囊 + 高密 KPI + 数据图表 + 玻璃表格/弹窗。
+- 本轮验证：
+  - `npm run build`：通过
+  - `npm test`：通过，23/23
+  - Playwright 截图巡检：16 张桌面/移动截图
+  - Console error：0
+  - 移动端页面级横向溢出：0
+  - “AI 外呼/外呼/自动拨打”页面文案：0
+  - 巡检报告：`test-results/phase3-heropro-final-console-report.json`
+
+下一步：进入 Phase 4 时逐页做业务级重构，不再只靠全局增强；优先改需求详情、人才库、面试计划这类业务对象页。

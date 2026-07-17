@@ -1058,8 +1058,111 @@ function openInternalContactModal(name, manager){
     });
   }
 
+  function ensureHeroModuleTabs(){
+    var body = document.querySelector('.content-body');
+    if(!body || body.querySelector('.hero-module-tabs')) return;
+    var visible = getVisibleMenus(getRole());
+    if(!visible.length) return;
+    var current = currentRouteId();
+    var tabs = document.createElement('nav');
+    tabs.className = 'hero-module-tabs';
+    tabs.setAttribute('aria-label','招聘业务模块');
+    tabs.innerHTML = visible.map(function(item){
+      var active = item.id === current || (current === 'recruit-demand-detail' && item.id === 'recruit-demand');
+      return '<a class="hero-module-tab'+(active?' active':'')+'" href="'+item.href+'"'+(active?' aria-current="page"':'')+'><span class="hero-module-dot"></span>'+item.label+'</a>';
+    }).join('');
+    body.insertBefore(tabs, body.firstChild);
+  }
+
+  function ensureHeroDashboardAnalytics(){
+    if(currentRouteId() !== 'recruit-dashboard') return;
+    var body = document.querySelector('.content-body');
+    var kpiRow = document.getElementById('kpiRow');
+    if(!body || !kpiRow || body.querySelector('.hero-analytics-grid')) return;
+    var panel = document.createElement('section');
+    panel.className = 'hero-analytics-grid';
+    panel.innerHTML =
+      '<article class="hero-chart-card hero-chart-card--wide" aria-label="招聘趋势">' +
+        '<div class="hero-card-head"><div><strong>招聘趋势</strong><span>简历、面试、入职 · 过去 10 天</span></div><div class="hero-card-tabs"><button class="active">日</button><button>周</button><button>月</button></div></div>' +
+        '<svg class="hero-line-chart" viewBox="0 0 720 220" role="img" aria-label="招聘趋势折线图">' +
+          '<defs><linearGradient id="heroLineFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#7C5CFF" stop-opacity=".22"/><stop offset="100%" stop-color="#7C5CFF" stop-opacity="0"/></linearGradient></defs>' +
+          '<g class="grid"><path d="M40 40H700M40 90H700M40 140H700M40 190H700"/></g>' +
+          '<path class="area" d="M40 150 C100 124 134 128 182 104 S274 70 328 118 S418 160 482 98 S592 74 700 118 L700 198 L40 198 Z"/>' +
+          '<path class="line purple" d="M40 150 C100 124 134 128 182 104 S274 70 328 118 S418 160 482 98 S592 74 700 118"/>' +
+          '<path class="line amber" d="M40 132 C112 146 162 124 222 88 S316 142 384 122 S500 68 570 110 S646 140 700 122"/>' +
+          '<g class="axis"><text x="40" y="214">07-08</text><text x="190" y="214">07-11</text><text x="340" y="214">07-14</text><text x="510" y="214">07-17</text><text x="660" y="214">07-20</text></g>' +
+        '</svg>' +
+        '<div class="hero-chart-legend"><span><i class="purple"></i>简历量 346</span><span><i class="amber"></i>面试量 42</span></div>' +
+      '</article>' +
+      '<article class="hero-chart-card" aria-label="候选人分布">' +
+        '<div class="hero-card-head"><div><strong>候选人分布</strong><span>按状态拆分</span></div></div>' +
+        '<div class="hero-donut-wrap"><div class="hero-donut" aria-hidden="true"></div><div class="hero-donut-center"><strong>346</strong><span>候选人</span></div></div>' +
+        '<div class="hero-donut-list"><span><i class="green"></i>可推进 55%</span><span><i class="purple"></i>待评估 25%</span><span><i class="amber"></i>需跟进 20%</span></div>' +
+      '</article>';
+    kpiRow.insertAdjacentElement('afterend', panel);
+  }
+
+  function ensureHeroPageSummary(){
+    var route = currentRouteId();
+    if(route === 'recruit-dashboard' || route === 'login') return;
+    var body = document.querySelector('.content-body');
+    if(!body || body.querySelector('.hero-page-summary')) return;
+    var presets = {
+      'recruit-demand': [
+        ['全部需求','6','2 条审批中'],
+        ['招聘中','2','含紧急岗位'],
+        ['待审批','2','下一节点明确'],
+        ['已关闭','1','本期完成']
+      ],
+      'recruit-demand-detail': [
+        ['候选人','15','当前岗位池'],
+        ['已选择','0','批量操作'],
+        ['面试中','5','需跟进评价'],
+        ['匹配过期','3','建议重算']
+      ],
+      'recruit-talent': [
+        ['外部候选人','7','可筛选入库'],
+        ['内部人才','6','可调岗评估'],
+        ['黑名单','2','风险隔离'],
+        ['待联系','4','人工确认']
+      ],
+      'recruit-interview': [
+        ['待安排','3','本周优先'],
+        ['待评价','5','面试后闭环'],
+        ['待入职','2','Offer 跟进'],
+        ['已入职','5','本月完成']
+      ],
+      'recruit-ai': [
+        ['摘要任务','12','简历解析'],
+        ['话术草稿','8','人工发送'],
+        ['效率分析','4','可下钻'],
+        ['风险提醒','3','需复核']
+      ],
+      'recruit-config': [
+        ['邮箱账号','2','1 个异常'],
+        ['渠道配置','4','全部启用'],
+        ['流程节点','3','可维护'],
+        ['通知模板','5','最近更新']
+      ]
+    };
+    var items = presets[route];
+    if(!items) return;
+    var summary = document.createElement('section');
+    summary.className = 'hero-page-summary';
+    summary.setAttribute('aria-label','页面关键指标');
+    summary.innerHTML = items.map(function(item, index){
+      return '<article class="hero-summary-card"><span>'+item[0]+'</span><strong>'+item[1]+'</strong><em>'+item[2]+'</em><i style="--i:'+index+'"></i></article>';
+    }).join('');
+    var tabs = body.querySelector('.hero-module-tabs');
+    if(tabs) tabs.insertAdjacentElement('afterend', summary);
+    else body.insertBefore(summary, body.firstChild);
+  }
+
   function enhanceCoreComponents(){
+    document.body.classList.add('hero-pro-workbench');
     document.body.classList.add('core-components-ready');
+    ensureHeroModuleTabs();
+    ensureHeroPageSummary();
     enhanceMetricCards();
     enhanceStatusLabels();
     enhanceFilterBars();
@@ -1068,6 +1171,7 @@ function openInternalContactModal(name, manager){
     enhanceDialogs();
     enhanceEmptyStates();
     enhanceVisualizationCards();
+    ensureHeroDashboardAnalytics();
   }
 
   var componentTimer = null;

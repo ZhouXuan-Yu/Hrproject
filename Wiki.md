@@ -246,3 +246,28 @@ D:\WorkProject\HeroUIPro\herouipro-v3
 - 当前项目是 Vue shell + legacy HTML/CSS/JS，所以 HeroUIPro 的 React 组件主要抽取组件结构、交互状态、数据展示语法和 CSS token 思路。
 - 本轮已参考的组件范式：`EmployeesTable`、`KpiRow`、`AnalyticsKpiRow`、`SessionsOverTimeCard`。
 - 关键设计原则：表格要有 Filter/Sort/Columns/Search 语言，KPI 要有 title/value/trend/context，图表卡要有标题、主数、趋势、legend 或明确口径。
+
+## 16. HeroUIPro 浅玻璃工作台口径
+
+用户给出的最新参考图稳定口径：
+
+- 浅色企业后台，不做营销页、海报页或纯展示页。
+- 左侧为清晰导航，当前项使用深色胶囊强化。
+- 顶部需要业务模块级胶囊导航，方便扫描不同招聘模块。
+- 页面开场需要 KPI/摘要层，不让列表页直接裸露成低级 CRUD。
+- 数据可视化采用趋势折线、环形占比、漏斗、进度条等业务图表，避免无意义渐变装饰。
+- 表格保持高密、可排序、可筛选、可横向浏览；移动端允许表格内部横向滚动，但不能撑开整个页面。
+- 弹窗、抽屉采用轻玻璃质感和清晰焦点，不做夸张动效。
+
+当前落地：
+
+- `body.hero-pro-workbench` 是 HeroUIPro 浅玻璃工作台覆盖入口。
+- `.hero-module-tabs` 是页面级业务模块导航。
+- `.hero-page-summary` 是非看板页顶部业务摘要层。
+- `.hero-analytics-grid` 是招聘看板趋势图和分布图区域。
+
+版权边界：
+
+- 参考图和 HeroUIPro 只抽取设计语言与组件范式。
+- 不复制第三方品牌、文案、素材、截图布局细节或项目无关业务元素。
+- 当前项目视觉必须围绕“智能招聘系统/招聘管理工作台”重新表达。

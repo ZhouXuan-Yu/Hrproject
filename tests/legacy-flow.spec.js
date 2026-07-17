@@ -86,7 +86,7 @@ for (const [path, heading] of pages) {
 
 test('sidebar navigation stays inside Vue routes', async ({ page }) => {
   await page.goto('/recruit-dashboard');
-  await page.getByRole('link', { name: /需求管理/ }).click();
+  await page.locator('#sidebar').getByRole('link', { name: /需求管理/ }).click();
   await expect(page).toHaveURL(/\/recruit-demand$/);
   await expect(page.getByRole('heading', { name: '需求管理' })).toBeVisible();
 });
