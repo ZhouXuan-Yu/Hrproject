@@ -170,3 +170,21 @@ Phase 2 新增工作台外壳增强时，第一次只在全局脚本初始化阶
 - 凡是依赖 legacy 页面 DOM 的增强，都必须在 `LegacyPage.vue` 完成 HTML 注入、内联脚本执行、链接归一化之后再执行。
 - 暴露给 Vue shell 的函数必须是完整安装入口，而不是半成品增强函数。
 - E2E 要覆盖结构状态和真实点击路径，不能只覆盖键盘快捷键。
+
+## 复盘 #10 - 数据可视化后台不能只做 token 化
+
+### 问题
+
+Phase 3 初始思路偏向“全局增强补丁”，但用户指出几个页面 UI 仍然太 low，不符合千亿级项目的数据可视化页面标准，并提供了 `D:\WorkProject\HeroUIPro\herouipro-v3` 作为组件参考源。
+
+### 为什么错
+
+- token、边框、圆角只能解决一致性，不能自然形成专业数据产品的组件语言。
+- 数据页需要成熟结构：KPI 的 title/value/trend/context，表格的 Filter/Sort/Columns/Search，图表卡的标题、主数、趋势、legend、口径。
+- 当前项目是 legacy HTML，不代表只能停留在低质表格和普通卡片；可以通过渐进增强吸收 HeroUIPro 的组件范式。
+
+### 下次如何改
+
+- 做后台组件前先检查 `D:\WorkProject\HeroUIPro\herouipro-v3`。
+- 能复制的复制，不能直接复制的抽取结构、状态和 CSS 语法。
+- UI 验收不仅看是否统一，还要看是否像真正的数据工作台，尤其是表格、KPI、图表和筛选的专业表达。

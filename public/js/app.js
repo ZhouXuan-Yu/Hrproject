@@ -819,6 +819,263 @@ function openInternalContactModal(name, manager){
     ensureTopbarActions();
   }
 
+  function textOf(el){
+    return (el && el.textContent ? el.textContent : '').replace(/\s+/g,' ').trim();
+  }
+
+  function dispatchNative(el, type){
+    el.dispatchEvent(new Event(type, { bubbles:true }));
+  }
+
+  function enhanceMetricCards(){
+    Array.prototype.forEach.call(document.querySelectorAll('.metric-card'), function(card){
+      if(card.dataset.coreEnhanced === 'true') return;
+      card.dataset.coreEnhanced = 'true';
+      var value = textOf(card.querySelector('.metric-value'));
+      var label = textOf(card.querySelector('.metric-label'));
+      card.setAttribute('role','group');
+      card.setAttribute('aria-label', (label || 'KPI') + (value ? '，当前值 ' + value : ''));
+      if(!card.querySelector('.metric-window')){
+        var target = card.querySelector('.metric-label');
+        if(target){
+          var meta = document.createElement('div');
+          meta.className = 'metric-window';
+          meta.textContent = '当前筛选范围';
+          target.insertAdjacentElement('afterend', meta);
+        }
+      }
+    });
+  }
+
+  function enhanceStatusLabels(){
+    Array.prototype.forEach.call(document.querySelectorAll('.st,.role-badge,.tag-item,.tag-fold,.phase-badge'), function(item){
+      if(!item.getAttribute('title')) item.setAttribute('title', textOf(item));
+    });
+  }
+
+  function enhanceFilterBars(){
+    Array.prototype.forEach.call(document.querySelectorAll('.filter-bar'), function(bar, barIndex){
+      if(bar.dataset.coreEnhanced === 'true') return;
+      bar.dataset.coreEnhanced = 'true';
+      bar.classList.add('component-filter-bar');
+      bar.setAttribute('role','search');
+      bar.setAttribute('aria-label','筛选条件');
+
+      var controls = Array.prototype.filter.call(bar.querySelectorAll('input,select'), function(control){
+        return control.type !== 'hidden';
+      });
+      controls.forEach(function(control, index){
+        var label = control.getAttribute('placeholder') || control.getAttribute('aria-label') || textOf(control.previousElementSibling) || ('筛选项 ' + (index + 1));
+        control.setAttribute('aria-label', label);
+        if(!control.id) control.id = 'filterControl_' + barIndex + '_' + index;
+      });
+
+      if(controls.length && !bar.querySelector('.filter-reset')){
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-ghost btn-sm filter-reset';
+        btn.textContent = '清空筛选';
+        btn.onclick = function(){
+          controls.forEach(function(control){
+            if(control.tagName === 'SELECT'){
+              var all = Array.prototype.find.call(control.options, function(option){ return option.value === 'all'; });
+              control.value = all ? 'all' : (control.options[0] ? control.options[0].value : '');
+              dispatchNative(control, 'change');
+            } else if(control.type === 'checkbox' || control.type === 'radio'){
+              control.checked = false;
+              dispatchNative(control, 'change');
+            } else {
+              control.value = '';
+              dispatchNative(control, 'input');
+              dispatchNative(control, 'change');
+            }
+          });
+        };
+        bar.appendChild(btn);
+      }
+    });
+  }
+
+  function comparableValue(text){
+    var cleaned = text.replace(/[¥,%\s]/g,'').replace(/K$/i,'000');
+    var number = parseFloat(cleaned);
+    return isNaN(number) ? text.toLowerCase() : number;
+  }
+
+  function sortTable(table, index, direction){
+    var tbody = table.tBodies[0];
+    if(!tbody) return;
+    var rows = Array.prototype.filter.call(tbody.rows, function(row){ return row.cells.length > index && !row.classList.contains('table-empty-row'); });
+    rows.sort(function(a,b){
+      var av = comparableValue(textOf(a.cells[index]));
+      var bv = comparableValue(textOf(b.cells[index]));
+      if(typeof av === 'number' && typeof bv === 'number') return direction === 'asc' ? av - bv : bv - av;
+      return direction === 'asc' ? String(av).localeCompare(String(bv), 'zh-Hans-CN') : String(bv).localeCompare(String(av), 'zh-Hans-CN');
+    });
+    rows.forEach(function(row){ tbody.appendChild(row); });
+  }
+
+  function enhanceTables(){
+    Array.prototype.forEach.call(document.querySelectorAll('table'), function(table, tableIndex){
+      if(table.dataset.coreEnhanced !== 'true'){
+        table.dataset.coreEnhanced = 'true';
+        table.classList.add('data-table');
+        table.setAttribute('role','table');
+      }
+
+      var wrap = table.closest('.table-wrap');
+      if(wrap && wrap.dataset.coreEnhanced !== 'true'){
+        wrap.dataset.coreEnhanced = 'true';
+        wrap.classList.add('component-table');
+        wrap.setAttribute('role','region');
+        wrap.setAttribute('tabindex','0');
+        wrap.setAttribute('aria-label', textOf(table.querySelector('th')) || '数据表格');
+        wrap.setAttribute('data-density', localStorage.getItem('hr_table_density') || 'standard');
+
+        var density = document.createElement('div');
+        density.className = 'table-density';
+        density.setAttribute('aria-label','表格密度');
+        ['compact','standard','comfortable'].forEach(function(mode){
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.dataset.density = mode;
+          btn.textContent = mode === 'compact' ? '紧凑' : (mode === 'comfortable' ? '舒适' : '标准');
+          btn.onclick = function(){
+            wrap.setAttribute('data-density', mode);
+            localStorage.setItem('hr_table_density', mode);
+          };
+          density.appendChild(btn);
+        });
+        wrap.insertBefore(density, table);
+      }
+
+      var headers = table.tHead ? Array.prototype.slice.call(table.tHead.querySelectorAll('th')) : [];
+      headers.forEach(function(th, index){
+        if(th.dataset.sortEnhanced === 'true') return;
+        if(!textOf(th) || /操作|选择/.test(textOf(th)) || th.querySelector('input,button,select')) return;
+        th.dataset.sortEnhanced = 'true';
+        th.classList.add('sortable-th');
+        th.setAttribute('tabindex','0');
+        th.setAttribute('role','button');
+        th.setAttribute('aria-sort','none');
+        th.setAttribute('title','点击排序');
+        function toggleSort(){
+          var next = th.getAttribute('aria-sort') === 'ascending' ? 'descending' : 'ascending';
+          headers.forEach(function(item){ item.setAttribute('aria-sort','none'); });
+          th.setAttribute('aria-sort', next);
+          sortTable(table, index, next === 'ascending' ? 'asc' : 'desc');
+        }
+        th.addEventListener('click', toggleSort);
+        th.addEventListener('keydown', function(e){
+          if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); toggleSort(); }
+        });
+      });
+
+      var tbody = table.tBodies[0];
+      if(tbody && tbody.rows.length === 0 && table.dataset.emptyInjected !== 'true'){
+        table.dataset.emptyInjected = 'true';
+        var row = tbody.insertRow();
+        row.className = 'table-empty-row';
+        var cell = row.insertCell();
+        cell.colSpan = Math.max(headers.length, 1);
+        cell.innerHTML = '<div class="table-empty-state"><strong>暂无匹配数据</strong><span>调整筛选条件后可重新查看结果。</span></div>';
+      }
+    });
+  }
+
+  function enhanceBatchBars(){
+    Array.prototype.forEach.call(document.querySelectorAll('.batch-bar'), function(bar){
+      bar.classList.add('component-batch-bar');
+      bar.setAttribute('role','status');
+      bar.setAttribute('aria-live','polite');
+    });
+  }
+
+  function enhanceDialogs(){
+    Array.prototype.forEach.call(document.querySelectorAll('.drawer,.modal-box,.command-palette'), function(panel){
+      if(panel.dataset.dialogEnhanced === 'true') return;
+      panel.dataset.dialogEnhanced = 'true';
+      panel.setAttribute('role','dialog');
+      panel.setAttribute('aria-modal','true');
+      panel.setAttribute('tabindex','-1');
+      var title = panel.querySelector('h3,.drawer-header h3,.card-title');
+      if(title && !panel.getAttribute('aria-label')) panel.setAttribute('aria-label', textOf(title));
+    });
+  }
+
+  function enhanceEmptyStates(){
+    Array.prototype.forEach.call(document.querySelectorAll('.empty-state,.placeholder-page'), function(el){
+      if(el.dataset.coreEnhanced === 'true') return;
+      el.dataset.coreEnhanced = 'true';
+      el.setAttribute('role','status');
+      if(!el.querySelector('strong') && textOf(el)){
+        el.innerHTML = '<strong>'+textOf(el)+'</strong><span>当前没有可展示的数据，请检查筛选条件或稍后重试。</span>';
+      }
+    });
+  }
+
+  function enhanceVisualizationCards(){
+    Array.prototype.forEach.call(document.querySelectorAll('.card'), function(card){
+      var title = textOf(card.querySelector('.card-title,.collapse-toggle .card-title'));
+      if(!title) return;
+      if(/漏斗|进度|统计|渠道|趋势|看板/.test(title)){
+        card.classList.add('component-viz-card');
+        card.setAttribute('role','region');
+        card.setAttribute('aria-label', title);
+      }
+      if(/招聘全漏斗/.test(title) && card.dataset.vizEnhanced !== 'funnel'){
+        card.dataset.vizEnhanced = 'funnel';
+        var funnel = Array.prototype.find.call(card.querySelectorAll('div'), function(el){
+          return el.children.length >= 4 && /收简历/.test(textOf(el));
+        });
+        if(funnel){
+          funnel.classList.add('viz-funnel');
+          Array.prototype.forEach.call(funnel.children, function(step, index){
+            step.classList.add('viz-funnel-step');
+            step.setAttribute('role','link');
+            step.setAttribute('tabindex','0');
+            step.setAttribute('aria-label', '查看漏斗阶段：' + textOf(step));
+            step.addEventListener('keydown', function(e){
+              if((e.key === 'Enter' || e.key === ' ') && typeof step.onclick === 'function'){
+                e.preventDefault();
+                step.onclick();
+              }
+            });
+            step.style.setProperty('--viz-index', index);
+          });
+        }
+      }
+      if(/渠道效果统计/.test(title)){
+        card.classList.add('component-chart-table');
+      }
+      if(card.classList.contains('component-viz-card') && !card.querySelector('.viz-card-meta')){
+        var titleEl = card.querySelector('.card-title,.collapse-toggle');
+        var meta = document.createElement('span');
+        meta.className = 'viz-card-meta';
+        meta.textContent = /渠道/.test(title) ? '按渠道汇总' : (/漏斗/.test(title) ? '阶段转化' : '当前周期');
+        if(titleEl) titleEl.appendChild(meta);
+      }
+    });
+  }
+
+  function enhanceCoreComponents(){
+    document.body.classList.add('core-components-ready');
+    enhanceMetricCards();
+    enhanceStatusLabels();
+    enhanceFilterBars();
+    enhanceTables();
+    enhanceBatchBars();
+    enhanceDialogs();
+    enhanceEmptyStates();
+    enhanceVisualizationCards();
+  }
+
+  var componentTimer = null;
+  function scheduleCoreEnhancements(){
+    clearTimeout(componentTimer);
+    componentTimer = setTimeout(enhanceCoreComponents, 30);
+  }
+
   function closePalette(){
     var palette = document.getElementById('commandPalette');
     if(palette) palette.remove();
@@ -865,6 +1122,7 @@ function openInternalContactModal(name, manager){
 
   function installCommandTrigger(){
     enhanceWorkbenchShell();
+    enhanceCoreComponents();
     var actions = ensureTopbarActions();
     if(actions && !document.getElementById('commandTrigger')){
       var btn = document.createElement('button');
@@ -889,5 +1147,8 @@ function openInternalContactModal(name, manager){
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', installCommandTrigger);
   else installCommandTrigger();
   setTimeout(installCommandTrigger, 100);
+  if(window.MutationObserver){
+    new MutationObserver(scheduleCoreEnhancements).observe(document.body, { childList:true, subtree:true });
+  }
   window.__enhanceWorkbenchShell = installCommandTrigger;
 })();

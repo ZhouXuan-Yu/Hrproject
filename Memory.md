@@ -163,3 +163,27 @@
   - 报告：`test-results/phase2-shell-console-report.json`
 
 下一步进入 Phase 3：核心组件升级，重点检查表格、筛选区、KPI、弹窗/抽屉和空/加载/错误状态是否一致。
+
+## 2026-07-17 Phase 3 核心组件升级
+
+- 用户指出多个页面 UI 仍偏 low，不符合千亿级数据可视化后台要求。
+- 已确认长期组件参考源：`D:\WorkProject\HeroUIPro\herouipro-v3`。以后任何项目做后台组件、数据可视化、表格、KPI、筛选、弹窗、抽屉时，先查看该目录；有合适组件可以复制或改写。
+- 本轮已索引并参考 HeroUIPro：
+  - `template/template-dashboard/src/widgets/employees-table.tsx`
+  - `template/template-dashboard/src/widgets/kpi-row.tsx`
+  - `template/template-dashboard/src/widgets/analytics-kpi-row.tsx`
+  - `template/template-dashboard/src/widgets/sessions-over-time-card.tsx`
+- 已完成 Phase 3 第一版核心组件升级：
+  - `public/js/app.js` 新增核心组件增强器，覆盖 KPI、筛选栏、表格、批量条、弹窗/抽屉、空态、数据可视化卡。
+  - `public/css/style.css` 补齐表格密度、排序、固定首列、筛选查询条、KPI 口径、批量条、dialog focus、漏斗/图表卡专业化样式。
+  - `tests/legacy-flow.spec.js` 新增核心组件回归测试。
+- 阶段验证：
+  - `npm run build`：通过
+  - `npm test`：通过，23/23
+  - Phase 3 截图巡检：16 张
+  - Console error：0
+  - 移动端横向溢出：0
+  - 核心组件缺项：0
+  - 报告：`test-results/phase3-components-console-report.json`
+
+下一步建议：继续 Phase 3 第二轮，重点把招聘看板、需求详情、人才库的具体数据可视化区域进一步 HeroUIPro 化，而不是只依赖全局增强器。

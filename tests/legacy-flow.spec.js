@@ -114,6 +114,34 @@ test('global workbench shell exposes topbar actions and current navigation state
   await expect(page.locator('#commandInput')).toBeFocused();
 });
 
+test('core data components expose density, sorting, reset, KPI context, and dialog semantics', async ({ page }) => {
+  await page.goto('/recruit-dashboard');
+  await expect(page.locator('.metric-window').first()).toContainText('当前筛选范围');
+  await expect(page.locator('.component-viz-card[aria-label*="招聘全漏斗"]')).toBeVisible();
+  await expect(page.locator('.viz-funnel-step').first()).toHaveAttribute('role', 'link');
+
+  await page.goto('/recruit-demand');
+  const table = page.locator('.component-table').first();
+  await expect(table).toBeVisible();
+  await table.locator('.table-density button[data-density="comfortable"]').click();
+  await expect(table).toHaveAttribute('data-density', 'comfortable');
+
+  const positionHeader = page.locator('th.sortable-th', { hasText: '岗位' }).first();
+  await positionHeader.click();
+  await expect(positionHeader).toHaveAttribute('aria-sort', 'ascending');
+
+  await page.locator('#demandSearch').fill('运营总监');
+  await expect(page.locator('#demandFilterCount')).toContainText('共 2 条需求');
+  await page.locator('.filter-reset').click();
+  await expect(page.locator('#demandSearch')).toHaveValue('');
+  await expect(page.locator('#demandStatus')).toHaveValue('all');
+  await expect(page.locator('#demandFilterCount')).toContainText('共 6 条需求');
+
+  await page.getByRole('button', { name: '+ 新建需求' }).click();
+  await expect(page.locator('#demandModal .modal-box')).toHaveAttribute('role', 'dialog');
+  await expect(page.locator('#demandModal .modal-box')).toHaveAttribute('aria-modal', 'true');
+});
+
 test('demand list supports filtering and create modal', async ({ page }) => {
   await page.goto('/recruit-demand');
   await page.locator('#demandSearch').fill('运营总监');

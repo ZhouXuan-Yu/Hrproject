@@ -230,3 +230,19 @@ npm test
 - 全局工作台外壳增强由 `window.__enhanceWorkbenchShell()` 触发，当前实际指向完整安装入口，会补齐路由标记、导航语义、顶栏动作区和命令入口。
 - 修改外壳增强时，必须同时覆盖首次加载和 Vue 路由切换后的页面注入场景。
 - 回归测试需同时验证 `Ctrl/Cmd + K` 键盘路径和 `#commandTrigger` 点击路径。
+
+## 15. 专业组件参考源
+
+长期参考路径：
+
+```text
+D:\WorkProject\HeroUIPro\herouipro-v3
+```
+
+使用规则：
+
+- 后续任何项目做后台组件、数据可视化、表格、KPI、筛选、弹窗、抽屉时，都先检查该目录。
+- 有合适组件可以直接复制或改写，但不能机械搬运 React/依赖；必须适配当前项目技术栈。
+- 当前项目是 Vue shell + legacy HTML/CSS/JS，所以 HeroUIPro 的 React 组件主要抽取组件结构、交互状态、数据展示语法和 CSS token 思路。
+- 本轮已参考的组件范式：`EmployeesTable`、`KpiRow`、`AnalyticsKpiRow`、`SessionsOverTimeCard`。
+- 关键设计原则：表格要有 Filter/Sort/Columns/Search 语言，KPI 要有 title/value/trend/context，图表卡要有标题、主数、趋势、legend 或明确口径。
