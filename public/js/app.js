@@ -1250,6 +1250,171 @@ function openInternalContactModal(name, manager){
     if(channelCard) channelCard.classList.add('hero-channel-detail');
   }
 
+  function ensureHeroOperationalWorkspace(){
+    var route = currentRouteId();
+    if(route === 'recruit-dashboard' || route === 'login') return;
+    var body = document.querySelector('.content-body');
+    if(!body || body.querySelector('.hero-page-workspace')) return;
+    var configs = {
+      'recruit-demand': {
+        overline:'Demand Control',
+        title:'需求流转工作台',
+        desc:'把审批、招聘中、风险岗位和负责人协作放在同一层判断。',
+        links:[['新建需求','/recruit-demand'],['查看详情','/recruit-demand-detail'],['人才补给','/recruit-talent']],
+        primaryTitle:'需求状态矩阵',
+        primarySub:'按状态、风险和负责人判断下一步',
+        rows:[
+          ['danger','运营总监','审批等待 2 天','补齐预算和招聘理由'],
+          ['warn','前端工程师','招聘中，HC 剩 1','从人才库补候选人'],
+          ['ok','数据分析师','2/2 已完成','关闭需求并归档']
+        ],
+        sideTitle:'审批队列',
+        sideSub:'当前需要负责人确认',
+        meters:[['待审批',2,68],['招聘中',2,52],['已关闭',1,24],['草稿',1,18]],
+        nextTitle:'协作动作',
+        next:[['提交产品经理需求','09:30 前','/recruit-demand'],['补充运营总监预算','今日','/recruit-demand-detail'],['复核关闭需求','本周','/recruit-demand']]
+      },
+      'recruit-demand-detail': {
+        overline:'Position Object',
+        title:'岗位对象详情台',
+        desc:'围绕单个岗位查看候选人池、批量动作、面试闭环和操作审计。',
+        links:[['候选人池','/recruit-demand-detail'],['安排面试','/recruit-interview'],['人才补充','/recruit-talent']],
+        primaryTitle:'候选人推进路径',
+        primarySub:'从匹配、筛选到面试评价的对象视角',
+        rows:[
+          ['ok','已加入需求','15 位候选人','可批量筛选或移出'],
+          ['warn','面试中','5 位待评价','催收面试反馈'],
+          ['danger','匹配过期','3 位需复核','重新计算匹配分']
+        ],
+        sideTitle:'右侧审计关注',
+        sideSub:'本岗位需要留痕的动作',
+        meters:[['批量操作',4,86],['待评价',5,72],['待约面',3,48],['不合适',2,26]],
+        nextTitle:'下一步',
+        next:[['批量加入需求','已选择后','/recruit-demand-detail'],['安排技术一面','今日','/recruit-interview'],['导出候选人清单','随时','/recruit-demand-detail']]
+      },
+      'recruit-talent': {
+        overline:'Talent Assets',
+        title:'人才资产工作台',
+        desc:'把外部候选人、内部人才、黑名单和最近联系记录统一成资产视角。',
+        links:[['外部候选人','/recruit-talent'],['需求详情','/recruit-demand-detail'],['沟通辅助','/recruit-ai']],
+        primaryTitle:'人才池质量分层',
+        primarySub:'优先推进高匹配、近期可联系的人才',
+        rows:[
+          ['ok','外部候选人','7 人可筛选入库','按技能和城市过滤'],
+          ['warn','内部人才','6 人可调岗评估','需联系直属上级'],
+          ['danger','黑名单隔离','2 人需风险留痕','禁止加入需求']
+        ],
+        sideTitle:'标签覆盖',
+        sideSub:'简历筛选所需结构化字段',
+        meters:[['技能标签',12,88],['城市意向',8,66],['薪资范围',5,46],['联系记录',4,34]],
+        nextTitle:'今日动作',
+        next:[['批量联系候选人','人工确认','/recruit-talent'],['加入前端工程师需求','筛选后','/recruit-demand-detail'],['生成沟通话术','草稿','/recruit-ai']]
+      },
+      'recruit-interview': {
+        overline:'Interview Flow',
+        title:'面试任务流工作台',
+        desc:'把待安排、待面试、待评价、待录用、待入职和已入职串成闭环。',
+        links:[['打开日程','/recruit-interview'],['候选人详情','/recruit-demand-detail'],['沟通辅助','/recruit-ai']],
+        primaryTitle:'面试闭环风险',
+        primarySub:'按任务状态判断是否需要 HR 介入',
+        rows:[
+          ['warn','待安排','3 位候选人','今天完成时间协调'],
+          ['danger','待评价','5 条反馈未回收','提醒面试官补评价'],
+          ['ok','待入职','2 个 Offer 确认','准备入职材料']
+        ],
+        sideTitle:'面试官负载',
+        sideSub:'避免安排集中到少数面试官',
+        meters:[['刘博',4,82],['陈思',3,64],['王然',2,42],['陈博',1,22]],
+        nextTitle:'日程动作',
+        next:[['10:00 技术一面','今日','/recruit-interview'],['14:30 业务复试','今日','/recruit-interview'],['回收评价','下班前','/recruit-interview']]
+      },
+      'recruit-ai': {
+        overline:'Communication Assist',
+        title:'候选人沟通辅助工作台',
+        desc:'只做摘要、话术草稿、字段提醒和效率分析，所有联系动作由 HR 人工确认。',
+        links:[['话术草稿','/recruit-ai'],['人才库','/recruit-talent'],['面试计划','/recruit-interview']],
+        primaryTitle:'辅助任务队列',
+        primarySub:'不替代 HR 联系，只降低整理和确认成本',
+        rows:[
+          ['ok','简历摘要','12 份待复核','提取经历与技能'],
+          ['warn','话术草稿','8 条待确认','电话 / 邮件 / 飞书'],
+          ['danger','缺失字段','3 位候选人','补齐期望薪资和到岗时间']
+        ],
+        sideTitle:'效率分析',
+        sideSub:'辅助内容是否真正节省人工',
+        meters:[['摘要任务',12,82],['话术草稿',8,58],['风险提醒',3,34],['可下载分析',4,28]],
+        nextTitle:'人工确认',
+        next:[['确认沟通话术','发送前','/recruit-ai'],['补齐候选人字段','今日','/recruit-talent'],['复盘渠道效率','本周','/recruit-ai']]
+      },
+      'recruit-config': {
+        overline:'Config Impact',
+        title:'配置影响工作台',
+        desc:'配置不是孤立表单，必须看到影响范围、审计记录和风险提示。',
+        links:[['邮箱账号','/recruit-config'],['流程节点','/recruit-config'],['通知模板','/recruit-config']],
+        primaryTitle:'配置影响范围',
+        primarySub:'修改前先判断会影响哪些招聘流程',
+        rows:[
+          ['danger','邮箱账号','1 个账号异常','影响候选人通知'],
+          ['ok','渠道配置','4 个渠道启用','人才来源可追踪'],
+          ['warn','流程节点','3 个节点可维护','变更需保留审计']
+        ],
+        sideTitle:'配置审计',
+        sideSub:'最近需要关注的变更',
+        meters:[['邮箱',2,62],['渠道',4,76],['流程',3,54],['模板',5,88]],
+        nextTitle:'配置动作',
+        next:[['新增邮箱账号','需验证','/recruit-config'],['复核通知模板','本周','/recruit-config'],['导出配置记录','随时','/recruit-config']]
+      }
+    };
+    var config = configs[route];
+    if(!config) return;
+    var shell = document.createElement('section');
+    shell.className = 'hero-page-command scroll-reveal';
+    shell.setAttribute('aria-label', config.title);
+    shell.innerHTML =
+      '<div class="hero-command-title"><span>'+config.overline+'</span><strong>'+config.title+'</strong><em>'+config.desc+'</em></div>' +
+      '<nav class="hero-command-links" aria-label="页面快捷入口">' +
+        config.links.map(function(link){ return '<a href="'+link[1]+'">'+link[0]+'</a>'; }).join('') +
+      '</nav>';
+
+    var workspace = document.createElement('section');
+    workspace.className = 'hero-page-workspace scroll-reveal';
+    workspace.setAttribute('aria-label', config.title + '核心工作区');
+    workspace.innerHTML =
+      '<article class="hero-board-card hero-board-card--wide hero-page-primary">' +
+        '<div class="hero-card-head"><div><strong>'+config.primaryTitle+'</strong><span>'+config.primarySub+'</span></div><a class="hero-text-link" href="'+config.links[0][1]+'">进入处理</a></div>' +
+        '<div class="hero-bottleneck-list">' +
+          config.rows.map(function(row){
+            return '<a href="'+config.links[0][1]+'"><span><i class="hero-dot '+row[0]+'"></i>'+row[1]+'</span><b>'+row[2]+'</b><em>'+row[3]+'</em></a>';
+          }).join('') +
+        '</div>' +
+      '</article>' +
+      '<article class="hero-board-card hero-page-meter-card">' +
+        '<div class="hero-card-head"><div><strong>'+config.sideTitle+'</strong><span>'+config.sideSub+'</span></div></div>' +
+        '<div class="hero-owner-stack">' +
+          config.meters.map(function(item, index){
+            return '<a href="'+config.links[Math.min(index, config.links.length - 1)][1]+'"><span>'+item[0]+'</span><b>'+item[1]+'</b><em style="width:'+item[2]+'%"></em></a>';
+          }).join('') +
+        '</div>' +
+      '</article>' +
+      '<article class="hero-board-card hero-page-next-card">' +
+        '<div class="hero-card-head"><div><strong>'+config.nextTitle+'</strong><span>按当前页面主任务排序</span></div></div>' +
+        '<ol class="hero-next-list">' +
+          config.next.map(function(item){ return '<li><a href="'+item[2]+'">'+item[0]+'</a><span>'+item[1]+'</span></li>'; }).join('') +
+        '</ol>' +
+      '</article>';
+
+    var summary = body.querySelector('.hero-page-summary');
+    var tabs = body.querySelector('.hero-module-tabs');
+    var anchor = summary || tabs;
+    if(anchor){
+      anchor.insertAdjacentElement('afterend', shell);
+      shell.insertAdjacentElement('afterend', workspace);
+    } else {
+      body.insertBefore(workspace, body.firstChild);
+      body.insertBefore(shell, workspace);
+    }
+  }
+
   function enhanceKineticTypography(){
     var title = document.querySelector('.topbar h1');
     if(!title || title.dataset.kineticReady === 'true') return;
@@ -1421,6 +1586,7 @@ function openInternalContactModal(name, manager){
     document.body.classList.add('core-components-ready');
     ensureHeroModuleTabs();
     ensureHeroPageSummary();
+    ensureHeroOperationalWorkspace();
     enhanceMetricCards();
     enhanceStatusLabels();
     enhanceFilterBars();

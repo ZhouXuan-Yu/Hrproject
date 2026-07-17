@@ -1948,6 +1948,20 @@ body.hero-pro-workbench .modal-actions{
   box-shadow:var(--hero-shadow);
   backdrop-filter:blur(var(--hero-glass-blur));
 }
+.hero-page-command{
+  display:grid;
+  grid-template-columns:minmax(280px,1fr) auto;
+  align-items:center;
+  gap:16px;
+  margin:0 0 16px;
+  padding:16px 18px;
+  border:1px solid var(--hero-line);
+  border-top-color:var(--hero-glass-border);
+  border-radius:8px;
+  background:rgba(255,255,255,.88);
+  box-shadow:var(--hero-shadow);
+  backdrop-filter:blur(var(--hero-glass-blur));
+}
 .hero-command-title{
   display:flex;
   flex-direction:column;
@@ -2097,6 +2111,12 @@ body.hero-pro-workbench .modal-actions{
   gap:16px;
   margin:0 0 16px;
 }
+.hero-page-workspace{
+  display:grid;
+  grid-template-columns:minmax(0,1.35fr) minmax(260px,.72fr) minmax(280px,.83fr);
+  gap:16px;
+  margin:0 0 16px;
+}
 .hero-board-card{
   min-height:250px;
   padding:18px;
@@ -2110,6 +2130,23 @@ body.hero-pro-workbench .modal-actions{
 }
 .hero-board-card--wide{
   min-width:0;
+}
+.hero-page-primary .hero-bottleneck-list a{
+  min-height:58px;
+}
+.hero-page-meter-card,
+.hero-page-next-card{
+  min-height:236px;
+}
+.hero-page-workspace .hero-owner-stack em{
+  position:relative;
+  overflow:hidden;
+}
+.hero-page-workspace .hero-owner-stack em::after{
+  content:'';
+  position:absolute;
+  inset:0;
+  background:rgba(255,255,255,.20);
 }
 .hero-bottleneck-list{
   display:grid;
@@ -2293,6 +2330,10 @@ body.hero-pro-workbench select:focus-visible{
     grid-template-columns:1fr;
     align-items:start;
   }
+  .hero-page-command{
+    grid-template-columns:1fr;
+    align-items:start;
+  }
   .hero-command-actions,
   .hero-command-links{
     width:max-content;
@@ -2306,6 +2347,9 @@ body.hero-pro-workbench select:focus-visible{
     grid-column:1 / -1;
   }
   .hero-decision-grid{
+    grid-template-columns:1fr;
+  }
+  .hero-page-workspace{
     grid-template-columns:1fr;
   }
   .hero-workbench-grid{
@@ -2342,6 +2386,9 @@ body.hero-pro-workbench select:focus-visible{
   .hero-command-toolbar{
     padding:14px;
   }
+  .hero-page-command{
+    padding:14px;
+  }
   .hero-command-title strong{
     font-size:20px;
   }
@@ -2372,6 +2419,7 @@ body.hero-pro-workbench select:focus-visible{
   .hero-signal-card,
   .hero-chart-card,
   .hero-board-card,
+  .hero-page-command,
   .hero-legacy-refined{
     transform:none!important;
     transition:none!important;

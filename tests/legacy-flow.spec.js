@@ -153,6 +153,17 @@ test('dashboard exposes executive recruiting overview and linked work queues', a
   await expect(page).toHaveURL(/\/recruit-interview$/);
 });
 
+test('non-dashboard pages expose page-level operational workspaces', async ({ page }) => {
+  const workspacePages = pages.filter(([path]) => !path.includes('dashboard'));
+  for (const [path] of workspacePages) {
+    await page.goto(path);
+    await expect(page.locator('.hero-page-command')).toBeVisible();
+    await expect(page.locator('.hero-page-workspace')).toBeVisible();
+    await expect(page.locator('.hero-page-workspace .hero-bottleneck-list')).toBeVisible();
+    await expect(page.locator('.hero-page-workspace .hero-next-list')).toBeVisible();
+  }
+});
+
 test('core data components expose density, sorting, reset, KPI context, and dialog semantics', async ({ page }) => {
   await page.goto('/recruit-dashboard');
   await expect(page.locator('.metric-window').first()).toContainText('当前筛选范围');

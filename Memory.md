@@ -251,3 +251,27 @@
   - 关键截图：`test-results/phase-dashboard-material-dashboard-desktop.png`、`test-results/phase-dashboard-material-dashboard-mobile.png`
 
 下一步建议：进入 Phase 4 页面逐个业务重构时，优先处理需求详情、人才库、面试计划，把当前招聘看板的“经营判断台”信息架构扩展到对象详情页和高密度列表页。
+## 2026-07-18 Phase 4 其他主页面工作台化
+
+- 用户要求“其他页面也按照要求进行优化一遍”，本轮将招聘看板的经营台方法扩展到除登录页以外的主要业务页。
+- 设计锚点继续采用 Swiss 企业工作台：白色/浅灰表面、细线、清晰网格、蓝色操作色、无渐变、无 AI 味。
+- 已完成页面级增强器：
+  - 需求管理：需求流转工作台，突出审批队列、招聘中岗位、风险岗位和协作动作。
+  - 需求详情：岗位对象详情台，突出候选人推进路径、批量动作、待评价和审计关注。
+  - 人才库：人才资产工作台，突出外部候选人、内部人才、黑名单、标签覆盖和人工联系动作。
+  - 面试计划：面试任务流工作台，突出待安排、待评价、待入职、面试官负载和日程动作。
+  - 招聘辅助中心：候选人沟通辅助工作台，只保留摘要、话术草稿、字段提醒、效率分析和人工确认口径。
+  - 招聘基础配置：配置影响工作台，突出邮箱、渠道、流程、模板的影响范围和审计风险。
+- 实现位置：
+  - `public/js/app.js` 新增 `ensureHeroOperationalWorkspace()`。
+  - `public/css/style.css` 新增 `.hero-page-command`、`.hero-page-workspace` 等页面级工作台样式。
+  - `tests/legacy-flow.spec.js` 新增非看板页面工作台回归测试。
+- 验证结果：
+  - `node --check public/js/app.js`：通过
+  - `npm run build`：通过
+  - `npm test`：通过，26/26
+  - Playwright 巡检：16 个桌面/移动端页面，0 console error，0 page error，0 禁用词，0 横向溢出，0 未显现内容
+  - 巡检报告：`test-results/phase4-operational-pages-report.json`
+  - 关键截图：`test-results/phase4-operational-demand-desktop.png`、`test-results/phase4-operational-talent-desktop.png`、`test-results/phase4-operational-interview-desktop.png`、`test-results/phase4-operational-config-mobile.png`
+
+下一步建议：继续 Phase 4 深化时，不再只加顶部判断层，而是逐页把 legacy 表格和表单拆成更稳定的 Vue 组件，优先顺序为需求详情、人才库、面试计划。

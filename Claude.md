@@ -128,3 +128,10 @@
 - 动效只能辅助理解。`IntersectionObserver` 类滚动显现必须有自动落稳兜底，避免截图、低速设备或减少动画设置下内容不可见。
 - 禁止“AI 外呼 / 自动拨打 / AI 智能自动化”表达。招聘辅助只写为候选人沟通辅助、话术草稿、人工发送、简历摘要、效率分析。
 - 当前质量基线：`npm run build` 通过，`npm test` 25/25 通过，材质化看板巡检报告为 `test-results/phase-dashboard-material-final-report.json`。
+## 2026-07-18 当前工作口径补充：主页面工作台化
+
+- 其他主页面不能只套样式。需求管理、需求详情、人才库、面试计划、招聘辅助中心、配置页都必须先建立页面级业务判断层。
+- 当前统一结构为：模块导航 -> KPI 摘要 -> 页面工作台标题 -> 三栏业务判断区 -> 原有筛选/表格/弹窗/抽屉。
+- 新增页面时优先考虑是否需要 `hero-page-command` 与 `hero-page-workspace`，不要直接让用户进入裸表格。
+- 页面级工作台只能增强任务判断，不能删除或遮挡原功能。
+- 当前质量基线：`npm test` 26/26，通过；Phase 4 巡检报告为 `test-results/phase4-operational-pages-report.json`。
