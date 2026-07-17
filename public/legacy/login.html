@@ -15,15 +15,31 @@
   --pupil-y:0px;
   --tilt-x:0deg;
   --tilt-y:0deg;
+  --beam-x:0px;
   width:100%;
   min-height:100vh;
   display:grid;
-  grid-template-columns:minmax(520px,1.05fr) minmax(420px,.95fr);
+  grid-template-columns:minmax(540px,1fr) minmax(430px,.82fr);
   overflow:hidden;
   background:#F6F8FB;
   color:#172033;
   font-family:Inter,"PingFang SC","Microsoft YaHei",Arial,sans-serif;
 }
+.skip-link{
+  position:fixed;
+  left:16px;
+  top:16px;
+  z-index:30;
+  transform:translateY(-80px);
+  border-radius:8px;
+  background:#172033;
+  color:#fff;
+  padding:10px 14px;
+  text-decoration:none;
+  font-size:13px;
+  font-weight:800;
+}
+.skip-link:focus{transform:translateY(0)}
 .brand-panel{
   position:relative;
   min-height:100vh;
@@ -31,10 +47,10 @@
   display:flex;
   flex-direction:column;
   justify-content:space-between;
-  padding:48px clamp(32px,5vw,72px);
+  padding:48px clamp(34px,5vw,76px);
   background:
-    radial-gradient(circle at var(--mx) var(--my), rgba(79,110,247,.28), transparent 0 18%, transparent 40%),
-    linear-gradient(135deg,#5B6475 0%,#8C95A6 52%,#C9D2E3 100%);
+    radial-gradient(circle at var(--mx) var(--my), rgba(79,110,247,.24), transparent 0 20%, transparent 38%),
+    linear-gradient(140deg,#263142 0%,#59687F 54%,#DDE5F2 100%);
   color:#FFFFFF;
 }
 .brand-panel::before{
@@ -44,23 +60,24 @@
   background-image:
     linear-gradient(rgba(255,255,255,.08) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255,255,255,.08) 1px, transparent 1px);
-  background-size:28px 28px;
+  background-size:32px 32px;
   background-position:
-    calc((var(--mx) - 50%) * .04) calc((var(--my) - 50%) * .04);
-  opacity:.75;
+    calc((var(--mx) - 50%) * .05) calc((var(--my) - 50%) * .05);
+  -webkit-mask-image:linear-gradient(90deg,#000 0%,rgba(0,0,0,.7) 60%,transparent 100%);
+  mask-image:linear-gradient(90deg,#000 0%,rgba(0,0,0,.7) 60%,transparent 100%);
 }
 .brand-panel::after{
   content:"";
   position:absolute;
-  width:520px;
-  height:520px;
-  right:-160px;
-  bottom:-150px;
+  width:660px;
+  height:660px;
+  right:-260px;
+  bottom:-230px;
   border-radius:50%;
-  background:rgba(255,255,255,.18);
-  filter:blur(20px);
+  background:rgba(255,255,255,.16);
+  filter:blur(18px);
 }
-.brand-top,.brand-copy,.brand-footer,.character-scene{
+.brand-top,.brand-copy,.brand-footer,.radar-scene{
   position:relative;
   z-index:1;
 }
@@ -68,162 +85,255 @@
   display:flex;
   align-items:center;
   gap:12px;
-  font-weight:800;
+  font-weight:850;
   font-size:16px;
 }
 .brand-mark{
-  width:36px;
-  height:36px;
+  width:38px;
+  height:38px;
   border-radius:8px;
   display:grid;
   place-items:center;
-  background:rgba(255,255,255,.16);
-  border:1px solid rgba(255,255,255,.25);
-  backdrop-filter:blur(8px);
+  background:#FFFFFF;
+  color:#263142;
+  border:1px solid rgba(255,255,255,.45);
+  box-shadow:0 14px 30px rgba(23,32,51,.18);
+  font-weight:900;
 }
 .brand-copy{
-  max-width:620px;
+  max-width:650px;
 }
 .brand-copy h1{
   margin:0;
-  font-size:clamp(42px,5.4vw,76px);
+  font-size:clamp(42px,5.2vw,72px);
   line-height:1;
   letter-spacing:0;
   font-weight:900;
 }
 .brand-copy p{
   margin:22px 0 0;
-  max-width:520px;
+  max-width:530px;
   color:rgba(255,255,255,.82);
   font-size:15px;
   line-height:1.9;
 }
-.character-scene{
-  height:380px;
-  width:min(620px,100%);
-  margin:28px auto 0;
-  transform:perspective(900px) rotateX(var(--tilt-x)) rotateY(var(--tilt-y));
+.radar-scene{
+  height:392px;
+  width:min(660px,100%);
+  margin:34px auto 0;
+  transform:perspective(920px) rotateX(var(--tilt-x)) rotateY(var(--tilt-y));
   transition:transform .12s ease-out;
 }
-.character{
+.pipeline{
   position:absolute;
-  bottom:0;
-  border-radius:16px 16px 0 0;
-  transition:height .45s ease,transform .45s ease,border-radius .45s ease;
-  box-shadow:0 28px 80px rgba(23,32,51,.18);
+  inset:56px 18px 36px;
+  border:1px solid rgba(255,255,255,.22);
+  border-radius:8px;
+  background:rgba(255,255,255,.07);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.14);
 }
-.character.tall{
-  left:80px;
-  width:170px;
-  height:330px;
-  background:#4F6EF7;
-  z-index:1;
-}
-.character.dark{
-  left:245px;
-  width:126px;
-  height:260px;
-  background:#1E293B;
-  z-index:2;
-}
-.character.front{
-  left:0;
-  width:252px;
-  height:172px;
-  border-radius:126px 126px 0 0;
-  background:#F3A475;
-  z-index:4;
-}
-.character.gold{
-  left:360px;
-  width:150px;
-  height:210px;
-  border-radius:75px 75px 0 0;
-  background:#E7D66B;
-  z-index:3;
-}
-.face{
+.pipeline::before,
+.pipeline::after{
+  content:"";
   position:absolute;
-  display:flex;
-  gap:24px;
-  transition:left .28s ease,top .28s ease,transform .28s ease;
+  left:42px;
+  right:42px;
+  height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.54),transparent);
 }
-.character.tall .face{left:48px;top:42px}
-.character.dark .face{left:28px;top:34px;gap:20px}
-.character.front .face{left:88px;top:78px}
-.character.gold .face{left:54px;top:46px;gap:18px}
-.eye{
-  width:18px;
-  height:18px;
+.pipeline::before{top:92px}
+.pipeline::after{bottom:96px}
+.node{
+  position:absolute;
+  width:48px;
+  height:48px;
+  border:1px solid rgba(255,255,255,.36);
+  border-radius:50%;
+  background:rgba(255,255,255,.13);
+  box-shadow:0 16px 38px rgba(23,32,51,.18);
+}
+.node::after{
+  content:"";
+  position:absolute;
+  inset:15px;
   border-radius:50%;
   background:#FFFFFF;
+  opacity:.8;
+}
+.node.one{left:58px;top:70px}
+.node.two{right:92px;top:58px}
+.node.three{left:150px;bottom:76px}
+.node.four{right:44px;bottom:82px}
+.focus-beam{
+  position:absolute;
+  left:50%;
+  top:130px;
+  width:220px;
+  height:220px;
+  border-radius:50%;
+  transform:translateX(calc(-50% + var(--beam-x)));
+  background:radial-gradient(circle,rgba(79,110,247,.28),rgba(255,255,255,.1) 42%,transparent 70%);
+  filter:blur(2px);
+  transition:transform .18s ease-out;
+}
+.talent-radar{
+  position:absolute;
+  left:50%;
+  bottom:54px;
+  width:350px;
+  height:238px;
+  transform:translateX(-50%);
+}
+.radar-console{
+  position:absolute;
+  left:0;
+  right:0;
+  bottom:0;
+  height:122px;
+  border:1px solid rgba(255,255,255,.36);
+  border-radius:10px;
+  background:linear-gradient(180deg,rgba(247,250,255,.94),rgba(221,229,242,.9));
+  box-shadow:0 28px 80px rgba(23,32,51,.22);
+}
+.radar-console::before{
+  content:"";
+  position:absolute;
+  left:26px;
+  top:26px;
+  width:118px;
+  height:8px;
+  border-radius:999px;
+  background:#C7D2E3;
+  box-shadow:0 26px 0 #D9E1EE, 154px 0 0 #C7D2E3, 154px 26px 0 #D9E1EE;
+}
+.radar-console::after{
+  content:"";
+  position:absolute;
+  left:26px;
+  right:26px;
+  bottom:22px;
+  height:1px;
+  background:linear-gradient(90deg,transparent,#AEB9CA,transparent);
+}
+.lens-deck{
+  position:absolute;
+  left:50%;
+  top:6px;
+  width:238px;
+  height:130px;
+  border:1px solid rgba(255,255,255,.22);
+  border-radius:18px;
+  background:#172033;
+  transform:translateX(-50%);
+  box-shadow:0 26px 64px rgba(23,32,51,.32);
+}
+.lens-deck::before,
+.lens-deck::after{
+  content:"";
+  position:absolute;
+  top:18px;
+  bottom:18px;
+  width:1px;
+  background:rgba(255,255,255,.12);
+}
+.lens-deck::before{left:72px}
+.lens-deck::after{right:72px}
+.sensor-row{
+  position:absolute;
+  left:44px;
+  top:28px;
+  display:flex;
+  gap:34px;
+}
+.sensor{
+  width:54px;
+  height:54px;
+  border:8px solid #FFFFFF;
+  border-radius:50%;
+  background:#EAF0FA;
   display:grid;
   place-items:center;
   overflow:hidden;
-  transition:height .16s ease,transform .16s ease;
-}
-.character.dark .eye{width:16px;height:16px}
-.character.front .eye,.character.gold .eye{
-  width:13px;
-  height:13px;
-  background:#172033;
+  box-shadow:0 0 0 1px rgba(79,110,247,.16), inset 0 0 0 1px rgba(79,110,247,.18);
+  transition:height .18s ease,transform .18s ease,border-radius .18s ease;
 }
 .pupil{
-  width:7px;
-  height:7px;
+  width:18px;
+  height:18px;
   border-radius:50%;
-  background:#172033;
+  background:#4F6EF7;
   transform:translate(var(--pupil-x),var(--pupil-y));
   transition:transform .08s ease-out,opacity .12s ease;
 }
-.character.dark .pupil{width:6px;height:6px}
-.character.front .pupil,.character.gold .pupil{
-  width:12px;
-  height:12px;
-  background:#172033;
-}
-.mouth{
+.status-line{
   position:absolute;
-  left:48px;
-  top:92px;
-  width:54px;
-  height:4px;
+  left:50%;
+  bottom:22px;
+  width:96px;
+  height:6px;
   border-radius:999px;
-  background:#172033;
-  transition:transform .24s ease,width .24s ease;
+  background:linear-gradient(90deg,#4F6EF7 0 42%,#8C95A6 42% 100%);
+  transform:translateX(-50%);
+  transition:width .18s ease,transform .18s ease;
 }
-.login-stage.username-mode .character.tall{
-  height:350px;
-  transform:translateX(20px) skewX(-4deg);
+.signal-card{
+  position:absolute;
+  border:1px solid rgba(255,255,255,.3);
+  border-radius:8px;
+  background:rgba(255,255,255,.17);
+  backdrop-filter:blur(8px);
+  box-shadow:0 18px 48px rgba(23,32,51,.16);
 }
-.login-stage.username-mode .character.dark{
-  transform:translateX(12px) skewX(4deg);
+.signal-card.left{
+  left:20px;
+  top:176px;
+  width:154px;
+  height:84px;
 }
-.login-stage.password-mode .character.tall{
-  height:365px;
-  transform:translateX(42px) skewX(-10deg);
+.signal-card.right{
+  right:18px;
+  top:116px;
+  width:136px;
+  height:112px;
 }
-.login-stage.password-mode .character.dark{
-  transform:translateX(20px) skewX(8deg);
+.signal-card span{
+  display:block;
+  height:8px;
+  margin:16px 18px 0;
+  border-radius:999px;
+  background:rgba(255,255,255,.68);
 }
-.login-stage.password-mode .eye{
-  height:3px;
+.signal-card span:nth-child(2){width:56%}
+.signal-card span:nth-child(3){width:74%}
+.login-stage.username-mode .focus-beam{
+  --beam-x:28px;
+}
+.login-stage.username-mode .talent-radar{
+  transform:translateX(-48%);
+}
+.login-stage.username-mode .lens-deck{
+  transform:translateX(-50%) rotate(2deg);
+}
+.login-stage.password-mode .focus-beam{
+  --beam-x:-18px;
+}
+.login-stage.password-mode .sensor{
+  height:10px;
+  border-width:6px;
+  border-radius:999px;
+  transform:translateY(20px);
 }
 .login-stage.password-mode .pupil{
   opacity:0;
 }
-.login-stage.password-mode .character.front .face,
-.login-stage.password-mode .character.gold .face{
-  top:72px;
-}
-.login-stage.password-mode .mouth{
-  width:38px;
-  transform:translateX(10px) rotate(-4deg);
+.login-stage.password-mode .status-line{
+  width:68px;
+  transform:translateX(-50%);
 }
 .brand-footer{
   display:flex;
   gap:24px;
-  color:rgba(255,255,255,.7);
+  color:rgba(255,255,255,.72);
   font-size:12px;
 }
 .login-side{
@@ -243,7 +353,7 @@
   justify-content:center;
   gap:10px;
   margin-bottom:34px;
-  font-weight:800;
+  font-weight:850;
 }
 .login-box h2{
   margin:0;
@@ -255,7 +365,7 @@
 }
 .login-box .sub{
   margin:8px 0 30px;
-  color:#8C95A6;
+  color:#6B7280;
   font-size:14px;
 }
 .role-label{
@@ -263,7 +373,7 @@
   margin-bottom:10px;
   color:#172033;
   font-size:13px;
-  font-weight:700;
+  font-weight:750;
 }
 .roles{
   display:grid;
@@ -289,6 +399,13 @@
   transform:translateY(-1px);
   border-color:#4F6EF7;
 }
+.role-card:focus-visible,
+.btn-login:focus-visible,
+.login-options a:focus-visible,
+.form-group input:focus-visible{
+  outline:3px solid rgba(79,110,247,.35);
+  outline-offset:2px;
+}
 .role-card.sel{
   border-color:#4F6EF7;
   background:#F5F8FF;
@@ -300,10 +417,10 @@
 }
 .role-card .role-name{
   font-size:13px;
-  font-weight:800;
+  font-weight:850;
 }
 .role-card .role-note{
-  color:#8C95A6;
+  color:#6B7280;
   font-size:11px;
   line-height:1.35;
 }
@@ -315,7 +432,7 @@
   margin-bottom:7px;
   color:#172033;
   font-size:13px;
-  font-weight:700;
+  font-weight:750;
 }
 .form-group input{
   width:100%;
@@ -356,7 +473,7 @@
 .login-options a{
   color:#4F6EF7;
   text-decoration:none;
-  font-weight:700;
+  font-weight:750;
 }
 .login-options a:hover{text-decoration:underline}
 .btn-login{
@@ -380,7 +497,7 @@
 .login-foot{
   margin-top:16px;
   text-align:center;
-  color:#8C95A6;
+  color:#6B7280;
   font-size:12px;
 }
 @media(max-width:980px){
@@ -410,13 +527,14 @@
   }
 }
 @media(prefers-reduced-motion:reduce){
-  .brand-panel::before,.character-scene,.character,.face,.eye,.pupil,.role-card,.btn-login{
+  .brand-panel::before,.radar-scene,.talent-radar,.lens-deck,.focus-beam,.sensor,.pupil,.role-card,.btn-login{
     transition:none!important;
     transform:none!important;
   }
 }
 </style>
 
+<a class="skip-link" href="#loginMain">跳到登录表单</a>
 <section class="login-stage" id="loginStage">
   <aside class="brand-panel" aria-hidden="true">
     <div class="brand-top">
@@ -428,32 +546,27 @@
       <h1>欢迎回来</h1>
       <p>进入招聘看板、需求管理、人才库与面试计划。系统将根据演示角色展示对应菜单权限。</p>
 
-      <div class="character-scene">
-        <div class="character tall">
-          <div class="face">
-            <div class="eye"><div class="pupil"></div></div>
-            <div class="eye"><div class="pupil"></div></div>
+      <div class="radar-scene">
+        <div class="pipeline"></div>
+        <div class="node one"></div>
+        <div class="node two"></div>
+        <div class="node three"></div>
+        <div class="node four"></div>
+        <div class="focus-beam"></div>
+
+        <div class="talent-radar">
+          <div class="radar-console"></div>
+          <div class="lens-deck">
+            <div class="sensor-row">
+              <div class="sensor"><div class="pupil"></div></div>
+              <div class="sensor"><div class="pupil"></div></div>
+            </div>
+            <div class="status-line"></div>
           </div>
         </div>
-        <div class="character dark">
-          <div class="face">
-            <div class="eye"><div class="pupil"></div></div>
-            <div class="eye"><div class="pupil"></div></div>
-          </div>
-        </div>
-        <div class="character front">
-          <div class="face">
-            <div class="eye"><div class="pupil"></div></div>
-            <div class="eye"><div class="pupil"></div></div>
-          </div>
-        </div>
-        <div class="character gold">
-          <div class="face">
-            <div class="eye"><div class="pupil"></div></div>
-            <div class="eye"><div class="pupil"></div></div>
-          </div>
-          <div class="mouth"></div>
-        </div>
+
+        <div class="signal-card left"><span></span><span></span><span></span></div>
+        <div class="signal-card right"><span></span><span></span><span></span></div>
       </div>
     </div>
 
@@ -464,7 +577,7 @@
     </div>
   </aside>
 
-  <main class="login-side">
+  <main class="login-side" id="loginMain">
     <div class="login-box">
       <div class="mobile-brand"><div class="brand-mark">HR</div><span>智能招聘系统</span></div>
       <h2>登录</h2>
@@ -530,15 +643,15 @@ function login(){
     var rect = stage.getBoundingClientRect();
     var x = ((event.clientX - rect.left) / rect.width) * 100;
     var y = ((event.clientY - rect.top) / rect.height) * 100;
-    var pupilX = Math.max(-5, Math.min(5, (x - 50) / 8));
-    var pupilY = Math.max(-4, Math.min(4, (y - 42) / 10));
+    var pupilX = Math.max(-11, Math.min(11, (x - 50) / 5.4));
+    var pupilY = Math.max(-7, Math.min(7, (y - 42) / 7.8));
 
     stage.style.setProperty('--mx', x.toFixed(2) + '%');
     stage.style.setProperty('--my', y.toFixed(2) + '%');
     stage.style.setProperty('--pupil-x', pupilX.toFixed(2) + 'px');
     stage.style.setProperty('--pupil-y', pupilY.toFixed(2) + 'px');
-    stage.style.setProperty('--tilt-y', ((x - 50) / 42).toFixed(2) + 'deg');
-    stage.style.setProperty('--tilt-x', ((50 - y) / 56).toFixed(2) + 'deg');
+    stage.style.setProperty('--tilt-y', ((x - 50) / 46).toFixed(2) + 'deg');
+    stage.style.setProperty('--tilt-x', ((50 - y) / 60).toFixed(2) + 'deg');
   }
 
   userInput.addEventListener('focus', function(){ setMode('username'); });

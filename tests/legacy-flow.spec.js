@@ -35,7 +35,7 @@ test('login background responds to mouse movement', async ({ page }) => {
   await expect.poll(async () => stage.evaluate((el) => getComputedStyle(el).getPropertyValue('--pupil-x').trim())).not.toBe('0px');
 });
 
-test('login characters react to username and password fields', async ({ page }) => {
+test('login radar module reacts to username and password fields', async ({ page }) => {
   await page.goto('/login');
   const stage = page.locator('#loginStage');
 
