@@ -35,121 +35,135 @@
       </div>
     </div>
 
-    <!-- Funnel -->
-    <div class="card" style="margin-bottom:12px" data-viz-enhanced="funnel">
-      <div class="card-title">
+    <!-- Funnel Hero Section -->
+    <div class="card funnel-hero-card" style="margin-bottom:12px" data-viz-enhanced="funnel">
+      <!-- Ambient dynamic background -->
+      <div class="funnel-hero-bg" aria-hidden="true">
+        <div class="funnel-bg-grid"></div>
+        <div v-if="motionOK" v-for="p in ambientParticles" :key="'ap'+p.id" class="funnel-ambient-dot"
+          :style="p.style"></div>
+      </div>
+      <div class="card-title funnel-hero-title">
         <svg viewBox="0 0 24 24" style="width:18px;height:18px"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
         招聘全漏斗
-        <span style="font-weight:400;font-size:11px;color:var(--c-sub);margin-left:8px">本月 · 点击阶段查看详情</span>
+        <span style="font-weight:400;font-size:11px;color:var(--c-sub);margin-left:8px">点击圆盘查看阶段洞察</span>
         <span style="font-weight:400;font-size:11px;color:var(--c-primary);margin-left:auto">总转化率 1.4%</span>
       </div>
-      <!-- Main: SVG viz (left) + Insight rail (right) -->
-      <div class="funnel-layout">
-        <!-- Left: SVG 2.5D Stacked Disc Cone + Helical Spiral -->
-        <div class="funnel-svg-wrap">
-          <svg viewBox="0 0 240 460" class="funnel-svg" :class="{ 'funnel-motion-ok': motionOK }">
-            <!-- Helix spiral guide line (behind discs) -->
-            <path :d="helixPath" class="funnel-helix"
-              fill="none" stroke="var(--c-primary)" stroke-width="1.2" stroke-linecap="round"
-              opacity="0.18"
-              stroke-dasharray="8 4"
-              :class="{ 'helix-flow': motionOK }" />
-            <!-- Animated particles along helix (motion only) -->
-            <template v-if="motionOK">
-              <circle r="2.5" fill="var(--c-primary)" opacity="0.55" v-for="p in 10" :key="'p'+p">
-                <animateMotion :dur="(3.5 + p * 0.6) + 's'" repeatCount="indefinite" rotate="auto">
-                  <mpath href="#funnelHelixPath" />
-                </animateMotion>
-              </circle>
-            </template>
-            <!-- Static particles (reduced-motion fallback) -->
-            <template v-else>
-              <circle v-for="(dp, pi) in staticParticles" :key="'sp'+pi"
-                :cx="dp.x" :cy="dp.y" r="2.5" fill="var(--c-primary)" opacity="0.4" />
-            </template>
-            <!-- 5 stacked isometric discs -->
-            <g v-for="(d, i) in discs" :key="'d'+i"
-              class="funnel-disc"
-              :class="{ selected: selected === i, dimmed: selected !== null && selected !== i }"
-              :style="{ '--disc-accent': d.accent }"
-              @click="selectStage(i)">
-              <!-- Side wall (front arc + two vertical edges + bottom arc) -->
-              <path :d="d.wallPath" :fill="d.accent" :opacity="d.wallOpacity" />
-              <!-- Top face ellipse -->
-              <ellipse :cx="d.cx" :cy="d.cy" :rx="d.rx" :ry="d.ry"
-                :fill="d.accent" :opacity="d.faceOpacity" />
-              <!-- Selection ring (visible on selected disc) -->
-              <ellipse v-if="selected === i" :cx="d.cx" :cy="d.cy"
-                :rx="d.rx + 4" :ry="d.ry + 1.5"
-                fill="none" stroke="var(--c-primary)" stroke-width="1.5" opacity="0.5" />
-              <!-- Stage label + count on disc face -->
-              <text :x="d.cx" :y="d.cy - 5" text-anchor="middle"
-                fill="#fff" font-size="13" font-weight="800"
-                style="font-variant-numeric:tabular-nums;text-shadow:0 1px 2px rgba(0,0,0,.25)"
-                pointer-events="none">{{ d.count }}</text>
-              <text :x="d.cx" :y="d.cy + 13" text-anchor="middle"
-                fill="#fff" font-size="9.5" font-weight="600"
-                style="text-shadow:0 1px 1px rgba(0,0,0,.2)"
-                pointer-events="none">{{ d.label }}</text>
-            </g>
-          </svg>
-        </div>
-        <!-- Right: Insight Rail -->
-        <div class="funnel-insight" :key="selected">
-          <div v-if="sel" class="insight-inner">
-            <!-- Header -->
-            <div class="insight-header">
-              <span class="insight-dot" :style="{ background: selAccent }"></span>
-              <span class="insight-label">{{ sel.label }}</span>
-              <span v-if="sel.bottleneck" class="badge-bottleneck">瓶颈</span>
-              <span v-else class="health-badge" :class="'health-'+sel.health">{{ healthLabel(sel.health) }}</span>
-            </div>
-            <!-- Core metrics row -->
-            <div class="insight-metrics">
-              <div class="insight-metric">
-                <div class="insight-metric-val">{{ sel.count }}<span class="insight-metric-unit"> 人</span></div>
-                <div class="insight-metric-sub">占 {{ sel.pct }}</div>
+      <div class="funnel-hero-body">
+        <div class="funnel-viz-row">
+          <!-- Centered SVG cone -->
+          <div class="funnel-viz-area">
+            <svg viewBox="0 0 320 460" class="funnel-viz-svg">
+              <defs>
+                <filter id="funnelGlow"><feGaussianBlur stdDeviation="1.5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+              </defs>
+              <!-- Double helix strands -->
+              <g v-for="(hPath, hi) in helixPaths" :key="'h'+hi">
+                <path :id="'funnelHelix'+(hi+1)" :d="hPath" fill="none" class="funnel-helix-glow"
+                  :class="{ 'helix-flow': motionOK }" />
+                <path :d="hPath" fill="none" class="funnel-helix-core"
+                  :class="{ 'helix-flow': motionOK }" stroke-dasharray="12 8" />
+              </g>
+              <!-- Animated particles on helix strands (motionOK) -->
+              <template v-if="motionOK">
+                <circle v-for="p in 12" :key="'pp'+p" r="2.5" fill="var(--c-primary)" opacity="0.5">
+                  <animateMotion :dur="(3.5 + p * 0.7) + 's'" repeatCount="indefinite" rotate="auto">
+                    <mpath :href="'#funnelHelix' + ((p % 2) + 1)" />
+                  </animateMotion>
+                </circle>
+              </template>
+              <!-- Static particles (reduced-motion) -->
+              <template v-else>
+                <circle v-for="(sp, spi) in staticParticles" :key="'sp'+spi"
+                  :cx="sp.x" :cy="sp.y" r="2" fill="var(--c-primary)" opacity="0.35" />
+              </template>
+              <!-- Ambient particles within SVG (motionOK only) -->
+              <template v-if="motionOK">
+                <circle v-for="ap in svgAmbient" :key="'sa'+ap.id"
+                  :cx="ap.x" :cy="ap.y" :r="ap.r" fill="var(--c-primary)" opacity="0.08"
+                  class="funnel-svg-ambient" :style="{ '--sa-dur': ap.dur+'s', '--sa-delay': ap.delay+'s' }" />
+              </template>
+              <!-- 5 stacked isometric discs -->
+              <g v-for="(d, i) in discs" :key="'d'+i"
+                class="funnel-hero-disc"
+                :class="{ selected: selected === i, dimmed: selected !== null && selected !== i }"
+                @click="selectStage(i)">
+                <!-- Drop shadow -->
+                <ellipse :cx="d.cx" :cy="d.cy + d.ry + d.wallH + 6" :rx="d.rx" :ry="d.rx * 0.08"
+                  fill="rgba(23,32,51,0.07)" />
+                <!-- Side wall -->
+                <path :d="d.wallPath" :fill="d.accent" :opacity="d.wallOpacity" />
+                <!-- Top face -->
+                <ellipse :cx="d.cx" :cy="d.cy" :rx="d.rx" :ry="d.ry"
+                  :fill="d.accent" :opacity="d.faceOpacity" />
+                <!-- Selection ring -->
+                <ellipse v-if="selected === i" :cx="d.cx" :cy="d.cy"
+                  :rx="d.rx + 3" :ry="d.ry + 1.5"
+                  fill="none" stroke="var(--c-primary)" stroke-width="1.5" opacity="0.45"
+                  filter="url(#funnelGlow)" />
+                <!-- Stage label + count -->
+                <text :x="d.cx" :y="d.cy - 4" text-anchor="middle"
+                  fill="#fff" font-size="14" font-weight="800"
+                  style="font-variant-numeric:tabular-nums;text-shadow:0 1px 3px rgba(0,0,0,.3)"
+                  pointer-events="none">{{ d.count }}</text>
+                <text :x="d.cx" :y="d.cy + 14" text-anchor="middle"
+                  fill="#fff" font-size="10" font-weight="600"
+                  style="text-shadow:0 1px 2px rgba(0,0,0,.25)"
+                  pointer-events="none">{{ d.label }}</text>
+              </g>
+            </svg>
+          </div>
+          <!-- Insight panel (right of SVG) -->
+          <div class="funnel-insight-panel" v-if="sel" :key="selected">
+            <div class="insight-panel-inner">
+              <div class="insight-header">
+                <span class="insight-dot" :style="{ background: selAccent }"></span>
+                <span class="insight-label">{{ sel.label }}</span>
+                <span v-if="sel.bottleneck" class="badge-bottleneck">瓶颈</span>
+                <span v-else class="health-badge" :class="'health-'+sel.health">{{ healthLabel(sel.health) }}</span>
               </div>
-              <div class="insight-metric" v-if="sel.conv">
-                <div class="insight-metric-val">
-                  {{ sel.conv }}
-                  <span class="wow-delta" :class="sel.wowUp ? 'up' : 'down'">
-                    <svg viewBox="0 0 10 10" style="width:8px;height:8px">
-                      <polyline v-if="sel.wowUp" points="1,7 5,2 9,7" fill="none" stroke="currentColor" stroke-width="1.5"/>
-                      <polyline v-else points="1,3 5,8 9,3" fill="none" stroke="currentColor" stroke-width="1.5"/>
-                    </svg>
-                    {{ sel.wow }}
-                  </span>
+              <div class="insight-metrics">
+                <div class="insight-metric">
+                  <div class="insight-metric-val">{{ sel.count }}<span class="insight-metric-unit"> 人</span></div>
+                  <div class="insight-metric-sub">占 {{ sel.pct }}</div>
                 </div>
-                <div class="insight-metric-sub">转化率 · WoW</div>
+                <div class="insight-metric" v-if="sel.conv">
+                  <div class="insight-metric-val">
+                    {{ sel.conv }}
+                    <span class="wow-delta" :class="sel.wowUp ? 'up' : 'down'">
+                      <svg viewBox="0 0 10 10" style="width:8px;height:8px">
+                        <polyline v-if="sel.wowUp" points="1,7 5,2 9,7" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                        <polyline v-else points="1,3 5,8 9,3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                      </svg>
+                      {{ sel.wow }}
+                    </span>
+                  </div>
+                  <div class="insight-metric-sub">转化率 · WoW</div>
+                </div>
+                <div class="insight-metric">
+                  <div class="insight-metric-val">{{ sel.dwell }}</div>
+                  <div class="insight-metric-sub">平均停留</div>
+                </div>
               </div>
-              <div class="insight-metric">
-                <div class="insight-metric-val">{{ sel.dwell }}</div>
-                <div class="insight-metric-sub">平均停留</div>
+              <div class="insight-spark-wrap">
+                <svg viewBox="0 0 140 32" class="insight-spark">
+                  <polyline :points="sparkPath(sel.spark)" fill="none" :stroke="selAccent" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  <polygon :points="sparkFillPath(sel.spark)" :fill="selAccent" opacity="0.08"/>
+                </svg>
+                <span class="insight-spark-label">7 天趋势</span>
               </div>
+              <div class="insight-note">{{ sel.note }}</div>
+              <div class="insight-owner">
+                <svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:none;stroke:var(--c-sub);stroke-width:2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                {{ sel.owner }}
+              </div>
+              <button class="insight-cta" @click="router.push(sel.link)">查看 {{ sel.label }} 详情 →</button>
             </div>
-            <!-- 7-day sparkline -->
-            <div class="insight-spark-wrap">
-              <svg viewBox="0 0 140 32" class="insight-spark">
-                <polyline :points="sparkPath(sel.spark)" fill="none" :stroke="selAccent" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <polygon :points="sparkFillPath(sel.spark)" :fill="selAccent" opacity="0.08"/>
-              </svg>
-              <span class="insight-spark-label">过去 7 天趋势</span>
-            </div>
-            <!-- Insight note -->
-            <div class="insight-note">{{ sel.note }}</div>
-            <!-- Owner -->
-            <div class="insight-owner">
-              <svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:none;stroke:var(--c-sub);stroke-width:2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-              {{ sel.owner }}
-            </div>
-            <!-- CTA -->
-            <button class="insight-cta" @click="router.push(sel.link)">查看 {{ sel.label }} 详情 →</button>
           </div>
         </div>
       </div>
-      <!-- Bottom stepper (test contract carrier) -->
-      <div class="viz-funnel funnel-stepper">
+      <!-- Bottom stepper (test contract) -->
+      <div class="funnel-stepper viz-funnel">
         <div v-for="(step, i) in FUNNEL_STEPS" :key="'step'+i"
           class="viz-funnel-step funnel-step-chip"
           :class="{ active: selected === i }"
@@ -221,8 +235,8 @@ const deptOpen = ref(false);
 const channelOpen = ref(false);
 const kpiTransforms = ref({});
 
-// Funnel: selected stage + motion preference
-const selected = ref(3); // default: bottleneck stage (Offer, index 3)
+// Funnel state
+const selected = ref(3); // default: bottleneck stage (Offer)
 const motionOK = ref(true);
 
 const role = localStorage.getItem('hr_role') || 'hr';
@@ -237,26 +251,27 @@ const kpis = computed(() => {
 const deptSummary = computed(() => DEPT_PROGRESS.map(d => d.dept + ' ' + d.hired + '/' + d.total).join(' · '));
 const channelSummary = computed(() => CHANNEL_DATA.map(c => c.channel + ' ' + c.resume).join(' · '));
 
-// -- Funnel: selected stage data --
+// -- Funnel: selected stage --
 const sel = computed(() => FUNNEL_STEPS[selected.value] || FUNNEL_STEPS[0]);
 const selAccent = computed(() => accentColor(sel.value));
 
-// -- Disc geometry (5 isometric stacked discs, top → bottom) --
+function accentColor(step) { return step.color || 'var(--c-primary)'; }
+
+// -- Isometric disc geometry (5 stacked, top→bottom) --
 const discs = computed(() => {
-  const cx = 120;
-  const rxValues = [110, 92, 74, 56, 38];
-  const wallH = 14;
+  const cx = 160; // wider viewBox center
+  const rxValues = [126, 106, 86, 66, 46];
+  const wallH = 16;
+  const cyValues = [60, 148, 236, 324, 412];
   return FUNNEL_STEPS.map((step, i) => {
     const rx = rxValues[i];
-    const ry = rx * 0.30;
-    const y = 66 + i * 82;
+    const ry = rx * 0.28;
+    const cy = cyValues[i];
     const accent = accentColor(step);
-    // Face opacity: range 0.45–0.95 mapped from step opacity
-    const faceOpacity = 0.45 + (step.opacity || 1) * 0.50;
-    const wallOpacity = faceOpacity * 0.58;
-    const wallTopY = y + ry;
-    const wallBotY = y + ry + wallH;
-    // Wall path: left-top → arc front of top ellipse → right-top → down → arc front of bottom ellipse → close
+    const faceOpacity = 0.50 + (step.opacity || 1) * 0.45;
+    const wallOpacity = faceOpacity * 0.55;
+    const wallTopY = cy + ry;
+    const wallBotY = cy + ry + wallH;
     const wallPath = [
       `M ${cx - rx} ${wallTopY}`,
       `A ${rx} ${ry} 0 0 0 ${cx + rx} ${wallTopY}`,
@@ -264,52 +279,93 @@ const discs = computed(() => {
       `A ${rx} ${ry * 1.05} 0 0 1 ${cx - rx} ${wallBotY}`,
       `Z`
     ].join(' ');
-    return { cx, rx, ry, y, accent, faceOpacity, wallOpacity, wallPath, count: step.count, label: step.label };
+    return { cx, rx, ry, cy, wallH, accent, faceOpacity, wallOpacity, wallPath, count: step.count, label: step.label };
   });
 });
 
-// -- Helical spiral path (weaves behind disc stack) --
-const helixPath = computed(() => {
-  const totalTurns = 3.5;
-  const points = 80;
-  const topY = 42;
-  const botY = 436;
-  const cx = 120;
-  const maxRx = 115;
-  const minRx = 32;
-  let d = '';
-  for (let i = 0; i <= points; i++) {
-    const t = i / points; // 0 → 1
-    const angle = t * totalTurns * Math.PI * 2;
-    const y = topY + t * (botY - topY);
-    const r = maxRx + t * (minRx - maxRx);
-    const x = cx + Math.cos(angle) * r;
-    const py = y + Math.sin(angle) * r * 0.30;
-    if (i === 0) d += `M ${x} ${py}`;
-    else d += ` L ${x} ${py}`;
+// -- Double helix paths (opposite phase) --
+const helixPaths = computed(() => {
+  function makeHelix(phaseOffset) {
+    const totalTurns = 3.0;
+    const pts = 80;
+    const topY = 16;
+    const botY = 450;
+    const cx = 160;
+    const maxRx = 145;
+    const minRx = 36;
+    let d = '';
+    for (let i = 0; i <= pts; i++) {
+      const t = i / pts;
+      const angle = t * totalTurns * Math.PI * 2 + phaseOffset;
+      const y = topY + t * (botY - topY);
+      const r = maxRx + t * (minRx - maxRx);
+      const x = cx + Math.cos(angle) * r;
+      const py = y + Math.sin(angle) * r * 0.26;
+      if (i === 0) d += `M ${x.toFixed(1)} ${py.toFixed(1)}`;
+      else d += ` L ${x.toFixed(1)} ${py.toFixed(1)}`;
+    }
+    return d;
   }
-  return d;
+  return [makeHelix(0), makeHelix(Math.PI)];
 });
 
-// -- Static dot positions along helix (reduced-motion fallback) --
+// -- Static particles along helix (reduced-motion) --
 const staticParticles = computed(() => {
   const pts = [];
-  const totalTurns = 3.5;
-  const topY = 42;
-  const botY = 436;
-  const cx = 120;
-  const maxRx = 115;
-  const minRx = 32;
-  for (let p = 0; p < 8; p++) {
-    const t = p / 7;
-    const angle = t * totalTurns * Math.PI * 2;
-    const y = topY + t * (botY - topY);
-    const r = maxRx + t * (minRx - maxRx);
-    const x = cx + Math.cos(angle) * r;
-    const py = y + Math.sin(angle) * r * 0.30;
-    pts.push({ x: parseFloat(x.toFixed(1)), y: parseFloat(py.toFixed(1)) });
+  const totalTurns = 3.0;
+  const topY = 16;
+  const botY = 450;
+  const cx = 160;
+  const maxRx = 145;
+  const minRx = 36;
+  const strands = [0, Math.PI];
+  for (let s = 0; s < 2; s++) {
+    for (let p = 0; p < 6; p++) {
+      const t = (p + (s * 0.15)) / 6;
+      const angle = t * totalTurns * Math.PI * 2 + strands[s];
+      const y = topY + t * (botY - topY);
+      const r = maxRx + t * (minRx - maxRx);
+      const x = cx + Math.cos(angle) * r;
+      const py = y + Math.sin(angle) * r * 0.26;
+      pts.push({ x: parseFloat(x.toFixed(1)), y: parseFloat(py.toFixed(1)) });
+    }
   }
   return pts;
+});
+
+// -- SVG ambient floating dots --
+const svgAmbient = computed(() => {
+  const dots = [];
+  for (let i = 0; i < 20; i++) {
+    dots.push({
+      id: i,
+      x: parseFloat((Math.random() * 280 + 20).toFixed(1)),
+      y: parseFloat((Math.random() * 420 + 20).toFixed(1)),
+      r: parseFloat((Math.random() * 6 + 2).toFixed(1)),
+      dur: parseFloat((12 + Math.random() * 18).toFixed(1)),
+      delay: parseFloat((Math.random() * 10).toFixed(1)),
+    });
+  }
+  return dots;
+});
+
+// -- CSS ambient background particles --
+const ambientParticles = computed(() => {
+  const dots = [];
+  for (let i = 0; i < 30; i++) {
+    dots.push({
+      id: i,
+      style: {
+        left: (Math.random() * 100) + '%',
+        top: (Math.random() * 100) + '%',
+        width: (Math.random() * 4 + 2) + 'px',
+        height: (Math.random() * 4 + 2) + 'px',
+        '--ad-dur': (8 + Math.random() * 20) + 's',
+        '--ad-delay': (Math.random() * 12) + 's',
+      }
+    });
+  }
+  return dots;
 });
 
 // -- Sparkline helpers --
@@ -334,9 +390,6 @@ function sparkFillPath(spark) {
   return `${first[0]},32 ${pts.map(p => `${p[0]},${p[1]}`).join(' ')} ${last[0]},32`;
 }
 
-// -- Utilities --
-function accentColor(step) { return step.color || 'var(--c-primary)'; }
-
 function healthLabel(h) {
   const map = { good: '健康', watch: '关注', risk: '风险' };
   return map[h] || h;
@@ -344,6 +397,7 @@ function healthLabel(h) {
 
 function selectStage(i) { selected.value = i; }
 
+// -- KPI 3D Tilt --
 function kpiAccent(i) {
   const colors = ['var(--c-primary)', 'var(--c-done)', 'var(--c-warn)', 'var(--c-reject)'];
   return colors[i % colors.length];
@@ -376,19 +430,18 @@ function navigateTo(path) {
   router.push(path);
 }
 
-// Close alerts on external click
 function onDocClick(e) {
   const btn = document.getElementById('alertBtn'), dd = document.getElementById('alertDropdown');
   if (showAlerts.value && dd && btn && !btn.contains(e.target) && !dd.contains(e.target)) showAlerts.value = false;
 }
+
 onMounted(() => {
   document.addEventListener('click', onDocClick);
-  // Respect prefers-reduced-motion
   const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
   motionOK.value = !mq.matches;
-  const onChange = (e) => { motionOK.value = !e.matches; };
-  mq.addEventListener('change', onChange);
+  mq.addEventListener('change', (e) => { motionOK.value = !e.matches; });
 });
+
 onUnmounted(() => document.removeEventListener('click', onDocClick));
 </script>
 
@@ -458,63 +511,136 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
 }
 .dashboard-kpi-card:hover .kpi-trend { opacity: 1; }
 
-/* Funnel — SVG 2.5D Stacked-Disc Cone + Helical Spiral */
-.funnel-layout {
+/* Funnel Hero Card — Centered 2.5D Cone + Double Helix + Ambient Background */
+.funnel-hero-card {
+  position: relative;
+  overflow: hidden;
+  min-height: 620px;
+}
+/* — Ambient animated background layer — */
+.funnel-hero-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+.funnel-bg-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(79,110,247,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(79,110,247,0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+.funnel-ambient-dot {
+  position: absolute;
+  border-radius: 50%;
+  background: var(--c-primary);
+  opacity: 0.06;
+  animation: ambientDrift var(--ad-dur) ease-in-out infinite;
+  animation-delay: var(--ad-delay);
+}
+@keyframes ambientDrift {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.04; }
+  25% { transform: translate(20px, -15px) scale(1.2); opacity: 0.08; }
+  50% { transform: translate(-10px, 10px) scale(0.9); opacity: 0.05; }
+  75% { transform: translate(15px, 20px) scale(1.1); opacity: 0.07; }
+}
+
+/* — Title stays above bg — */
+.funnel-hero-title {
+  position: relative;
+  z-index: 2;
+}
+
+/* — Main body — */
+.funnel-hero-body {
+  position: relative;
+  z-index: 1;
+}
+.funnel-viz-row {
   display: flex;
-  gap: 20px;
-  align-items: stretch;
-  padding: 8px 0 0;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 4px 0 0;
 }
-.funnel-svg-wrap {
-  flex: 0 0 240px;
-  min-width: 200px;
-}
-.funnel-svg {
-  width: 100%;
-  height: 440px;
-  display: block;
-}
-/* Helix flowing animation */
-.funnel-helix.helix-flow {
-  animation: helixDashFlow 2.5s linear infinite;
-}
-@keyframes helixDashFlow {
-  to { stroke-dashoffset: -24; }
-}
-/* Disc interaction */
-.funnel-disc {
-  cursor: pointer;
-  transition: opacity .25s ease;
-}
-.funnel-disc.dimmed {
-  opacity: 0.52;
-}
-.funnel-disc.selected {
-  opacity: 1;
-}
-.funnel-disc.dimmed ellipse:first-of-type,
-.funnel-disc.dimmed path:first-of-type {
-  filter: brightness(0.7);
-}
-/* Insight rail */
-.funnel-insight {
-  flex: 1;
-  min-width: 180px;
+
+/* — SVG viz area (centered) — */
+.funnel-viz-area {
+  flex: 0 0 320px;
+  min-width: 260px;
   max-width: 340px;
+}
+.funnel-viz-svg {
+  width: 100%;
+  height: 460px;
+  display: block;
+  filter: drop-shadow(0 4px 20px rgba(79,110,247,0.06));
+}
+
+/* — Double helix styles — */
+.funnel-helix-glow {
+  stroke: var(--c-primary);
+  stroke-width: 1.0;
+  opacity: 0.10;
+  filter: blur(2px);
+}
+.funnel-helix-core {
+  stroke: var(--c-primary);
+  stroke-width: 1.2;
+  opacity: 0.15;
+  stroke-linecap: round;
+}
+.funnel-helix-core.helix-flow,
+.funnel-helix-glow.helix-flow {
+  animation: helixOrbit 3.0s linear infinite;
+}
+@keyframes helixOrbit {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -40; }
+}
+
+/* — SVG ambient floating dots (drift within SVG) — */
+.funnel-svg-ambient {
+  animation: svgAmbientDrift var(--sa-dur) ease-in-out infinite;
+  animation-delay: var(--sa-delay);
+}
+@keyframes svgAmbientDrift {
+  0%, 100% { opacity: 0.06; transform: translate(0, 0); }
+  25% { opacity: 0.12; transform: translate(12px, -8px); }
+  50% { opacity: 0.04; transform: translate(-6px, 6px); }
+  75% { opacity: 0.10; transform: translate(8px, 12px); }
+}
+
+/* — Disc interaction — */
+.funnel-hero-disc { cursor: pointer; transition: opacity .25s ease; }
+.funnel-hero-disc.dimmed { opacity: 0.48; }
+.funnel-hero-disc.selected { opacity: 1; }
+.funnel-hero-disc:hover {
+  filter: brightness(1.08);
+}
+
+/* — Insight panel (right side) — */
+.funnel-insight-panel {
+  flex: 1;
+  min-width: 200px;
+  max-width: 320px;
   border-left: 1px solid var(--c-border);
-  padding: 6px 0 6px 20px;
+  padding: 8px 0 8px 20px;
   display: flex;
   align-items: stretch;
 }
-.insight-inner {
+.insight-panel-inner {
   width: 100%;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  animation: insightRailIn .25s ease;
+  animation: insightFadeIn .2s ease;
 }
-@keyframes insightRailIn {
-  from { opacity: 0; transform: translateX(8px); }
+@keyframes insightFadeIn {
+  from { opacity: 0; transform: translateX(6px); }
   to { opacity: 1; transform: translateX(0); }
 }
 .insight-header {
@@ -554,13 +680,10 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
 
 .insight-metrics {
   display: flex;
-  gap: 16px;
+  gap: 14px;
   flex-wrap: wrap;
 }
-.insight-metric {
-  flex: 1;
-  min-width: 70px;
-}
+.insight-metric { flex: 1; min-width: 70px; }
 .insight-metric-val {
   font-size: 18px;
   font-weight: 800;
@@ -570,40 +693,15 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
   align-items: center;
   gap: 4px;
 }
-.insight-metric-unit {
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--c-sub);
-}
-.insight-metric-sub {
-  font-size: 11px;
-  color: var(--c-sub);
-  margin-top: 2px;
-}
-.wow-delta {
-  font-size: 11px;
-  font-weight: 600;
-  display: inline-flex;
-  align-items: center;
-  gap: 1px;
-}
+.insight-metric-unit { font-size: 12px; font-weight: 400; color: var(--c-sub); }
+.insight-metric-sub { font-size: 11px; color: var(--c-sub); margin-top: 2px; }
+.wow-delta { font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 1px; }
 .wow-delta.up { color: var(--c-done); }
 .wow-delta.down { color: var(--c-reject); }
 
-.insight-spark-wrap {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.insight-spark {
-  width: 120px;
-  height: 28px;
-  flex-shrink: 0;
-}
-.insight-spark-label {
-  font-size: 10px;
-  color: var(--c-sub);
-}
+.insight-spark-wrap { display: flex; align-items: center; gap: 8px; }
+.insight-spark { width: 120px; height: 28px; flex-shrink: 0; }
+.insight-spark-label { font-size: 10px; color: var(--c-sub); }
 .insight-note {
   font-size: 12px;
   color: var(--c-body);
@@ -613,13 +711,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
   border-radius: 6px;
   border: 1px solid var(--c-border-light);
 }
-.insight-owner {
-  font-size: 12px;
-  color: var(--c-sub);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
+.insight-owner { font-size: 12px; color: var(--c-sub); display: flex; align-items: center; gap: 6px; }
 .insight-cta {
   width: 100%;
   padding: 8px 0;
@@ -633,12 +725,9 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
   transition: background .15s, color .15s;
   font-family: inherit;
 }
-.insight-cta:hover {
-  background: var(--c-primary);
-  color: #fff;
-}
+.insight-cta:hover { background: var(--c-primary); color: #fff; }
 
-/* Bottom stepper */
+/* — Bottom stepper chips — */
 .funnel-stepper {
   display: flex;
   gap: 4px;
@@ -646,7 +735,9 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
   padding: 16px 0 4px;
   flex-wrap: wrap;
   border-top: 1px solid var(--c-border-light);
-  margin-top: 8px;
+  margin-top: 10px;
+  position: relative;
+  z-index: 2;
 }
 .viz-funnel-step.funnel-step-chip {
   display: flex;
@@ -669,66 +760,30 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
   color: var(--c-primary);
   background: rgba(79,110,247,0.06);
 }
-.viz-funnel-step.funnel-step-chip.active {
-  font-weight: 700;
-}
-.step-chip-dot {
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.step-chip-count {
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--c-text);
-}
+.viz-funnel-step.funnel-step-chip.active { font-weight: 700; }
+.step-chip-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.step-chip-count { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--c-text); }
 
-/* Reduced motion */
+/* — Reduced motion — */
 @media (prefers-reduced-motion: reduce) {
-  .dashboard-kpi-card {
-    transition: none !important;
-    transform: none !important;
-  }
-  .funnel-disc {
-    transition: none !important;
-  }
-  .funnel-helix.helix-flow {
-    animation: none !important;
-  }
-  .insight-inner {
-    animation: none !important;
-  }
-  .funnel-step-chip {
-    transition: none !important;
-  }
+  .dashboard-kpi-card { transition: none !important; transform: none !important; }
+  .funnel-hero-disc { transition: none !important; }
+  .funnel-helix-core.helix-flow,
+  .funnel-helix-glow.helix-flow { animation: none !important; }
+  .funnel-ambient-dot { animation: none !important; opacity: 0.05 !important; }
+  .funnel-svg-ambient { animation: none !important; }
+  .insight-panel-inner { animation: none !important; }
+  .funnel-step-chip { transition: none !important; }
 }
 
-/* Mobile: stack vertically */
-@media (max-width: 680px) {
-  .funnel-layout {
-    flex-direction: column;
-    align-items: center;
-  }
-  .funnel-svg-wrap {
-    flex: 0 0 auto;
-    min-width: 0;
-    max-width: 280px;
-  }
-  .funnel-svg {
-    height: 360px;
-  }
-  .funnel-insight {
-    max-width: none;
-    border-left: none;
-    border-top: 1px solid var(--c-border);
-    padding: 14px 0 0;
-  }
-  .funnel-stepper {
-    gap: 6px;
-  }
-  .viz-funnel-step.funnel-step-chip {
-    padding: 4px 10px;
-    font-size: 11px;
-  }
+/* — Mobile: stack vertically — */
+@media (max-width: 720px) {
+  .funnel-hero-card { min-height: auto; }
+  .funnel-viz-row { flex-direction: column; align-items: center; }
+  .funnel-viz-area { flex: 0 0 auto; max-width: 300px; }
+  .funnel-viz-svg { height: 380px; }
+  .funnel-insight-panel { max-width: none; border-left: none; border-top: 1px solid var(--c-border); padding: 14px 0 0; }
+  .funnel-stepper { gap: 6px; }
+  .viz-funnel-step.funnel-step-chip { padding: 4px 10px; font-size: 11px; }
 }
 </style>
