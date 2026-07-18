@@ -54,7 +54,6 @@ const lineWidths = computed(() => {
 /* text variant — shimmer bars */
 [data-slot="ai-skeleton-line"] {
   height: 12px;
-  background: var(--c-border-light, #EFF1F5);
   border-radius: var(--radius-sm, 6px);
   margin-bottom: 8px;
   animation: ai-shimmer 1.8s ease-in-out infinite;

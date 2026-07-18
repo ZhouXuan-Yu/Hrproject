@@ -28,10 +28,10 @@
           <button
             data-slot="prompt-input-send"
             :data-status="status"
-            :disabled="status === 'ready' && !modelValue.trim()"
+            :disabled="disabled || (status === 'ready' && !modelValue.trim())"
             :aria-label="sendAriaLabel"
             type="button"
-            @click="status === 'streaming' || status === 'submitted' ? handleStop() : handleSubmit()"
+            @click="status === 'streaming' || status === 'submitted' ? handleStop() : status === 'error' ? $emit('retry') : handleSubmit()"
           >
             <!-- submitted: spinner -->
             <AiSkeleton v-if="status === 'submitted'" variant="spinner" />
@@ -77,7 +77,7 @@ const props = defineProps({
   ariaLabel: { type: String, default: '消息输入' },
 });
 
-const emit = defineEmits(['update:modelValue', 'submit', 'stop']);
+const emit = defineEmits(['update:modelValue', 'submit', 'stop', 'retry']);
 const textareaRef = ref(null);
 
 const sendAriaLabel = computed(() => {
@@ -93,6 +93,7 @@ function onInput(e) {
 
 function handleSubmit() {
   if (props.status !== 'ready') return;
+  if (!props.modelValue.trim()) return;
   emit('submit');
 }
 
