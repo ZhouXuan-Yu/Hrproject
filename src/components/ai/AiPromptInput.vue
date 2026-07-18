@@ -6,7 +6,10 @@
     :data-disabled="disabled ? '' : undefined"
   >
     <!-- Accessibility alert for error state -->
-    <div v-if="status === 'error'" role="alert" data-slot="prompt-input-error-alert" :aria-label="hint || '输入错误'">{{ hint || '输入错误' }}</div>
+    <div v-if="status === 'error'" role="alert" data-slot="prompt-input-error-alert">
+      <span class="sr-only">发生错误</span>
+      <span>{{ hint || '发生错误，请重试' }}</span>
+    </div>
     <div data-slot="prompt-input-shell" @click="focusTextarea">
       <div data-slot="prompt-input-content">
         <textarea
@@ -206,6 +209,19 @@ defineExpose({ focus: () => textareaRef.value?.focus() });
   padding: 6px 16px 10px;
   font-size: var(--fs-caption, 12px);
   color: var(--c-sub, #8C95A6);
+}
+
+/* Screen reader only utility */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0,0,0,0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* Compact variant */

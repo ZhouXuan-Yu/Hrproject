@@ -38,8 +38,10 @@ import AiChatMessage from '../../components/ai/AiChatMessage.vue';
 import AiSkeleton from '../../components/ai/AiSkeleton.vue';
 import AiDisclaimer from '../../components/ai/AiDisclaimer.vue';
 import { runReportAnalysis } from '../../api/ai.js';
+import { useClipboard } from '../../composables/useClipboard.js';
 
 const showToast = inject('showToast');
+const { copy, copied } = useClipboard();
 
 const reportTypes = [
   { value: 'funnel', label: '招聘漏斗' }, { value: 'channel', label: '渠道效果' },
