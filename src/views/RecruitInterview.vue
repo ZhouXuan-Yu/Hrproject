@@ -9,7 +9,7 @@
         </button>
         <div id="alertDropdown" v-if="showAlerts" style="display:block;position:absolute;top:100%;right:0;margin-top:6px;width:380px;background:var(--c-card);border:1px solid var(--c-border);border-radius:12px;padding:16px;box-shadow:0 8px 32px rgba(0,0,0,.12);z-index:100;font-size:13px;line-height:2">
           <div style="font-weight:700;margin-bottom:10px;color:var(--c-text);font-size:14px">智能提醒</div>
-          <div v-for="(alert, i) in ALERTS" :key="i" style="display:flex;align-items:center;justify-content:space-between;padding:6px 0">
+          <div v-for="(alert, i) in ALERTS_SOURCE" :key="i" style="display:flex;align-items:center;justify-content:space-between;padding:6px 0">
             <span><span class="alert-dot" :class="alert.type"></span> {{ alert.text }}</span>
             <button v-if="alert.actionMsg" class="btn btn-primary btn-sm" @click="doAlert(alert.actionMsg)">{{ alert.action }}</button>
             <button v-else class="btn btn-outline btn-sm" @click="showAlerts = false">{{ alert.action }}</button>
