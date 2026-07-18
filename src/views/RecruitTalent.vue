@@ -135,7 +135,7 @@
             <td style="white-space:nowrap"><button class="btn btn-outline btn-sm" @click="openEmployeeDrawer(e.name)">查看</button></td>
           </tr>
         </tbody></table>
-        <div class="table-count" id="intTableCount">共 {{ INT_DATA.length }} 条数据</div>
+        <div class="table-count" id="intTableCount">共 {{ INT_DATA_SOURCE.length }} 条数据</div>
       </div>
       <!-- Batch bar internal -->
       <div class="batch-bar" id="batchBarInt" :style="{ display: checkedIntCount > 0 ? 'flex' : 'none' }">
@@ -156,13 +156,13 @@
       </div>
       <div class="table-wrap">
         <table><thead><tr><th>候选人</th><th>手机</th><th>加入时间</th><th>原因</th><th>操作人</th><th>到期</th><th>操作</th></tr></thead><tbody>
-          <tr v-for="(b, i) in BLACKLIST_DATA" :key="i">
+          <tr v-for="(b, i) in BLACKLIST_DATA_SOURCE" :key="i">
             <td style="color:var(--c-reject);font-weight:600">{{ b.name }}</td>
             <td>{{ b.phone }}</td><td>{{ b.date }}</td><td>{{ b.reason }}</td><td>{{ b.operator }}</td><td>{{ b.expiry }}</td>
             <td><button class="btn btn-text btn-sm">详情</button> <button class="btn btn-text-danger btn-sm">移除</button></td>
           </tr>
         </tbody></table>
-        <div class="table-count">共 {{ BLACKLIST_DATA.length }} 条数据</div>
+        <div class="table-count">共 {{ BLACKLIST_DATA_SOURCE.length }} 条数据</div>
       </div>
     </div>
 

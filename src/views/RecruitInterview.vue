@@ -150,6 +150,14 @@ const user = localStorage.getItem('hr_user') || '张HR';
 const role = localStorage.getItem('hr_role') || 'hr';
 const isInterviewerRole = role === 'interviewer' || role === 'temp_interviewer';
 
+// API data refs — null = not yet loaded (fallback to mock)
+const apiInterviewData = ref(null);
+const apiAlertData = ref(null);
+
+// Data source computed — prefer API data over mock
+const INTERVIEWS_SOURCE = computed(() => apiInterviewData.value ?? ALL_INTERVIEWS);
+const ALERTS_SOURCE = computed(() => apiAlertData.value ?? ALERTS);
+
 // Visible tabs
 const visibleTabs = computed(() => {
   const tabs = [];
@@ -255,7 +263,8 @@ async function loadFromApi() {
       fetchInterviews({ tab: activeTab.value }),
       fetchInterviewAlerts()
     ]);
-    // API data loaded for future use
+    if (listRes) apiInterviewData.value = listRes.data ?? listRes ?? null;
+    if (alertRes) apiAlertData.value = alertRes ?? null;
   } catch (e) { console.warn('[Interview] API fallback:', e.message); }
 }
 
