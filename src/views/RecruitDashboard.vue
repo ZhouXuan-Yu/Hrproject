@@ -46,7 +46,8 @@
         <div v-if="motionOK" v-for="p in ambientParticles" :key="'ap'+p.id" class="funnel-ambient-dot"
           :style="p.style"></div>
         <!-- Floating tech 'nodes' -->
-        <div class="funnel-bg-node" v-for="n in techNodes" :key="'tn'+n.id" :style="n.style"></div>
+        <!-- Floating tech labels -->
+        <div class="funnel-bg-node" v-for="n in techNodes" :key="'tn'+n.id" :style="n.style">{{ n.label }}</div>
       </div>
       <div class="card-title funnel-hero-title">
         <svg viewBox="0 0 24 24" style="width:18px;height:18px"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
@@ -152,7 +153,7 @@
                       <polyline v-else points="1,2 5,8 9,2" fill="none" stroke="currentColor" stroke-width="1.5"/>
                     </svg>
                     {{ sel.wow }}
-                    <span class="wow-abs">{{ sel.wowUp ? '▲' : '▼' }}{{ sel.spark ? ((Math.round((sel.spark[sel.spark.length-1] - sel.spark[0]) / sel.spark[0] * 100) || 0) + '%') : '' }}</span>
+                    <span class="wow-abs">{{ wowArrow(sel.wowUp) }}{{ sel.spark ? ((Math.round((sel.spark[sel.spark.length-1] - sel.spark[0]) / sel.spark[0] * 100) || 0) + '%') : '' }}</span>
                   </span>
                 </div>
                 <div class="insight-detail-item">
@@ -413,6 +414,7 @@ const techNodes = computed(() => {
   for (let i = 0; i < 12; i++) {
     nodes.push({
       id: i,
+      label: labels[i % labels.length],
       style: {
         left: (5 + Math.random() * 90) + '%',
         top: (5 + Math.random() * 90) + '%',
@@ -420,7 +422,6 @@ const techNodes = computed(() => {
         opacity: (0.03 + Math.random() * 0.05),
         '--nd-dur': (15 + Math.random() * 30) + 's',
         '--nd-delay': (Math.random() * 10) + 's',
-        content: '"' + (labels[i % labels.length]) + '"',
       }
     });
   }
@@ -460,6 +461,8 @@ function healthLabel(h) {
   const map = { good: '健康', watch: '关注', risk: '风险' };
   return map[h] || h;
 }
+
+function wowArrow(up) { return up ? '▲' : '▼'; }
 
 function selectStage(i) { selected.value = i; }
 
