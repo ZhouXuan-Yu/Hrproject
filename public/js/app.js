@@ -915,6 +915,41 @@ function openInternalContactModal(name, manager){
     rows.forEach(function(row){ tbody.appendChild(row); });
   }
 
+  function restoreTableSortState(table, tableIndex){
+    if(!table.tHead) return;
+    try {
+      var state = JSON.parse(localStorage.getItem('hr_sort_' + currentRouteId() + '_' + tableIndex));
+      if(!state || typeof state.index !== 'number') return;
+      var headers = Array.prototype.slice.call(table.tHead.querySelectorAll('th'));
+      var th = headers[state.index];
+      if(!th || th.getAttribute('aria-sort') === state.dir) return;
+      headers.forEach(function(item){ item.setAttribute('aria-sort','none'); });
+      th.setAttribute('aria-sort', state.dir);
+      sortTable(table, state.index, state.dir === 'ascending' ? 'asc' : 'desc');
+    } catch(e){}
+  }
+
+  var __renderWrapped = false;
+  function wrapRenderFunctions(){
+    if(__renderWrapped) return;
+    __renderWrapped = true;
+    var fns = ['renderExt','renderTable','renderTables'];
+    var delay = 50;
+    fns.forEach(function(name){
+      var orig = window[name];
+      if(typeof orig !== 'function') return;
+      window[name] = function(){
+        var result = orig.apply(this, arguments);
+        setTimeout(function(){
+          Array.prototype.forEach.call(document.querySelectorAll('table'), function(table, tableIndex){
+            if(table.dataset.coreEnhanced === 'true' && table.tHead) restoreTableSortState(table, tableIndex);
+          });
+        }, delay);
+        return result;
+      };
+    });
+  }
+
   function enhanceTables(){
     Array.prototype.forEach.call(document.querySelectorAll('table'), function(table, tableIndex){
       if(table.dataset.coreEnhanced !== 'true'){
@@ -935,18 +970,88 @@ function openInternalContactModal(name, manager){
         var density = document.createElement('div');
         density.className = 'table-density';
         density.setAttribute('aria-label','表格密度');
+        var currentDensity = wrap.getAttribute('data-density') || 'standard';
         ['compact','standard','comfortable'].forEach(function(mode){
           var btn = document.createElement('button');
           btn.type = 'button';
           btn.dataset.density = mode;
+          btn.setAttribute('aria-pressed', mode === currentDensity ? 'true' : 'false');
           btn.textContent = mode === 'compact' ? '紧凑' : (mode === 'comfortable' ? '舒适' : '标准');
           btn.onclick = function(){
             wrap.setAttribute('data-density', mode);
             localStorage.setItem('hr_table_density', mode);
+            Array.prototype.forEach.call(density.querySelectorAll('button'), function(b){
+              b.setAttribute('aria-pressed', b.dataset.density === mode ? 'true' : 'false');
+            });
           };
           density.appendChild(btn);
         });
         wrap.insertBefore(density, table);
+
+        // Column visibility toggle — must stay AFTER headers are defined below
+        if(wrap.dataset.colsEnhanced !== 'true'){
+          var colHeaders = table.tHead ? Array.prototype.slice.call(table.tHead.querySelectorAll('th')) : [];
+          if(colHeaders.length > 2){
+            wrap.dataset.colsEnhanced = 'true';
+            (function(){
+              var colToggle = document.createElement('div');
+              colToggle.className = 'table-column-toggle';
+              var colBtn = document.createElement('button');
+              colBtn.type = 'button';
+              colBtn.textContent = '列设置';
+              colBtn.setAttribute('aria-label','表格列设置');
+              var colKey = 'hr_cols_' + currentRouteId() + '_' + tableIndex;
+              var savedCols = null;
+              try { savedCols = JSON.parse(localStorage.getItem(colKey)); } catch(e){}
+              var colThs = [];
+              colHeaders.forEach(function(th, i){
+                if(/操作|选择/.test(textOf(th)) || th.querySelector('input,button,select')) return;
+                th.setAttribute('data-col-index', i);
+                colThs.push({text: textOf(th), index: i});
+              });
+              if(savedCols && Array.isArray(savedCols)){
+                savedCols.forEach(function(idx){
+                  colHeaders.forEach(function(th){ if(th.getAttribute('data-col-index') == idx) th.classList.add('col-hidden'); });
+                  var rows = table.rows;
+                  for(var r = 0; r < rows.length; r++){
+                    if(rows[r].cells[idx]) rows[r].cells[idx].classList.add('col-hidden');
+                  }
+                });
+              }
+              var colMenu = document.createElement('div');
+              colMenu.className = 'table-column-menu';
+              colMenu.innerHTML = colThs.map(function(col){
+                var hidden = savedCols && savedCols.indexOf(col.index) !== -1;
+                return '<label><input type="checkbox" ' + (hidden ? '' : 'checked') + ' data-col-idx="' + col.index + '"> ' + col.text + '</label>';
+              }).join('');
+              colToggle.appendChild(colBtn);
+              colToggle.appendChild(colMenu);
+              density.appendChild(colToggle);
+              colBtn.onclick = function(e){
+                e.stopPropagation();
+                colMenu.classList.toggle('is-open');
+              };
+              colMenu.addEventListener('click', function(e){
+                var cb = e.target.closest('input[type="checkbox"]');
+                if(!cb) return;
+                var idx = parseInt(cb.getAttribute('data-col-idx'));
+                var hidden = !cb.checked;
+                colHeaders.forEach(function(th){ if(th.getAttribute('data-col-index') == idx) th.classList.toggle('col-hidden', hidden); });
+                var rows = table.rows;
+                for(var rr = 0; rr < rows.length; rr++){
+                  if(rows[rr].cells[idx]) rows[rr].cells[idx].classList.toggle('col-hidden', hidden);
+                }
+                var stored = [];
+                try { stored = JSON.parse(localStorage.getItem(colKey)) || []; } catch(e2){ stored = []; }
+                if(hidden){ stored.push(idx); } else { stored = stored.filter(function(x){ return x !== idx; }); }
+                localStorage.setItem(colKey, JSON.stringify(stored));
+              });
+              document.addEventListener('click', function closeColMenu(e){
+                if(!colToggle.contains(e.target)) colMenu.classList.remove('is-open');
+              });
+            })();
+          }
+        }
       }
 
       var headers = table.tHead ? Array.prototype.slice.call(table.tHead.querySelectorAll('th')) : [];
@@ -964,6 +1069,7 @@ function openInternalContactModal(name, manager){
           headers.forEach(function(item){ item.setAttribute('aria-sort','none'); });
           th.setAttribute('aria-sort', next);
           sortTable(table, index, next === 'ascending' ? 'asc' : 'desc');
+          try { localStorage.setItem('hr_sort_' + currentRouteId() + '_' + tableIndex, JSON.stringify({index: index, dir: next})); } catch(e){}
         }
         th.addEventListener('click', toggleSort);
         th.addEventListener('keydown', function(e){
@@ -980,7 +1086,15 @@ function openInternalContactModal(name, manager){
         cell.colSpan = Math.max(headers.length, 1);
         cell.innerHTML = '<div class="table-empty-state"><strong>暂无匹配数据</strong><span>调整筛选条件后可重新查看结果。</span></div>';
       }
+
+      // Restore sort state after enhancement
+      if(table.tHead && table.dataset.sortRestored !== 'true'){
+        table.dataset.sortRestored = 'true';
+        restoreTableSortState(table, tableIndex);
+      }
     });
+    // Wrap legacy render functions once tables are enhanced
+    wrapRenderFunctions();
   }
 
   function enhanceBatchBars(){
@@ -1013,6 +1127,31 @@ function openInternalContactModal(name, manager){
       }
     });
   }
+
+  window.showState = function(container, type, message){
+    if(!container) return;
+    var icons = {
+      empty: '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg>',
+      error: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>',
+      loading: ''
+    };
+    var cls = 'state-overlay state-' + type;
+    var html = '';
+    if(type === 'loading'){
+      html = '<div class="' + cls + '"><div class="skeleton-line"></div><div class="skeleton-line" style="width:120px;margin-top:8px"></div></div>';
+    } else {
+      html = '<div class="' + cls + '" role="' + (type === 'error' ? 'alert' : 'status') + '">' +
+        (icons[type] ? '<div class="state-icon">' + icons[type] + '</div>' : '') +
+        '<strong>' + (message || '') + '</strong>' +
+        (type === 'error' ? '<button class="btn btn-ghost btn-sm state-retry">重试</button>' : '') +
+      '</div>';
+    }
+    container.innerHTML = html;
+    var retryBtn = container.querySelector('.state-retry');
+    if(retryBtn && typeof window.renderExt === 'function'){
+      retryBtn.onclick = function(){ window.renderExt(); window.renderInt(); };
+    }
+  };
 
   function enhanceVisualizationCards(){
     Array.prototype.forEach.call(document.querySelectorAll('.card'), function(card){
@@ -1587,6 +1726,7 @@ function openInternalContactModal(name, manager){
     ensureHeroModuleTabs();
     ensureHeroPageSummary();
     ensureHeroOperationalWorkspace();
+    enhanceMobileShell();
     enhanceMetricCards();
     enhanceStatusLabels();
     enhanceFilterBars();
@@ -1611,6 +1751,59 @@ function openInternalContactModal(name, manager){
   function closePalette(){
     var palette = document.getElementById('commandPalette');
     if(palette) palette.remove();
+    var trigger = document.getElementById('commandTrigger');
+    if(trigger) trigger.focus();
+  }
+
+  function enhanceMobileShell(){
+    if(document.querySelector('.mobile-nav-bar') || document.querySelector('.mobile-menu-toggle')) return;
+
+    var route = currentRouteId();
+    var navItems = [
+      {label:'看板', href:'/recruit-dashboard', id:'recruit-dashboard'},
+      {label:'需求', href:'/recruit-demand', id:'recruit-demand'},
+      {label:'人才', href:'/recruit-talent', id:'recruit-talent'},
+      {label:'面试', href:'/recruit-interview', id:'recruit-interview'}
+    ];
+
+    // Bottom nav bar
+    var bar = document.createElement('nav');
+    bar.className = 'mobile-nav-bar';
+    bar.setAttribute('aria-label','移动端导航');
+    bar.innerHTML = navItems.map(function(item){
+      var active = route === item.id || (route === 'recruit-demand-detail' && item.id === 'recruit-demand');
+      return '<a class="' + (active ? 'active' : '') + '" href="'+item.href+'"' + (active ? ' aria-current="page"' : '') + '><span class="mobile-nav-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="10"/></svg></span>'+item.label+'</a>';
+    }).join('');
+    document.body.appendChild(bar);
+
+    // Hamburger menu toggle
+    var toggle = document.createElement('button');
+    toggle.className = 'mobile-menu-toggle';
+    toggle.setAttribute('aria-label','打开导航菜单');
+    toggle.innerHTML = '<span class="mobile-menu-toggle-icon"></span>';
+    document.body.appendChild(toggle);
+
+    // Mobile menu overlay + panel
+    var overlay = document.createElement('div');
+    overlay.className = 'mobile-menu-overlay';
+    var visible = getVisibleMenus(getRole());
+    overlay.innerHTML = '<div class="mobile-menu-panel">' + visible.map(function(item){
+      var active = route === item.id || (route === 'recruit-demand-detail' && item.id === 'recruit-demand');
+      return '<a class="' + (active ? 'active' : '') + '" href="'+item.href+'"' + (active ? ' aria-current="page"' : '') + '>'+item.label+'</a>';
+    }).join('') + '</div>';
+    document.body.appendChild(overlay);
+
+    var open = false;
+    function setOpen(v){
+      open = v;
+      toggle.classList.toggle('is-open', open);
+      overlay.classList.toggle('is-open', open);
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    toggle.onclick = function(){ setOpen(!open); };
+    overlay.addEventListener('click', function(e){
+      if(e.target === overlay || e.target.closest('.mobile-menu-panel')) setOpen(false);
+    });
   }
 
   function renderPalette(){
@@ -1625,28 +1818,145 @@ function openInternalContactModal(name, manager){
       '</div>';
     overlay.addEventListener('click', function(e){ if(e.target === overlay) closePalette(); });
     document.body.appendChild(overlay);
+
+    var actionCommands = [
+      {id:'action:refresh', label:'刷新当前页', hint:'重新加载数据', action:'refresh'},
+      {id:'action:reset-filters', label:'清空筛选', hint:'重置当前页所有筛选条件', action:'reset-filters'},
+      {id:'action:density-compact', label:'紧凑表格', hint:'切换为紧凑模式', action:'density-compact'},
+      {id:'action:density-comfortable', label:'舒适表格', hint:'切换为舒适模式', action:'density-comfortable'}
+    ];
+
+    var history = [];
+    try { history = JSON.parse(localStorage.getItem('hr_palette_history')) || []; } catch(e){ history = []; }
+
     var input = document.getElementById('commandInput');
     var results = document.getElementById('commandResults');
-    function draw(){
+    var selectedIndex = -1;
+
+    function getItems(){
       var q = input.value.trim().toLowerCase();
-      var source = allowedCommands();
-      var items = source.filter(function(item){
-        return !q || item.label.toLowerCase().indexOf(q) !== -1 || item.hint.toLowerCase().indexOf(q) !== -1;
+      var pages = allowedCommands();
+      var filteredPages = q ? pages.filter(function(item){
+        return item.label.toLowerCase().indexOf(q) !== -1 || item.hint.toLowerCase().indexOf(q) !== -1;
+      }) : pages;
+      var filteredActions = q ? actionCommands.filter(function(item){
+        return item.label.toLowerCase().indexOf(q) !== -1 || item.hint.toLowerCase().indexOf(q) !== -1;
+      }) : [];
+      var recent = [];
+      if(!q && history.length){
+        recent = history.map(function(href){
+          var found = pages.filter(function(p){ return p.href === href; })[0];
+          return found ? found : null;
+        }).filter(Boolean);
+      }
+      return { recent: recent, pages: filteredPages, actions: filteredActions };
+    }
+
+    function draw(){
+      var items = getItems();
+      var html = '';
+      var allBtns = [];
+
+      if(items.recent.length){
+        html += '<div class="command-group-heading">最近使用</div>';
+        items.recent.forEach(function(item){
+          html += '<button class="command-result" data-href="'+item.href+'"><strong>'+item.label+'</strong><span>'+item.hint+'</span></button>';
+          allBtns.push({el: null, href: item.href});
+        });
+      }
+      if(items.pages.length){
+        html += '<div class="command-group-heading">页面</div>';
+        items.pages.forEach(function(item){
+          html += '<button class="command-result" data-href="'+item.href+'"><strong>'+item.label+'</strong><span>'+item.hint+'</span></button>';
+          allBtns.push({el: null, href: item.href});
+        });
+      }
+      if(items.actions.length){
+        html += '<div class="command-group-heading">动作</div>';
+        items.actions.forEach(function(item){
+          html += '<button class="command-result" data-action="'+item.action+'"><strong>'+item.label+'</strong><span>'+item.hint+'</span></button>';
+          allBtns.push({el: null, action: item.action});
+        });
+      }
+      if(!html) html = '<div class="command-empty">未找到匹配结果</div>';
+
+      results.innerHTML = html;
+      var btns = results.querySelectorAll('.command-result');
+      Array.prototype.forEach.call(btns, function(btn, i){
+        if(i < allBtns.length){
+          btn.onclick = function(){
+            if(allBtns[i].href){
+              trackPaletteHistory(allBtns[i].href);
+              go(allBtns[i].href);
+            } else if(allBtns[i].action){
+              doAction(allBtns[i].action);
+            }
+            closePalette();
+          };
+        }
       });
-      results.innerHTML = (items.length ? items : source).map(function(item){
-        return '<button class="command-result" data-href="'+item.href+'"><strong>'+item.label+'</strong><span>'+item.hint+'</span></button>';
-      }).join('');
-      Array.prototype.forEach.call(results.querySelectorAll('.command-result'), function(btn){
-        btn.onclick = function(){ go(btn.getAttribute('data-href')); closePalette(); };
+      selectedIndex = -1;
+      updateSelection();
+    }
+
+    function updateSelection(){
+      var btns = results.querySelectorAll('.command-result');
+      btns.forEach(function(btn, i){
+        btn.setAttribute('data-selected', i === selectedIndex ? 'true' : 'false');
       });
     }
+
+    function trackPaletteHistory(href){
+      var h = [];
+      try { h = JSON.parse(localStorage.getItem('hr_palette_history')) || []; } catch(e){}
+      h = [href].concat(h.filter(function(x){ return x !== href; }));
+      if(h.length > 5) h.pop();
+      localStorage.setItem('hr_palette_history', JSON.stringify(h));
+    }
+
+    function doAction(action){
+      if(action === 'refresh') location.reload();
+      if(action === 'reset-filters'){
+        var resetBtns = document.querySelectorAll('.filter-reset');
+        if(resetBtns.length) resetBtns[resetBtns.length - 1].click();
+      }
+      if(action === 'density-compact' || action === 'density-comfortable'){
+        var mode = action === 'density-compact' ? 'compact' : 'comfortable';
+        Array.prototype.forEach.call(document.querySelectorAll('.component-table'), function(t){
+          t.setAttribute('data-density', mode);
+        });
+        localStorage.setItem('hr_table_density', mode);
+      }
+    }
+
     input.addEventListener('input', draw);
     input.addEventListener('keydown', function(e){
-      if(e.key === 'Enter'){
-        var first = results.querySelector('.command-result');
-        if(first){ go(first.getAttribute('data-href')); closePalette(); }
+      var btns = results.querySelectorAll('.command-result');
+      if(e.key === 'ArrowDown'){
+        e.preventDefault();
+        if(btns.length){
+          selectedIndex = Math.min(selectedIndex + 1, btns.length - 1);
+          updateSelection();
+        }
+      } else if(e.key === 'ArrowUp'){
+        e.preventDefault();
+        if(btns.length){
+          selectedIndex = Math.max(selectedIndex - 1, 0);
+          updateSelection();
+        }
+      } else if(e.key === 'Enter'){
+        if(btns.length && selectedIndex >= 0){
+          var sel = btns[selectedIndex];
+          if(sel) sel.click();
+        } else if(btns.length){
+          var first = btns[0];
+          if(first) first.click();
+        }
+      } else if(e.key === 'Escape'){
+        closePalette();
+        var trigger = document.getElementById('commandTrigger');
+        if(trigger) trigger.focus();
       }
-      if(e.key === 'Escape') closePalette();
     });
     draw();
     setTimeout(function(){ input.focus(); }, 0);

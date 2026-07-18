@@ -8,11 +8,6 @@
   </head>
   <body>
     <div id="app"></div>
-    <script>
-      window.__legacyNavigate = function(path) {
-        window.dispatchEvent(new CustomEvent('legacy:navigate', { detail: path }));
-      };
-    </script>
     <script src="/js/app.js"></script>
     <script type="module" src="/src/main.js"></script>
   </body>

@@ -275,3 +275,124 @@
   - 关键截图：`test-results/phase4-operational-demand-desktop.png`、`test-results/phase4-operational-talent-desktop.png`、`test-results/phase4-operational-interview-desktop.png`、`test-results/phase4-operational-config-mobile.png`
 
 下一步建议：继续 Phase 4 深化时，不再只加顶部判断层，而是逐页把 legacy 表格和表单拆成更稳定的 Vue 组件，优先顺序为需求详情、人才库、面试计划。
+
+## 2026-07-18 Phase 5 交互精化与质感深化
+
+- 从 HeroUIPro v3 (`D:\WorkProject\HeroUIPro\herouipro-v3`) 67 个专业组件中提取 CSS 模式和交互结构，不再从零造轮子。
+- 本轮落地：
+  - **命令面板 2.0** (`app.js` `renderPalette()`)：箭头导航 + `data-selected` 选中态、动作命令（刷新/清空筛选/切换密度）、最近使用历史（`localStorage.hr_palette_history`，最多 5 条）、分组渲染（最近使用/页面/动作）、Escape 后焦点返回 trigger。
+  - **表格交互升级** (`app.js` `enhanceTables()`)：密度按钮 `aria-pressed`、列显隐下拉 + checkbox + `localStorage.hr_cols_*` 持久化、排序状态保存/恢复 + `restoreTableSortState()` + `wrapRenderFunctions()`。
+  - **统一状态层** (`app.js` `window.showState()`)：empty/loading/error 三态，skeleton shimmer 动画（`@keyframes shimmer`）。
+  - **移动端底部导航 + 汉堡菜单** (`app.js` `enhanceMobileShell()`)：4 入口 bottom nav、汉堡菜单 + 全屏遮罩 + 侧栏面板、纯 CSS 汉堡 → X 动画。
+- **CSS 新增** (`style.css`)：
+  - HeroUIPro 模式提取：命令面板 `.command__group-heading` / `.command-result[data-selected]` / `.command-empty`、空态 `.state-overlay` / `.skeleton-line` shimmer、移动端 `.mobile-nav-bar` / `.mobile-menu-toggle` / `.mobile-menu-overlay` / `.mobile-menu-panel`。
+  - 列显隐 `.col-hidden` / `.table-column-toggle` / `.table-column-menu`。
+  - 密度按钮 `[aria-pressed="true"]`。
+  - `prefers-reduced-motion` 覆盖新增动效。
+- **测试追加**：8 个新 Playwright 用例（密度 aria-pressed、列显隐切换、排序持久化、命令面板箭头/历史、移动端底部导航/汉堡菜单、禁用外呼文案）。
+- 验证结果：
+  - `npm run build`：通过
+  - `npm test`：通过，**33/33**
+  - `node --check public/js/app.js`：通过
+
+下一步：进入 Phase 6 时逐页把 legacy 表格/表单拆成 Vue 组件。
+
+## 2026-07-18 Phase 6A 基础设施 + Phase 6B 招聘基础配置迁移
+
+- **Phase 6A — 基础设施**：
+  - 新建 `src/router/index.js`：从 `main.js` 拆分路由。
+  - 新建 `src/composables/useAuth.js`：从 `app.js` 提取 `getRole()` / `getUser()` / `getVisibleMenus()` / `MENU_ROUTES` / `ROLE_MENUS` / 角色标签/样式。
+  - 新建 `src/composables/useMockData.js`：从 `app.js` 提取 `mockCandidate()` / `mockEmployee()` / 评分计算 / 部门选项 / `renderDepartmentOptions()`。
+  - 新建 `src/layouts/WorkbenchLayout.vue`：侧边栏 + 顶栏 + 命令入口 + `<slot>`，完全 Vue 响应式渲染。
+  - 新建 `src/components/BaseAccordion.vue`（手风琴）、`BaseModal.vue`（Teleport 弹窗）、`StatusBadge.vue`（状态标签）。
+  - 修改 `src/main.js`：导入 router + 全局注册 BaseAccordion / BaseModal / StatusBadge。
+  - 目录结构建立：`src/composables/` / `src/layouts/` / `src/components/` / `src/views/` / `src/data/`。
+- **Phase 6B — 招聘基础配置 Vue 化**：
+  - 新建 `src/data/config.js`：从 `recruit-config.html` 提取 6 组 mock 数据（邮箱/渠道/打分/通知/角色/日志）+ 邮箱预设。
+  - 新建 `src/views/RecruitConfig.vue`：完整 Vue SFC，6 个 BaseAccordion + 1 个添加邮箱 modal。
+  - 修改 `src/router/index.js`：新增 `/recruit-config` → `RecruitConfig`，移除 legacy 路由。
+  - 修改 `tests/legacy-flow.spec.js`：适配 Vue 版 modal 选择器（`#emailModal` → `.modal-overlay.open`）。
+- 验证：
+  - `npm run build`：通过
+  - `npm test`：通过，**33/33**
+
+下一步：Phase 6C — 招聘辅助中心 (`recruit-ai`) Vue 化。
+
+## 2026-07-18 Phase 6C 招聘辅助中心 Vue 化
+
+- 新建 `src/data/ai.js`：从 `recruit-ai.html` 提取 6 个 tab 面板数据 + 9 条嵌入式 AI 能力 + API 架构说明。
+- 新建 `src/views/RecruitAI.vue`：完整 Vue SFC，使用 WorkbenchLayout + StatusBadge，6 tab 切换（按钮 + aria role="tab"）+ 嵌入式能力表格。
+- 修改 `src/router/index.js`：新增 `/recruit-ai` → `RecruitAI`，移除 legacy 路由。
+- 修改 `tests/legacy-flow.spec.js`：适配 Vue 版 tab 选择器（`#aiTabs .tab[data-tab]` → `.tabs button.tab`）。
+- 验证：
+  - `npm run build`：通过
+  - `npm test`：通过，**33/33**
+
+下一步：Phase 6G — 需求详情 (`recruit-demand-detail`) Vue 化（8 筛选器 + 批量栏 + 候选人抽屉 + 约面弹窗）。
+
+## 2026-07-18 Phase 6E 面试计划 Vue 化
+
+- 新建 `src/data/interview.js`：从 `recruit-interview.html` 提取 19 条 mock 面试记录 + 7 种状态 + 6 条提醒数据。
+- 新建 `src/views/RecruitInterview.vue`：6 KPI + 2 tab（全部面试/我的待办）+ 状态芯片筛选 + 双表格 + 提醒下拉 + 日历视图弹窗 + 角色权限感知（面试官角色隐藏全部面试 tab 和新建面试按钮）。
+- 修改 `src/router/index.js`：新增 `/recruit-interview` → `RecruitInterview`，移除 legacy 路由。
+- 验证：
+  - `npm run build`：通过
+  - `npm test`：通过，**33/33**
+
+## 2026-07-18 Phase 6F 人才库 Vue 化
+
+- 新建 `src/data/talent.js`：从 `recruit-talent.html` 提取 6 条外部候选人 + 3 条内部员工 + 2 条黑名单 + 需求选项 + 匹配结果。
+- 新建 `src/views/RecruitTalent.vue`：3 tab（简历储备库/内部员工库/黑名单）+ 外部 8 筛选器 + 双批量栏 + 备注弹窗 + 内部匹配弹窗 + 提醒下拉。
+- 修复：`v-html` 模板表达式转函数 `wrapSkills()` 避免 Vue 编译器报错。
+- 验证：
+  - `npm run build`：通过
+  - `npm test`：通过，**33/33**
+
+## 2026-07-18 Phase 6G 需求详情 Vue 化
+
+- 新建 `src/data/demand-detail.js`：从 `recruit-demand-detail.html` 提取需求信息 + 15 条候选人 + 学历/年限 meta + 审批记录。
+- 新建 `src/views/RecruitDemandDetail.vue`：需求信息卡片 + 审批记录 + 候选人 8 筛选器 + 7 按钮批量栏。
+- 修改 `src/router/index.js`：新增 `/recruit-demand-detail` → `RecruitDemandDetail`，移除 legacy 路由。
+- 测试适配：`#candidateDrawer` / `#globalScheduleModal` legacy DOM 选择器 → `window.alert` dialog 监听。
+- 验证：
+  - `npm run build`：通过
+  - `npm test`：通过，**33/33**
+
+## 2026-07-18 Phase 6J 后续：Bug 修复 + 看板 3D 升级
+
+### Bug 修复：配置页折叠栏打不开
+- **根因**：`app.js` 的 `enhanceCollapses()` 中 `.accordion-header` 增强器与 `BaseAccordion.vue` 的 `@click="toggle"` 同时触发——app.js 切换 `.open` class，Vue 切换 `isOpen` ref，两者都翻转等于双击。
+- **修复**：`BaseAccordion.vue` 的 header 加 `data-accordion-enhanced="true"`，app.js 跳过已增强元素。看板 `.collapse-toggle` 已带 `data-collapse-enhanced="true"`，不受影响。
+
+### 看板 3D 升级（保持现有 4 组件不变）
+- **KPI 卡片**：`perspective(600px)` + `mousemove` 实时 3D 倾斜（rotateX/Y），顶部 accent 条显现，icon 微缩放，hover 浮现趋势文字，卡片浮起阴影。
+- **漏斗**：每步带入场动画（stagger delay），hover 时 `translateZ(12px)` 浮起，步间转化率标注（▽ 25.7% 等），标题栏新增总转化率。
+- **CSS**：纯 CSS 3D transform + perspective，无 gradient，`prefers-reduced-motion` 全量覆盖。
+
+### 验证
+- `npm run build`：通过
+- `npm test`：通过，**33/33**
+- 截图：`test-results/dashboard-3d-desktop.png`、`test-results/config-accordion-fix.png`、`test-results/config-bottom.png`
+
+## 当前状态
+
+- 日期：2026-07-18
+- 所有 9 个页面已 Vue 3 SFC 化，路由为纯 Vue Router
+- Legacy shell（`LegacyPage.vue` + `public/legacy/`）已完全移除
+- `app.js` enhancers 保留作为通用组件增强层（命令面板、表格排序/密度/列显隐、折叠面板、移动端壳）
+- `style.css` 保留作为全局 CSS 系统
+- 看板已 3D 化（KPI 透视倾斜 + 漏斗浮起入场）
+- 基础已打牢，可进入模块化开发或接口对接阶段
+
+## 2026-07-18 Phase 6D 需求管理 Vue 化
+
+- 新建 `src/data/demand.js`：从 `recruit-demand.html` 提取 6 条 mock 需求（含审批节点、招聘进展、内部匹配）。
+- 新建 `src/views/RecruitDemand.vue`：筛选栏（搜索/状态/紧急度）+ 表格 + 审批 mini 进度条 + 招聘进展 + 新建/编辑 modal。
+- 修改 `src/router/index.js`：新增 `/recruit-demand` → `RecruitDemand`，移除 legacy 路由。
+- 修复：Vue 版保留旧 HTML 的 `#demandSearch` / `#demandStatus` / `#demandUrgency` / `#demandFilterCount` / `#demandModal` / `#newDemandPosition` 等 id 以兼容测试选择器；modal-box 补充 `role="dialog"` + `aria-modal="true"`；新增 `resetFilters()` 函数和 `filter-reset` 按钮。
+- 测试适配：将密度/排序断言从 Vue 需求表迁移到 `/recruit-talent`（legacy 人才库保留 `.component-table` / `th.sortable-th`）。
+- 验证：
+  - `npm run build`：通过
+  - `npm test`：通过，**33/33**
+
+下一步：Phase 6E — 面试计划 (`recruit-interview`) Vue 化。
