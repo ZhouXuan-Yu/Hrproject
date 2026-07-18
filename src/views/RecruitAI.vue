@@ -422,15 +422,62 @@ const jdLoading = ref(false);
 const jdError = ref('');
 const jdStatus = computed(() => jdLoading.value ? 'submitted' : (jdError.value ? 'error' : 'ready'));
 
+// Streaming (SSE) — tries streaming first, falls back to blocking
+const {
+  content: jdStreamContent,
+  thinking: jdThinking,
+  isStreaming: jdStreaming,
+  error: jdStreamError,
+  result: jdStreamResult,
+  start: startJdStream,
+  stop: stopJdStream,
+} = useStreaming();
+
+// Watch for streaming completion and set jdResult
+watch([jdStreamContent, jdStreamResult, jdStreamError], () => {
+  if (jdStreamError.value) {
+    jdError.value = jdStreamError.value;
+    jdLoading.value = false;
+  }
+  if (!jdStreaming.value && jdStreamContent.value) {
+    // Parse the markdown stream into structured JD
+    jdResult.value = {
+      jd_text: jdStreamContent.value,
+      position: jdForm.position,
+      department: jdForm.department,
+      // Fallback structure if streaming didn't provide result keys
+      responsibilities: jdStreamResult.value?.responsibilities || ['（AI 流式生成的内容，请查看上方 Markdown）'],
+      required_skills: jdStreamResult.value?.required_skills || [],
+      plus_skills: jdStreamResult.value?.plus_skills || [],
+      qualifications: jdStreamResult.value?.qualifications || {},
+      disclaimer: jdStreamResult.value?.disclaimer || '此内容由AI生成，请人工审核确认后使用',
+    };
+    jdLoading.value = false;
+  }
+});
+
 // Watch: clear error on input change (must be after declarations)
 watch(() => jdForm.requirements, () => { if (jdError.value) jdError.value = ''; });
 
+// Override generateJd to use streaming
 async function generateJd() {
   if (!jdForm.position || !jdForm.department) return;
   jdError.value = ''; jdLoading.value = true;
-  try { jdResult.value = await runJdGenerate({ ...jdForm }); showToast('JD 草稿生成完成'); }
-  catch (e) { jdError.value = e.message || '生成失败，请重试'; showToast(jdError.value); }
-  finally { jdLoading.value = false; }
+  try {
+    await startJdStream('jd-generate', { ...jdForm });
+    showToast('JD 草稿生成完成');
+  } catch (e) {
+    // Fallback to blocking API
+    jdLoading.value = true;
+    try {
+      jdResult.value = await runJdGenerate({ ...jdForm });
+      showToast('JD 草稿生成完成');
+    } catch (e2) {
+      jdError.value = e2.message || '生成失败，请重试';
+      showToast(jdError.value);
+    }
+    jdLoading.value = false;
+  }
 }
 
 // --- Tab 2: Search ---
@@ -452,6 +499,38 @@ async function searchResume() {
 }
 function viewResume(id) { showToast('查看简历: ' + id); }
 
+// Streaming (SSE) for match
+const {
+  content: matchStreamContent,
+  thinking: matchThinking,
+  isStreaming: matchStreaming,
+  error: matchStreamError,
+  result: matchStreamResult,
+  start: startMatchStream,
+  stop: stopMatchStream,
+} = useStreaming();
+
+// Watch for match streaming completion
+watch([matchStreamContent, matchStreamResult, matchStreamError], () => {
+  if (matchStreamError.value) {
+    matchError.value = matchStreamError.value;
+    matchLoading.value = false;
+  }
+  if (!matchStreaming.value && matchStreamContent.value) {
+    matchResult.value = {
+      overall_score: matchStreamResult.value?.overall_score ?? 0,
+      profile_score: matchStreamResult.value?.profile_score ?? 0,
+      match_score: matchStreamResult.value?.match_score ?? 0,
+      grade: matchStreamResult.value?.grade ?? 'B',
+      reasons: matchStreamResult.value?.reasons || ['流式生成内容，请查看上方信息'],
+      missing_skills: matchStreamResult.value?.missing_skills || [],
+      strengths: matchStreamResult.value?.strengths || [],
+      disclaimer: matchStreamResult.value?.disclaimer || '此内容由AI生成，请人工审核确认后使用',
+    };
+    matchLoading.value = false;
+  }
+});
+
 // --- Tab 3: Match ---
 const matchForm = reactive({ candidateId: '', demandId: '' });
 const matchResult = ref(null);
@@ -461,9 +540,21 @@ const matchError = ref('');
 async function runMatch() {
   if (!matchForm.candidateId || !matchForm.demandId) return;
   matchError.value = ''; matchLoading.value = true;
-  try { matchResult.value = await apiRunMatch({ candidate_id: matchForm.candidateId, demand_id: matchForm.demandId }); showToast('匹配完成'); }
-  catch (e) { matchError.value = e.message || '匹配失败，请重试'; showToast(matchError.value); }
-  finally { matchLoading.value = false; }
+  try {
+    await startMatchStream('match', { candidate_id: matchForm.candidateId, demand_id: matchForm.demandId });
+    showToast('匹配完成');
+  } catch (e) {
+    // Fallback to blocking API
+    matchLoading.value = true;
+    try {
+      matchResult.value = await apiRunMatch({ candidate_id: matchForm.candidateId, demand_id: matchForm.demandId });
+      showToast('匹配完成');
+    } catch (e2) {
+      matchError.value = e2.message || '匹配失败，请重试';
+      showToast(matchError.value);
+    }
+    matchLoading.value = false;
+  }
 }
 
 // --- Tab 4: Interview ---
