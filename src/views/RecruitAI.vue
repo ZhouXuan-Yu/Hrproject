@@ -30,7 +30,7 @@
           </AiChatMessage>
 
           <!-- Loading -->
-          <AiChatMessage v-if="jdLoading" role="ai" status="loading" />
+          <AiChatMessage v-if="jdLoading && !jdStreamContent" role="ai" status="loading" />
 
           <!-- Streaming content (shown during SSE, before final parse) -->
           <AiChatMessage
@@ -176,7 +176,16 @@
           <AiChatMessage role="ai" status="complete">
             <p>选择候选人和岗位，系统会基于简历画像和岗位 JD 进行多维匹配打分，并给出详细理由。</p>
           </AiChatMessage>
-          <AiChatMessage v-if="matchLoading" role="ai" status="loading" />
+          <AiChatMessage v-if="matchLoading && !matchStreamContent" role="ai" status="loading" />
+
+          <!-- Streaming content during match -->
+          <AiChatMessage
+            v-if="matchLoading && matchStreamContent"
+            role="ai"
+            status="streaming"
+            :streamingContent="matchStreamContent"
+          />
+
           <AiChatMessage v-if="matchError && !matchLoading" role="ai" status="error">
             <template #error>{{ matchError }}</template>
           </AiChatMessage>
@@ -402,14 +411,17 @@ import {
   runJdGenerate, runResumeSearch, runMatch as apiRunMatch,
   runInterviewQuestions, runCommunicationDraft, runReportAnalysis,
 } from '../api/ai.js';
+import { fetchDemands } from '../api/demand.js';
+import { fetchTalent } from '../api/talent.js';
 import { useStreaming } from '../composables/useStreaming.js';
 
 // --- Shared ---
 const tabs = AI_TABS;
 const activeTab = ref('jd');
 const embeddedAI = ref(EMBEDDED_AI);
-const candidates = MOCK_CANDIDATES;
-const demands = MOCK_DEMANDS;
+// Initialize with mock data, will be replaced by backend data
+const candidates = ref([...MOCK_CANDIDATES]);
+const demands = ref([...MOCK_DEMANDS]);
 const departments = MOCK_DEPARTMENTS;
 
 // Toast (replaces alert)

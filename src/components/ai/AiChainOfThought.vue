@@ -27,7 +27,7 @@
 
     <!-- Steps list -->
     <div
-      v-show="expanded"
+      v-show="isExpanded"
       data-slot="chain-of-thought-body"
       role="list"
     >
