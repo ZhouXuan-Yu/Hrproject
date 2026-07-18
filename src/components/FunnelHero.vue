@@ -169,13 +169,14 @@ const selAccent = computed(() => accentColor(sel.value));
 function accentColor(step) { return step.color || 'var(--c-primary)'; }
 function selectStage(i) { selected.value = i; }
 
-// Semantic stage palette (hex for WebGL, css strings for HUD)
-const STAGE_HEX = FUNNEL_STEPS.map((s, i) => {
-  if (i === FUNNEL_STEPS.length - 1) return 0x22c55e; // 入职 green
-  if (s.bottleneck || s.health === 'risk') return 0xef4444;
-  if (s.health === 'watch') return 0xf59e0b;
-  return 0x4f6ef7;
-});
+// Semantic stage palette — cohesive blue progression with green for hire
+const STAGE_HEX = [
+  0x7AA7FF, // 收简历   — light sky
+  0x4F7BFF, // 筛选通过 — bright blue
+  0x315EFB, // 面试     — primary blue
+  0x6C63FF, // Offer    — purple-blue accent
+  0x22A06B, // 入职     — success green
+];
 const STAGE_CSS = STAGE_HEX.map((h) => '#' + h.toString(16).padStart(6, '0'));
 function stageCss(i) { return STAGE_CSS[i]; }
 function hudSide(i) { return i % 2 === 0 ? 'left' : 'right'; }
@@ -227,7 +228,7 @@ let camera = null;
 let coneGroup = null;
 let raycaster = null;
 let pointerNDC = null;
-let discs = []; // { mesh, mat, ringMat, glowMat, baseY, r, lift, reveal }
+let discs = []; // { mesh, mat, baseY, r, lift, reveal }
 let coneFillers = []; // { mesh, mat, reveal }
 let helixStrands = []; // { geo, phase }
 let orbitLights = [];
@@ -242,7 +243,7 @@ let destroyed = false;
 
 const DISC_RADII = [1.6, 1.32, 1.04, 0.78, 0.54];
 const DISC_Y = [1.55, 0.78, 0.0, -0.78, -1.55];
-const HELIX_N = 150;
+const HELIX_N = 180;
 const HELIX_TURNS = 3;
 
 function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
@@ -271,7 +272,7 @@ function initThree() {
   scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0xf4f7fc, 10, 18);
   camera = new THREE.PerspectiveCamera(38, w / h, 0.1, 50);
-  camera.position.set(0, 1.4, 8.2);
+  camera.position.set(0, 0.55, 8.2);
   camera.lookAt(0, -0.05, 0);
 
   // Lighting: ambient + key (project blue) + rim (cyan) orbiting
@@ -286,42 +287,37 @@ function initThree() {
   coneGroup = new THREE.Group();
   scene.add(coneGroup);
 
-  // Frustum side fillers between rings (rendered first, behind rings)
-  const coneFillers = [];
+  // Frustum side fillers between rings — one colored band per stage
   for (let i = 0; i < DISC_RADII.length - 1; i++) {
     const r = DISC_RADII[i];
     const nextR = DISC_RADII[i + 1];
-    const tube = 0.085 - i * 0.007;
-    const nextTube = 0.085 - (i + 1) * 0.007;
+    const tube = 0.06 - i * 0.004;
+    const nextTube = 0.06 - (i + 1) * 0.004;
     const topY = DISC_Y[i] - 1.4;
     const bottomY = DISC_Y[i + 1] - 1.4;
     const height = Math.abs(bottomY - topY);
-    const topR = (r + tube) * 0.55;
-    const bottomR = (nextR + nextTube) * 0.55;
+    // slight flare so the colored side shows past the glass ring edges
+    const topR = (r + tube) * 1.06;
+    const bottomR = (nextR + nextTube) * 1.06;
     const fillGeo = new THREE.CylinderGeometry(topR, bottomR, height, 64, 1, true);
-    const fillMat = new THREE.MeshPhysicalMaterial({
+    const fillMat = new THREE.MeshBasicMaterial({
       color: STAGE_HEX[i],
       transparent: true,
       opacity: 0.0,
-      roughness: 0.22,
-      metalness: 0.05,
-      clearcoat: 0.6,
-      clearcoatRoughness: 0.2,
-      transmission: 0.35,
-      thickness: 0.2,
       side: THREE.DoubleSide,
       depthWrite: false,
     });
     const filler = new THREE.Mesh(fillGeo, fillMat);
     filler.position.y = (topY + bottomY) / 2;
     filler.userData.stage = i;
+    filler.renderOrder = 0;
     coneGroup.add(filler);
     coneFillers.push({ mesh: filler, mat: fillMat, reveal: 0 });
   }
 
-  // 5 advanced glass rings, stacked top → bottom
+  // 5 glass rings, stacked top → bottom
   DISC_RADII.forEach((r, i) => {
-    const tube = 0.085 - i * 0.007;
+    const tube = 0.06 - i * 0.004;
     const geo = new THREE.TorusGeometry(r, tube, 18, 120);
     const mat = new THREE.MeshPhysicalMaterial({
       color: STAGE_HEX[i],
@@ -343,26 +339,20 @@ function initThree() {
     mesh.rotation.x = Math.PI / 2;
     mesh.scale.setScalar(0.55);
     mesh.userData.stage = i;
-
-    // selection ring (kept hidden)
-    const ringGeo = new THREE.TorusGeometry(r + tube * 2.2, 0.025, 12, 96);
-    const ringMat = new THREE.MeshBasicMaterial({ color: STAGE_HEX[i], transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
-    const ring = new THREE.Mesh(ringGeo, ringMat);
-    ring.rotation.x = Math.PI / 2;
-    ring.userData.stage = i;
-    mesh.add(ring);
+    mesh.renderOrder = 1;
 
     coneGroup.add(mesh);
-    discs.push({ mesh, mat, ringMat, glowMat: null, baseY: DISC_Y[i], r, lift: 0, reveal: 0 });
+    discs.push({ mesh, mat, baseY: DISC_Y[i], r, lift: 0, reveal: 0 });
   });
 
-  // Double-helix particle streams (phase offset π) — more visible
-  for (let s = 0; s < 2; s++) {
+  // Multi-strand particle streams flowing along the funnel surface
+  const streamColors = [0x315efb, 0x36bffa, 0x6c63ff, 0x9bb5ff];
+  for (let s = 0; s < 4; s++) {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(HELIX_N * 3), 3));
     const mat = new THREE.PointsMaterial({
-      color: s === 0 ? 0x315efb : 0x36bffa,
-      size: 0.075,
+      color: streamColors[s],
+      size: 0.10,
       transparent: true,
       opacity: 1.0,
       blending: THREE.AdditiveBlending,
@@ -370,7 +360,7 @@ function initThree() {
       sizeAttenuation: true,
     });
     coneGroup.add(new THREE.Points(geo, mat));
-    helixStrands.push({ geo, phase: s * Math.PI });
+    helixStrands.push({ geo, phase: s * (Math.PI * 2 / 4) });
   }
 
   raycaster = new THREE.Raycaster();
@@ -386,13 +376,20 @@ function initThree() {
 }
 
 function updateHelix(time) {
+  const topY = DISC_Y[0] - 1.4;
+  const bottomY = DISC_Y[DISC_Y.length - 1] - 1.4;
+  // follow the outer edge of the fully revealed rings
+  const topTube = 0.06;
+  const bottomTube = 0.06 - (DISC_RADII.length - 1) * 0.004;
+  const topR = (DISC_RADII[0] + topTube) * 0.92;
+  const bottomR = (DISC_RADII[DISC_RADII.length - 1] + bottomTube) * 0.92;
   helixStrands.forEach((hx) => {
     const arr = hx.geo.attributes.position.array;
     for (let j = 0; j < HELIX_N; j++) {
-      const t = (j / HELIX_N + time * 0.045) % 1;
+      const t = (j / HELIX_N + time * 0.05) % 1;
       const ang = t * HELIX_TURNS * Math.PI * 2 + hx.phase;
-      const y = 2.1 + t * -4.2; // flows top → bottom
-      const r = 1.95 + t * (0.7 - 1.95);
+      const y = topY + t * (bottomY - topY);
+      const r = topR + t * (bottomR - topR);
       arr[j * 3] = Math.cos(ang) * r;
       arr[j * 3 + 1] = y;
       arr[j * 3 + 2] = Math.sin(ang) * r;
@@ -419,14 +416,15 @@ function updateDiscs(now) {
     const isSel = i === selected.value;
     d.lift += ((isSel ? 0.18 : 0) - d.lift) * 0.07;
     d.mat.emissiveIntensity += ((isSel ? 0.55 : 0.12) - d.mat.emissiveIntensity) * 0.08;
-    d.ringMat.opacity += (0 - d.ringMat.opacity) * 0.1; // selection ring hidden
     const rv = d.reveal;
     d.mesh.position.y = d.baseY - (1 - rv) * 1.4 + d.lift;
     d.mesh.scale.setScalar(0.55 + 0.45 * rv);
-    d.mat.opacity = 0.72 * rv;
+    d.mat.opacity = 0.58 * rv;
   });
   coneFillers.forEach((f) => {
-    f.mat.opacity = 0.18 * f.reveal;
+    const s = 0.55 + 0.45 * f.reveal;
+    f.mesh.scale.setScalar(s);
+    f.mat.opacity = 0.62 * f.reveal;
   });
 }
 
@@ -456,7 +454,7 @@ function updateHUD() {
     hudVec.project(camera);
     const ex = (hudVec.x * 0.5 + 0.5) * w;
     const ey = (-hudVec.y * 0.5 + 0.5) * h;
-    const ax = side < 0 ? 72 : w - 72;
+    const ax = side < 0 ? 56 : w - 56;
     chip.style.top = cy + 'px';
     line.setAttribute('x1', ax);
     line.setAttribute('y1', cy);
@@ -483,7 +481,7 @@ function tick(nowMs) {
 
   // scroll-driven depth + pointer parallax (lerped)
   const targetZ = 8.2 - scrollP * 1.6;
-  const targetY = 1.0 + scrollP * 1.1 - ptrY * 0.4;
+  const targetY = 0.35 + scrollP * 0.85 - ptrY * 0.4;
   const targetX = ptrX * 0.7;
   camera.position.z += (targetZ - camera.position.z) * 0.05;
   camera.position.y += (targetY - camera.position.y) * 0.05;
@@ -699,8 +697,8 @@ onUnmounted(() => {
   opacity: 0;
   transition: opacity .5s ease var(--hud-delay, 0s), transform .2s ease, box-shadow .2s ease, border-color .2s, background .2s;
 }
-.funnel-hud-chip.left { left: 10px; }
-.funnel-hud-chip.right { right: 10px; }
+.funnel-hud-chip.left { left: 8px; }
+.funnel-hud-chip.right { right: 8px; }
 .funnel-revealed .funnel-hud-chip { opacity: 1; }
 .funnel-hud-chip:hover {
   transform: translateY(-50%) scale(1.04);
@@ -709,12 +707,17 @@ onUnmounted(() => {
   box-shadow: 0 6px 16px rgba(49, 94, 251, 0.16);
   z-index: 4;
 }
+@keyframes hudPulse {
+  0%, 100% { box-shadow: 0 8px 20px rgba(49, 94, 251, 0.2); }
+  50% { box-shadow: 0 8px 26px rgba(49, 94, 251, 0.34); }
+}
 .funnel-hud-chip.active {
   transform: translateY(-50%) scale(1.04);
   background: #FFFFFF;
   border: 1px solid var(--hud-accent, var(--c-primary));
   border-left-width: 3px;
   box-shadow: 0 8px 20px rgba(49, 94, 251, 0.2);
+  animation: hudPulse 2.2s ease-in-out infinite;
   z-index: 4;
 }
 .hud-name {

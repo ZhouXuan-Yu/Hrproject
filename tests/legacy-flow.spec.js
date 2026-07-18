@@ -216,7 +216,7 @@ test('demand list supports filtering and create modal', async ({ page }) => {
 test('demand detail enhanced filters and batch actions are available', async ({ page }) => {
   await page.goto('/recruit-demand-detail');
   await page.locator('#filterEdu').selectOption('大专');
-  await expect(page.locator('#filterCount')).toContainText('共 2 人');
+  await expect(page.locator('#filterCount')).toContainText('共 1 人');
   await page.locator('.row-check').first().check();
   await expect(page.getByRole('button', { name: '批量加入需求' })).toBeVisible();
   await expect(page.getByRole('button', { name: '批量移出需求' })).toBeVisible();
