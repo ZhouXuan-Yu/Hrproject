@@ -171,18 +171,18 @@ if (isInterviewerRole) activeTab.value = 'mine';
 
 // Helpers
 function countBy(st, mineOnly = false) {
-  const pool = mineOnly ? ALL_INTERVIEWS.filter(i => i.isMine) : ALL_INTERVIEWS;
+  const pool = mineOnly ? INTERVIEWS_SOURCE.value.filter(i => i.isMine) : INTERVIEWS_SOURCE.value;
   if (st === 'all') return pool.length;
   return pool.filter(i => i.status === st).length;
 }
 function countMineBy(st) {
-  if (st === 'all') return ALL_INTERVIEWS.filter(i => i.isMine).length;
-  return ALL_INTERVIEWS.filter(i => i.isMine && i.status === st).length;
+  if (st === 'all') return INTERVIEWS_SOURCE.value.filter(i => i.isMine).length;
+  return INTERVIEWS_SOURCE.value.filter(i => i.isMine && i.status === st).length;
 }
 
 // KPI values
 const kpis = computed(() => {
-  const source = (isInterviewerRole) ? ALL_INTERVIEWS.filter(i => i.isMine) : ALL_INTERVIEWS;
+  const source = (isInterviewerRole) ? INTERVIEWS_SOURCE.value.filter(i => i.isMine) : INTERVIEWS_SOURCE.value;
   const count = (st) => source.filter(i => i.status === st).length;
   return [
     { key:'pending', value: count('pending'), label:'待安排', icon:'<svg viewBox="0 0 24 24" style="width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' },
@@ -196,7 +196,7 @@ const kpis = computed(() => {
 
 // Filtered data
 const filteredList = computed(() => {
-  return ALL_INTERVIEWS.filter(item => {
+  return INTERVIEWS_SOURCE.value.filter(item => {
     if (currentScope.value === 'created' && item.createdBy !== user) return false;
     if (listStatus.value !== 'all' && item.status !== listStatus.value) return false;
     return true;
@@ -204,7 +204,7 @@ const filteredList = computed(() => {
 });
 
 const filteredMine = computed(() => {
-  return ALL_INTERVIEWS.filter(item => {
+  return INTERVIEWS_SOURCE.value.filter(item => {
     if (!item.isMine) return false;
     if (mineStatus.value !== 'all' && item.status !== mineStatus.value) return false;
     return true;
@@ -278,7 +278,7 @@ const calendarDays = computed(() => {
 
   // Build calendar data
   const calData = {};
-  ALL_INTERVIEWS.forEach(item => {
+  INTERVIEWS_SOURCE.value.forEach(item => {
     if (['scheduled','evaluating','onboard','done'].includes(item.status) && item.date !== '待定') {
       const k = '2026-' + item.date;
       if (!calData[k]) calData[k] = [];
