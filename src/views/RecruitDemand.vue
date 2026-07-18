@@ -104,16 +104,28 @@ import { useRouter } from 'vue-router';
 import WorkbenchLayout from '../layouts/WorkbenchLayout.vue';
 import { DEMANDS, getLinkedCount } from '../data/demand.js';
 import { HR_DEPARTMENTS } from '../composables/useMockData.js';
+import { fetchDemands, createDemand } from '../api/demand.js';
 
 const router = useRouter();
+const apiDemands = ref(null);
 const demands = ref(DEMANDS.map(d => ({ ...d, linkedCount: getLinkedCount(d.id) })));
+
+async function loadFromApi() {
+  try {
+    const res = await fetchDemands();
+    apiDemands.value = res;
+  } catch (e) {
+    console.warn('[RecruitDemand] API fetch failed, using mock data:', e);
+  }
+}
 const departments = HR_DEPARTMENTS;
 
 // Filters
 const filters = reactive({ search: '', status: 'all', urgency: 'all' });
 
 const filteredDemands = computed(() => {
-  return demands.value.filter(d => {
+  const list = apiDemands.value?.data || demands.value;
+  return list.filter(d => {
     if (filters.status !== 'all' && d.status !== filters.status) return false;
     if (filters.urgency !== 'all' && d.urgency !== filters.urgency) return false;
     if (filters.search) {

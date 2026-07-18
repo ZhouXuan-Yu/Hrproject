@@ -183,6 +183,7 @@
 import { reactive, ref, onMounted } from 'vue';
 import WorkbenchLayout from '../layouts/WorkbenchLayout.vue';
 import { EMAIL_ACCOUNTS, CHANNELS, SCORE_RULES, NOTIFY_TEMPLATES, ROLE_PERMISSIONS, AUDIT_LOGS, EMAIL_PRESETS } from '../data/config.js';
+import { fetchEmailAccounts, fetchChannels, fetchScoreRules, fetchNotifyTemplates, fetchRolePermissions, fetchAuditLogs } from '../api/config.js';
 
 const emailAccounts = ref(EMAIL_ACCOUNTS);
 const channels = ref(CHANNELS);
@@ -198,6 +199,29 @@ const emailForm = reactive({
   freq: '每 30 分钟', folder: 'INBOX', folderCustom: '',
   markRead: false, autoReply: false,
 });
+
+async function loadFromApi() {
+  try {
+    const [apiEmail, apiChannels, apiRules, apiNotify, apiRoles, apiLogs] = await Promise.all([
+      fetchEmailAccounts(),
+      fetchChannels(),
+      fetchScoreRules(),
+      fetchNotifyTemplates(),
+      fetchRolePermissions(),
+      fetchAuditLogs(),
+    ]);
+    if (apiEmail && apiEmail.length) emailAccounts.value = apiEmail;
+    if (apiChannels && apiChannels.length) channels.value = apiChannels;
+    if (apiRules) Object.assign(scoreRules, apiRules);
+    if (apiNotify && apiNotify.length) notifyTemplates.value = apiNotify;
+    if (apiRoles && apiRoles.length) rolePermissions.value = apiRoles;
+    if (apiLogs && apiLogs.length) auditLogs.value = apiLogs;
+  } catch (e) {
+    console.warn('API fallback to mock:', e.message);
+  }
+}
+
+onMounted(() => { loadFromApi(); });
 
 function onEmailTypeChange(){
   const preset = EMAIL_PRESETS[emailForm.type];
