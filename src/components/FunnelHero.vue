@@ -227,8 +227,9 @@ let camera = null;
 let coneGroup = null;
 let raycaster = null;
 let pointerNDC = null;
-let discs = []; // { mesh, mat, ringMat, baseY, r, lift, reveal }
+let discs = []; // { mesh, mat, ringMat, glowMat, baseY, r, lift, reveal }
 let helixStrands = []; // { geo, phase }
+let pillars = []; // { mesh, mat, reveal }
 let orbitLights = [];
 let rafId = 0;
 let revealStart = -1;
@@ -260,15 +261,15 @@ function initThree() {
   const w = wrap.clientWidth || 600;
   const h = wrap.clientHeight || 520;
 
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.setSize(w, h, false); // CSS keeps canvas at 100% of the wrap
-  renderer.setClearColor(0x0b1220, 1);
+  renderer.setClearColor(0xf4f7fc, 0);
   renderer.domElement.classList.add('funnel-three-canvas');
   wrap.appendChild(renderer.domElement);
 
   scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(0x0b1220, 10, 18);
+  scene.fog = new THREE.Fog(0xf4f7fc, 10, 18);
   camera = new THREE.PerspectiveCamera(38, w / h, 0.1, 50);
   camera.position.set(0, 1.4, 8.2);
   camera.lookAt(0, -0.05, 0);
@@ -285,56 +286,87 @@ function initThree() {
   coneGroup = new THREE.Group();
   scene.add(coneGroup);
 
-  // 5 glass discs, stacked top → bottom
+  // 5 advanced glass rings, stacked top → bottom
   DISC_RADII.forEach((r, i) => {
-    const geo = new THREE.CylinderGeometry(r, r, 0.16, 72);
+    const tube = 0.085 - i * 0.007;
+    const geo = new THREE.TorusGeometry(r, tube, 18, 120);
     const mat = new THREE.MeshPhysicalMaterial({
       color: STAGE_HEX[i],
       transparent: true,
       opacity: 0.0,
-      roughness: 0.14,
-      metalness: 0.08,
+      roughness: 0.08,
+      metalness: 0.12,
       clearcoat: 1,
-      clearcoatRoughness: 0.18,
+      clearcoatRoughness: 0.12,
+      transmission: 0.55,
+      thickness: 0.4,
+      ior: 1.55,
       emissive: STAGE_HEX[i],
-      emissiveIntensity: 0.12,
+      emissiveIntensity: 0.18,
       depthWrite: false,
     });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.position.y = DISC_Y[i] - 1.4;
+    mesh.rotation.x = Math.PI / 2;
     mesh.scale.setScalar(0.55);
     mesh.userData.stage = i;
 
-    // thin top rim line for the glass edge
-    const rimGeo = new THREE.BufferGeometry().setFromPoints(circlePoints(r, 0.085));
-    const rimLine = new THREE.LineLoop(rimGeo, new THREE.LineBasicMaterial({
-      color: 0xffffff, transparent: true, opacity: 0.0,
-    }));
-    mesh.add(rimLine);
+    // outer glow ring
+    const glowGeo = new THREE.TorusGeometry(r + tube * 1.6, 0.018, 8, 120);
+    const glowMat = new THREE.MeshBasicMaterial({
+      color: STAGE_HEX[i], transparent: true, opacity: 0.0, blending: THREE.AdditiveBlending, depthWrite: false
+    });
+    const glowRing = new THREE.Mesh(glowGeo, glowMat);
+    glowRing.rotation.x = Math.PI / 2;
+    glowRing.userData.stage = i;
+    mesh.add(glowRing);
 
-    // selection ring (torus hugging the disc edge)
-    const ringGeo = new THREE.TorusGeometry(r + 0.06, 0.02, 12, 96);
-    const ringMat = new THREE.MeshBasicMaterial({ color: STAGE_HEX[i], transparent: true, opacity: 0 });
+    // selection ring
+    const ringGeo = new THREE.TorusGeometry(r + tube * 2.2, 0.025, 12, 96);
+    const ringMat = new THREE.MeshBasicMaterial({ color: STAGE_HEX[i], transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
     const ring = new THREE.Mesh(ringGeo, ringMat);
     ring.rotation.x = Math.PI / 2;
     ring.userData.stage = i;
     mesh.add(ring);
 
     coneGroup.add(mesh);
-    discs.push({ mesh, mat, ringMat, baseY: DISC_Y[i], r, lift: 0, reveal: 0 });
+    discs.push({ mesh, mat, ringMat, glowMat, baseY: DISC_Y[i], r, lift: 0, reveal: 0 });
+
+    // vertical connector filaments between rings (4 evenly spaced)
+    if (i < DISC_RADII.length - 1) {
+      const nextR = DISC_RADII[i + 1];
+      const nextY = DISC_Y[i + 1] - 1.4;
+      const filamentH = Math.abs(nextY - (DISC_Y[i] - 1.4)) - 0.22;
+      for (let f = 0; f < 4; f++) {
+        const filamentGeo = new THREE.CylinderGeometry(0.008, 0.008, filamentH, 10);
+        const filamentMat = new THREE.MeshBasicMaterial({
+          color: STAGE_HEX[i], transparent: true, opacity: 0.0, blending: THREE.AdditiveBlending, depthWrite: false
+        });
+        const filament = new THREE.Mesh(filamentGeo, filamentMat);
+        filament.position.y = (DISC_Y[i] - 1.4 + nextY) / 2;
+        const angle = (f / 4) * Math.PI * 2 + (i % 2) * (Math.PI / 4);
+        const avgR = ((r + nextR) / 2) * 0.55;
+        filament.position.x = Math.cos(angle) * avgR;
+        filament.position.z = Math.sin(angle) * avgR;
+        filament.userData.stage = i;
+        coneGroup.add(filament);
+        pillars.push({ mesh: filament, mat: filamentMat, reveal: 0 });
+      }
+    }
   });
 
-  // Double-helix particle streams (phase offset π)
+  // Double-helix particle streams (phase offset π) — more visible
   for (let s = 0; s < 2; s++) {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(HELIX_N * 3), 3));
     const mat = new THREE.PointsMaterial({
-      color: s === 0 ? 0x7d96ff : 0x22d3ee,
-      size: 0.05,
+      color: s === 0 ? 0x315efb : 0x36bffa,
+      size: 0.075,
       transparent: true,
-      opacity: 0.85,
+      opacity: 1.0,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
+      sizeAttenuation: true,
     });
     coneGroup.add(new THREE.Points(geo, mat));
     helixStrands.push({ geo, phase: s * Math.PI });
@@ -376,16 +408,25 @@ function updateDiscs(now) {
       const local = Math.min(1, Math.max(0, (el - order * 140) / 850));
       d.reveal = easeOutCubic(local);
     });
+    pillars.forEach((p, i) => {
+      const order = pillars.length - 1 - i;
+      const local = Math.min(1, Math.max(0, (el - order * 140 - 200) / 850));
+      p.reveal = easeOutCubic(local);
+    });
   }
   discs.forEach((d, i) => {
     const isSel = i === selected.value;
     d.lift += ((isSel ? 0.24 : 0) - d.lift) * 0.07;
-    d.mat.emissiveIntensity += ((isSel ? 0.55 : 0.12) - d.mat.emissiveIntensity) * 0.08;
-    d.ringMat.opacity += ((isSel ? 0.9 : 0) - d.ringMat.opacity) * 0.1;
+    d.mat.emissiveIntensity += ((isSel ? 0.65 : 0.15) - d.mat.emissiveIntensity) * 0.08;
+    d.ringMat.opacity += (0 - d.ringMat.opacity) * 0.1; // selection ring hidden
+    d.glowMat.opacity += ((isSel ? 0.75 : 0.28) - d.glowMat.opacity) * 0.08;
     const rv = d.reveal;
     d.mesh.position.y = d.baseY - (1 - rv) * 1.4 + d.lift;
     d.mesh.scale.setScalar(0.55 + 0.45 * rv);
-    d.mat.opacity = 0.58 * rv;
+    d.mat.opacity = 0.68 * rv;
+  });
+  pillars.forEach((p) => {
+    p.mat.opacity = 0.45 * p.reveal;
   });
 }
 
@@ -562,6 +603,26 @@ onUnmounted(() => {
 <style scoped>
 .funnel-hero-card {
   position: relative;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(73, 104, 255, 0.08), transparent 60%),
+    linear-gradient(180deg, #F8FAFF 0%, #F4F7FC 100%);
+  border: 1px solid #E1E6EF;
+  overflow: hidden;
+}
+
+/* 底部网格纹理，透明度约 4% */
+.funnel-hero-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.04;
+  background-image:
+    linear-gradient(to right, #315EFB 1px, transparent 1px),
+    linear-gradient(to bottom, #315EFB 1px, transparent 1px);
+  background-size: 28px 28px;
+  mask-image: linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 55%);
+  -webkit-mask-image: linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 55%);
 }
 .funnel-hero-title { position: relative; z-index: 2; }
 .funnel-hero-body { position: relative; z-index: 1; }
@@ -583,7 +644,7 @@ onUnmounted(() => {
   height: 520px;
   border-radius: 14px;
   overflow: hidden;
-  background: #0B1220;
+  background: transparent;
   border: 1px solid rgba(79, 110, 247, 0.18);
 }
 :deep(.funnel-three-canvas) {
@@ -620,41 +681,52 @@ onUnmounted(() => {
   position: absolute;
   top: 0;
   width: 108px;
-  transform: translateY(-50%);
+  transform: translateY(-50%) scale(1);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 6px;
   padding: 5px 10px;
   border-radius: 8px;
-  background: rgba(11, 18, 32, 0.55);
+  background: rgba(255, 255, 255, 0.78);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(79, 110, 247, 0.18);
   border-left: 2px solid var(--hud-accent, var(--c-primary));
+  box-shadow: 0 2px 8px rgba(49, 94, 251, 0.08);
   cursor: pointer;
   z-index: 3;
   opacity: 0;
-  transition: opacity .5s ease var(--hud-delay, 0s), border-color .2s, background .2s;
+  transition: opacity .5s ease var(--hud-delay, 0s), transform .2s ease, box-shadow .2s ease, border-color .2s, background .2s;
 }
 .funnel-hud-chip.left { left: 10px; }
 .funnel-hud-chip.right { right: 10px; }
 .funnel-revealed .funnel-hud-chip { opacity: 1; }
-.funnel-hud-chip:hover,
-.funnel-hud-chip.active {
-  background: rgba(20, 30, 52, 0.75);
+.funnel-hud-chip:hover {
+  transform: translateY(-50%) scale(1.04);
+  background: rgba(255, 255, 255, 0.95);
   border-color: var(--hud-accent, var(--c-primary));
+  box-shadow: 0 6px 16px rgba(49, 94, 251, 0.16);
+  z-index: 4;
+}
+.funnel-hud-chip.active {
+  transform: translateY(-50%) scale(1.04);
+  background: #FFFFFF;
+  border: 1px solid var(--hud-accent, var(--c-primary));
+  border-left-width: 3px;
+  box-shadow: 0 8px 20px rgba(49, 94, 251, 0.2);
+  z-index: 4;
 }
 .hud-name {
   font-size: 11px;
   font-weight: 600;
-  color: rgba(230, 238, 255, 0.85);
+  color: var(--c-text);
   white-space: nowrap;
 }
 .hud-count {
   font-size: 13px;
   font-weight: 800;
-  color: #fff;
+  color: var(--c-text);
   font-variant-numeric: tabular-nums;
 }
 
@@ -662,7 +734,7 @@ onUnmounted(() => {
 .funnel-fallback {
   height: 520px;
   border-radius: 14px;
-  background: #0B1220;
+  background: linear-gradient(180deg, #F8FAFF 0%, #F4F7FC 100%);
   border: 1px solid rgba(79, 110, 247, 0.18);
   display: flex;
   flex-direction: column;
@@ -680,11 +752,11 @@ onUnmounted(() => {
   justify-content: center;
   gap: 8px;
   cursor: pointer;
-  color: #E6EEFF;
+  color: var(--c-text);
 }
-.fb-disc b { font-size: 16px; font-variant-numeric: tabular-nums; color: #fff; }
+.fb-disc b { font-size: 16px; font-variant-numeric: tabular-nums; color: var(--c-text); }
 .fb-disc span { font-size: 12px; }
-.fb-disc.active { background: rgba(79, 110, 247, 0.28) !important; }
+.fb-disc.active { background: rgba(79, 110, 247, 0.18) !important; }
 
 /* ===== Insight panel — layered glass ===== */
 .funnel-insight-panel {

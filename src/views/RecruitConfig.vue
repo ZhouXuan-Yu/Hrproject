@@ -180,7 +180,7 @@
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue';
+import { reactive, ref, onMounted } from 'vue';
 import WorkbenchLayout from '../layouts/WorkbenchLayout.vue';
 import { EMAIL_ACCOUNTS, CHANNELS, SCORE_RULES, NOTIFY_TEMPLATES, ROLE_PERMISSIONS, AUDIT_LOGS, EMAIL_PRESETS } from '../data/config.js';
 

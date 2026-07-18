@@ -16,7 +16,7 @@
         </button>
         <div id="alertDropdown" v-if="showAlerts" style="display:block;position:absolute;top:calc(100% + 6px);right:0;width:400px;background:var(--c-card);border:1px solid var(--c-border);border-radius:12px;padding:16px;box-shadow:0 8px 32px rgba(0,0,0,.12);z-index:100;font-size:13px">
           <div style="font-weight:700;margin-bottom:10px;color:var(--c-text);font-size:14px">招聘风险预警</div>
-          <div v-for="(alert, i) in RISK_ALERTS" :key="i" style="display:flex;align-items:center;justify-content:space-between;padding:7px 0">
+          <div v-for="(alert, i) in RISK_ALERTS_" :key="i" style="display:flex;align-items:center;justify-content:space-between;padding:7px 0">
             <span><span class="alert-dot" :class="alert.type"></span> {{ alert.text }}</span>
             <button class="btn btn-outline btn-sm" @click="navigateTo(alert.link)">{{ alert.action }}</button>
           </div>
@@ -46,7 +46,7 @@
         <span class="collapse-summary">{{ deptSummary }}</span>
       </div>
       <div class="collapse-body" id="bodyDept" :class="{ show: deptOpen }">
-        <div v-for="(d, i) in DEPT_PROGRESS" :key="i" class="progress-inline">
+        <div v-for="(d, i) in DEPT_PROGRESS_" :key="i" class="progress-inline">
           <span style="width:64px;font-weight:600">{{ d.dept }}</span>
           <span style="width:40px;color:var(--c-sub);text-align:right">{{ d.hired }}/{{ d.total }}</span>
           <template v-for="j in d.total" :key="j">
@@ -66,7 +66,7 @@
       </div>
       <div class="collapse-body" id="bodyChannel" :class="{ show: channelOpen }">
         <table><thead><tr><th>渠道</th><th>简历</th><th>通过</th><th>面试</th><th>录用</th><th>人均成本</th></tr></thead><tbody>
-          <tr v-for="(c, i) in CHANNEL_DATA" :key="i">
+          <tr v-for="(c, i) in CHANNEL_DATA_" :key="i">
             <td>{{ c.channel }}</td>
             <td class="numeric">{{ c.resume }}</td>
             <td class="numeric">{{ c.pass }}</td>
@@ -75,7 +75,7 @@
             <td class="numeric">{{ c.cost }}</td>
           </tr>
         </tbody></table>
-        <div class="table-count">共 {{ CHANNEL_DATA.length }} 条渠道数据 · 上次更新 07-15 09:00</div>
+        <div class="table-count">共 {{ CHANNEL_DATA_.length }} 条渠道数据 · 上次更新 07-15 09:00</div>
       </div>
     </div>
   </WorkbenchLayout>
@@ -87,6 +87,7 @@ import { useRouter } from 'vue-router';
 import WorkbenchLayout from '../layouts/WorkbenchLayout.vue';
 import FunnelHero from '../components/FunnelHero.vue';
 import { KPI_SETS, DEPT_PROGRESS, CHANNEL_DATA, RISK_ALERTS } from '../data/dashboard.js';
+import { fetchKpi, fetchDeptProgress, fetchChannel, fetchRiskAlerts } from '../api/dashboard.js';
 
 const router = useRouter();
 const timeRange = ref('month');
@@ -99,14 +100,20 @@ const kpiTransforms = ref({});
 const role = localStorage.getItem('hr_role') || 'hr';
 const isInterviewerRole = role === 'interviewer' || role === 'temp_interviewer';
 
-const kpis = computed(() => {
-  if (role === 'admin') return KPI_SETS.admin;
-  if (role === 'interviewer' || role === 'temp_interviewer') return KPI_SETS.interviewer;
-  return KPI_SETS.hr;
-});
+// Reactive data from API (with mock fallback)
+const apiKpis = ref(null);
+const apiDeptProgress = ref(null);
+const apiChannelData = ref(null);
+const apiRiskAlerts = ref(null);
 
-const deptSummary = computed(() => DEPT_PROGRESS.map(d => d.dept + ' ' + d.hired + '/' + d.total).join(' · '));
-const channelSummary = computed(() => CHANNEL_DATA.map(c => c.channel + ' ' + c.resume).join(' · '));
+const kpis = computed(() => apiKpis.value || (role === 'admin' ? KPI_SETS.admin : role === 'interviewer' || role === 'temp_interviewer' ? KPI_SETS.interviewer : KPI_SETS.hr));
+
+const DEPT_PROGRESS_ = computed(() => apiDeptProgress.value || DEPT_PROGRESS);
+const CHANNEL_DATA_ = computed(() => apiChannelData.value || CHANNEL_DATA);
+const RISK_ALERTS_ = computed(() => apiRiskAlerts.value || RISK_ALERTS);
+
+const deptSummary = computed(() => DEPT_PROGRESS_.value.map(d => d.dept + ' ' + d.hired + '/' + d.total).join(' · '));
+const channelSummary = computed(() => CHANNEL_DATA_.value.map(c => c.channel + ' ' + c.resume).join(' · '));
 
 // -- KPI 3D Tilt --
 function kpiAccent(i) {
@@ -115,8 +122,8 @@ function kpiAccent(i) {
 }
 
 function kpiTrend(i) {
-  const trends = ['+2 昨日', '+3 昨日', '+1 昨日', '持平'];
-  return trends[i % trends.length];
+  const item = kpis.value[i];
+  return item?.trend || '—';
 }
 
 function onKpiHover(i, e) {
@@ -135,7 +142,22 @@ function onKpiLeave(i) {
   if (el) { el.style.transform = ''; el.style.zIndex = ''; }
 }
 
-function refreshDashboard() {}
+async function refreshDashboard() { await loadFromApi(); }
+
+async function loadFromApi() {
+  try {
+    const [kpiData, deptData, channelData, alertData] = await Promise.all([
+      fetchKpi(), fetchDeptProgress(), fetchChannel(), fetchRiskAlerts()
+    ]);
+    if (kpiData) apiKpis.value = kpiData;
+    if (deptData) apiDeptProgress.value = deptData;
+    if (channelData) apiChannelData.value = channelData;
+    if (alertData) apiRiskAlerts.value = alertData;
+  } catch (e) {
+    console.warn('API fetch fallback to mock:', e.message);
+  }
+}
+
 function navigateTo(path) {
   showAlerts.value = false;
   router.push(path);
@@ -148,6 +170,7 @@ function onDocClick(e) {
 
 onMounted(() => {
   document.addEventListener('click', onDocClick);
+  loadFromApi();
 });
 
 onUnmounted(() => document.removeEventListener('click', onDocClick));
