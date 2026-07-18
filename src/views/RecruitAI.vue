@@ -156,7 +156,7 @@
     </div>
 
     <!-- ============ Tab 3: 人岗匹配 ============ -->
-    <div class="tab-panel" :class="{ active: activeTab === 'match' }" role="tabpanel">
+    <div class="tab-panel" :class="{ active: activeTab === 'match' }" role="tabpanel" aria-label="人岗匹配工作台">
       <div data-slot="ai-workspace">
         <div data-slot="ai-conversation">
           <AiChatMessage role="ai" status="complete">
@@ -208,7 +208,7 @@
     </div>
 
     <!-- ============ Tab 4: 面试辅助 ============ -->
-    <div class="tab-panel" :class="{ active: activeTab === 'interview' }" role="tabpanel">
+    <div class="tab-panel" :class="{ active: activeTab === 'interview' }" role="tabpanel" aria-label="面试辅助">
       <div data-slot="ai-workspace">
         <div data-slot="ai-conversation">
           <AiChatMessage role="ai" status="complete">
@@ -260,7 +260,7 @@
     </div>
 
     <!-- ============ Tab 5: 招聘深度报表 ============ -->
-    <div class="tab-panel" :class="{ active: activeTab === 'report' }" role="tabpanel">
+    <div class="tab-panel" :class="{ active: activeTab === 'report' }" role="tabpanel" aria-label="招聘深度报表">
       <div data-slot="ai-workspace">
         <div data-slot="ai-conversation">
           <AiChatMessage role="ai" status="complete">
@@ -295,7 +295,7 @@
     </div>
 
     <!-- ============ Tab 6: 候选人沟通助手 ============ -->
-    <div class="tab-panel" :class="{ active: activeTab === 'chat' }" role="tabpanel">
+    <div class="tab-panel" :class="{ active: activeTab === 'chat' }" role="tabpanel" aria-label="候选人沟通助手">
       <div data-slot="ai-workspace">
         <div data-slot="ai-conversation">
           <AiChatMessage role="ai" status="complete">
