@@ -14,7 +14,7 @@
     </div>
 
     <!-- ============ Tab 1: JD 草稿生成 ============ -->
-    <div class="tab-panel" :class="{ active: activeTab === 'jd' }" role="tabpanel">
+    <div class="tab-panel" :class="{ active: activeTab === 'jd' }" role="tabpanel" aria-label="JD 草稿生成">
       <div data-slot="ai-workspace">
         <!-- Conversation area -->
         <div data-slot="ai-conversation">
@@ -103,7 +103,7 @@
     </div>
 
     <!-- ============ Tab 2: 语义简历搜索 ============ -->
-    <div class="tab-panel" :class="{ active: activeTab === 'search' }" role="tabpanel">
+    <div class="tab-panel" :class="{ active: activeTab === 'search' }" role="tabpanel" aria-label="语义简历搜索">
       <div data-slot="ai-workspace">
         <div data-slot="ai-conversation">
           <AiChatMessage role="ai" status="complete">

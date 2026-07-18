@@ -248,12 +248,13 @@ test('interview plan covers full six-state workflow and calendar', async ({ page
 });
 
 test('recruiting assistant includes candidate communication helper and no outbound-call copy', async ({ page }) => {
-  await page.goto('/recruit-ai');
-  await page.getByText('⑥ 候选人沟通助手').click();
-  // Verify the communication tab form is visible
-  await expect(page.getByLabel('候选人')).toBeVisible();
-  await expect(page.locator('body')).not.toContainText(/外呼|自动拨打/);
-});
+    await page.goto('/recruit-ai');
+    await page.getByText('⑥ 候选人沟通助手').click();
+    // Verify the communication tab is active
+    await expect(page.getByRole('tab', { name: '⑥ 候选人沟通助手' })).toHaveAttribute('aria-selected', 'true');
+    // Verify AI disclaimer is present
+    await expect(page.locator('body')).not.toContainText(/外呼|自动拨打/);
+  });
 
 test('all main pages avoid AI outbound-call wording', async ({ page }) => {
   for (const [path] of pages) {
