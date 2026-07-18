@@ -284,14 +284,23 @@ function initThree() {
   for (let i = 0; i < DISC_RADII.length - 1; i++) {
     const topR = DISC_RADII[i];
     const bottomR = DISC_RADII[i + 1];
-    const topY = DISC_Y[i] - 1.4;
-    const bottomY = DISC_Y[i + 1] - 1.4;
+    const topY = DISC_Y[i];
+    const bottomY = DISC_Y[i + 1];
     const height = topY - bottomY;
     const geo = new THREE.CylinderGeometry(topR, bottomR, height, 96, 1, true);
-    const mat = new THREE.MeshBasicMaterial({
+    const mat = new THREE.MeshPhysicalMaterial({
       color: STAGE_HEX[i],
       transparent: true,
       opacity: 0.0,
+      roughness: 0.2,
+      metalness: 0.0,
+      clearcoat: 0.8,
+      clearcoatRoughness: 0.2,
+      transmission: 0.25,
+      thickness: 0.4,
+      ior: 1.45,
+      emissive: STAGE_HEX[i],
+      emissiveIntensity: 0.05,
       side: THREE.DoubleSide,
       depthWrite: false,
     });
@@ -374,8 +383,8 @@ function coneRadiusAt(t) {
 }
 
 function updateHelix(time) {
-  const topY = DISC_Y[0] - 1.4;
-  const bottomY = DISC_Y[DISC_Y.length - 1] - 1.4;
+  const topY = DISC_Y[0];
+  const bottomY = DISC_Y[DISC_Y.length - 1];
   helixStrands.forEach((hx) => {
     const arr = hx.geo.attributes.position.array;
     for (let j = 0; j < HELIX_N; j++) {
@@ -475,9 +484,14 @@ function tick(nowMs) {
   updateHelix(time);
   updateScene(nowMs);
 
-  // DEBUG: fixed camera aimed at the cone's mid-height
-  camera.position.set(0, 0.2, 8.6);
-  camera.lookAt(0, -1.3, 0);
+  // scroll-driven depth + pointer parallax (lerped)
+  const targetZ = 8.2 - scrollP * 1.6;
+  const targetY = 0.55 + scrollP * 0.6 - ptrY * 0.4;
+  const targetX = ptrX * 0.7;
+  camera.position.z += (targetZ - camera.position.z) * 0.05;
+  camera.position.y += (targetY - camera.position.y) * 0.05;
+  camera.position.x += (targetX - camera.position.x) * 0.05;
+  camera.lookAt(0, -0.05, 0);
 
   renderer.render(scene, camera);
   updateHUD();

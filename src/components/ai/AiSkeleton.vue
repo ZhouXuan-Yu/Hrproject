@@ -38,11 +38,11 @@ const props = defineProps({
 });
 
 const lineWidths = computed(() => {
-  if (props.widths.length >= props.lines) return props.widths.slice(0, props.lines);
-  // Repeat pattern if not enough widths
+  const safe = props.widths.length > 0 ? props.widths : ['60%', '80%', '70%'];
+  if (safe.length >= props.lines) return safe.slice(0, props.lines);
   const result = [];
   for (let i = 0; i < props.lines; i++) {
-    result.push(props.widths[i % props.widths.length]);
+    result.push(safe[i % safe.length]);
   }
   return result;
 });
