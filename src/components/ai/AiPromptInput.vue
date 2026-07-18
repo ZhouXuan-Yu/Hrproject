@@ -5,6 +5,8 @@
     :data-layout="layout"
     :data-disabled="disabled ? '' : undefined"
   >
+    <!-- Accessibility alert for error state -->
+    <div v-if="status === 'error'" role="alert" data-slot="prompt-input-error-alert" :aria-label="hint || '输入错误'">{{ hint || '输入错误' }}</div>
     <div data-slot="prompt-input-shell" @click="focusTextarea">
       <div data-slot="prompt-input-content">
         <textarea
@@ -223,9 +225,37 @@ defineExpose({ focus: () => textareaRef.value?.focus() });
   outline-offset: 2px;
 }
 
+/* Error alert (accessibility) */
+[data-slot="prompt-input-error-alert"] {
+  padding: 6px 16px 0;
+  font-size: var(--fs-caption, 12px);
+  color: var(--c-reject, #EF4444);
+  line-height: 1.5;
+}
+
 @media (prefers-reduced-motion: reduce) {
   [data-slot="prompt-input-send"]:active {
     transform: none;
+  }
+}
+
+/* ===== Mobile (≤768px) ===== */
+@media (max-width: 768px) {
+  [data-slot="prompt-input-shell"] {
+    padding: 8px 10px;
+  }
+  [data-slot="prompt-input-textarea"] {
+    font-size: 13px;
+    min-height: 34px;
+  }
+  [data-slot="prompt-input-toolbar"] {
+    padding: 6px 10px 8px;
+  }
+  [data-slot="prompt-input"][data-layout="compact"] [data-slot="prompt-input-shell"] {
+    padding: 6px 8px;
+  }
+  [data-slot="prompt-input"][data-layout="compact"] [data-slot="prompt-input-toolbar"] {
+    padding: 4px 8px 6px;
   }
 }
 </style>

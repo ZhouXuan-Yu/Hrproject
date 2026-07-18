@@ -97,4 +97,12 @@ async function generateDraft() {
 
 /* Focus visible */
 input:focus-visible, select:focus-visible { outline:2px solid var(--c-primary);outline-offset:1px }
+
+/* ===== Mobile (≤768px) ===== */
+@media (max-width: 768px) {
+  [data-slot="ai-draft-text"] {
+    font-size: 12px;
+    padding: 10px;
+  }
+}
 </style>

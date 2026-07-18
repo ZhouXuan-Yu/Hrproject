@@ -216,4 +216,15 @@ async function generateJd() {
 
 /* Focus visible */
 input:focus-visible, select:focus-visible { outline:2px solid var(--c-primary);outline-offset:1px }
+
+/* ===== Mobile (≤768px) ===== */
+@media (max-width: 768px) {
+  [data-slot="ai-jd-header"] { flex-direction: column; align-items: flex-start; gap: 6px; }
+  [data-slot="ai-jd-header"] h4 { font-size: 14px; }
+  [data-slot="ai-jd-info-grid"] { grid-template-columns: 1fr; }
+  [data-slot="ai-jd-skill-row"] { flex-wrap: wrap; gap: 4px; }
+  [data-slot="ai-jd-skill-name"] { min-width: auto; }
+  [data-slot="ai-input-area"] input,
+  [data-slot="ai-input-area"] select { min-width: 100%; }
+}
 </style>

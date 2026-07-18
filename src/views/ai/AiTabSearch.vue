@@ -101,6 +101,21 @@ function viewResume(id) { showToast('查看简历: ' + id); }
 .reason-tag { display:inline-block;font-size:11px;color:var(--c-progress);background:var(--c-primary-subtle);padding:2px 8px;border-radius:4px }
 .num-cell { text-align:right;font-variant-numeric:tabular-nums;font-feature-settings:"tnum";font-weight:600 }
 
+/* ===== Mobile (≤768px) ===== */
+@media (max-width: 768px) {
+  .table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .table-wrap table {
+    min-width: 600px;
+  }
+  .reason-tag {
+    font-size: 10px;
+    padding: 2px 6px;
+  }
+}
+
 /* Focus visible */
 input:focus-visible, select:focus-visible { outline:2px solid var(--c-primary);outline-offset:1px }
 </style>
