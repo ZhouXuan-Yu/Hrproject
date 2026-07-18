@@ -76,8 +76,6 @@ import { fetchAiCapabilities } from '../api/config.js';
 
 const tabs = AI_TABS;
 const activeTab = ref('chat');
-const embeddedAI = EMBEDDED_AI;
-
 const embeddedAI = ref(EMBEDDED_AI);
 
 async function loadFromApi() {

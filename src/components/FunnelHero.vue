@@ -228,8 +228,8 @@ let coneGroup = null;
 let raycaster = null;
 let pointerNDC = null;
 let discs = []; // { mesh, mat, ringMat, glowMat, baseY, r, lift, reveal }
+let coneFillers = []; // { mesh, mat, reveal }
 let helixStrands = []; // { geo, phase }
-let pillars = []; // { mesh, mat, reveal }
 let orbitLights = [];
 let rafId = 0;
 let revealStart = -1;
@@ -286,6 +286,39 @@ function initThree() {
   coneGroup = new THREE.Group();
   scene.add(coneGroup);
 
+  // Frustum side fillers between rings (rendered first, behind rings)
+  const coneFillers = [];
+  for (let i = 0; i < DISC_RADII.length - 1; i++) {
+    const r = DISC_RADII[i];
+    const nextR = DISC_RADII[i + 1];
+    const tube = 0.085 - i * 0.007;
+    const nextTube = 0.085 - (i + 1) * 0.007;
+    const topY = DISC_Y[i] - 1.4;
+    const bottomY = DISC_Y[i + 1] - 1.4;
+    const height = Math.abs(bottomY - topY);
+    const topR = (r + tube) * 0.55;
+    const bottomR = (nextR + nextTube) * 0.55;
+    const fillGeo = new THREE.CylinderGeometry(topR, bottomR, height, 64, 1, true);
+    const fillMat = new THREE.MeshPhysicalMaterial({
+      color: STAGE_HEX[i],
+      transparent: true,
+      opacity: 0.0,
+      roughness: 0.22,
+      metalness: 0.05,
+      clearcoat: 0.6,
+      clearcoatRoughness: 0.2,
+      transmission: 0.35,
+      thickness: 0.2,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const filler = new THREE.Mesh(fillGeo, fillMat);
+    filler.position.y = (topY + bottomY) / 2;
+    filler.userData.stage = i;
+    coneGroup.add(filler);
+    coneFillers.push({ mesh: filler, mat: fillMat, reveal: 0 });
+  }
+
   // 5 advanced glass rings, stacked top → bottom
   DISC_RADII.forEach((r, i) => {
     const tube = 0.085 - i * 0.007;
@@ -311,17 +344,7 @@ function initThree() {
     mesh.scale.setScalar(0.55);
     mesh.userData.stage = i;
 
-    // outer glow ring
-    const glowGeo = new THREE.TorusGeometry(r + tube * 1.6, 0.018, 8, 120);
-    const glowMat = new THREE.MeshBasicMaterial({
-      color: STAGE_HEX[i], transparent: true, opacity: 0.0, blending: THREE.AdditiveBlending, depthWrite: false
-    });
-    const glowRing = new THREE.Mesh(glowGeo, glowMat);
-    glowRing.rotation.x = Math.PI / 2;
-    glowRing.userData.stage = i;
-    mesh.add(glowRing);
-
-    // selection ring
+    // selection ring (kept hidden)
     const ringGeo = new THREE.TorusGeometry(r + tube * 2.2, 0.025, 12, 96);
     const ringMat = new THREE.MeshBasicMaterial({ color: STAGE_HEX[i], transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
     const ring = new THREE.Mesh(ringGeo, ringMat);
@@ -330,29 +353,7 @@ function initThree() {
     mesh.add(ring);
 
     coneGroup.add(mesh);
-    discs.push({ mesh, mat, ringMat, glowMat, baseY: DISC_Y[i], r, lift: 0, reveal: 0 });
-
-    // vertical connector filaments between rings (4 evenly spaced)
-    if (i < DISC_RADII.length - 1) {
-      const nextR = DISC_RADII[i + 1];
-      const nextY = DISC_Y[i + 1] - 1.4;
-      const filamentH = Math.abs(nextY - (DISC_Y[i] - 1.4)) - 0.22;
-      for (let f = 0; f < 4; f++) {
-        const filamentGeo = new THREE.CylinderGeometry(0.008, 0.008, filamentH, 10);
-        const filamentMat = new THREE.MeshBasicMaterial({
-          color: STAGE_HEX[i], transparent: true, opacity: 0.0, blending: THREE.AdditiveBlending, depthWrite: false
-        });
-        const filament = new THREE.Mesh(filamentGeo, filamentMat);
-        filament.position.y = (DISC_Y[i] - 1.4 + nextY) / 2;
-        const angle = (f / 4) * Math.PI * 2 + (i % 2) * (Math.PI / 4);
-        const avgR = ((r + nextR) / 2) * 0.55;
-        filament.position.x = Math.cos(angle) * avgR;
-        filament.position.z = Math.sin(angle) * avgR;
-        filament.userData.stage = i;
-        coneGroup.add(filament);
-        pillars.push({ mesh: filament, mat: filamentMat, reveal: 0 });
-      }
-    }
+    discs.push({ mesh, mat, ringMat, glowMat: null, baseY: DISC_Y[i], r, lift: 0, reveal: 0 });
   });
 
   // Double-helix particle streams (phase offset π) — more visible

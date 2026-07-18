@@ -134,6 +134,22 @@ import { fetchDemandDetail, fetchDemandCandidates } from '../api/demand.js';
 const info = ref(DEMAND_INFO);
 const candidates = ref([...ALL_CANDIDATES]);
 
+async function loadDemandDetail() {
+  try {
+    const res = await fetchDemandDetail();
+    if (res) info.value = res;
+  } catch (e) {
+    console.warn('[RecruitDemandDetail] fetchDemandDetail failed, using mock data:', e);
+  }
+
+  try {
+    const res = await fetchDemandCandidates();
+    if (res) candidates.value = res;
+  } catch (e) {
+    console.warn('[RecruitDemandDetail] fetchDemandCandidates failed, using mock data:', e);
+  }
+}
+
 const checkedSet = reactive({});
 const checkedCount = computed(() => Object.keys(checkedSet).filter(k => checkedSet[k]).length);
 
@@ -228,6 +244,20 @@ function batchAlert(label) {
   alert(label + ' ' + names.length + ' 人\n\n' + names.join('、'));
 }
 function doAlert(msg) { window.alert(msg); }
+
+async function loadFromApi() {
+  try {
+    const demandId = info.value.id || 'DM2026070005';
+    const [detail, candidateList] = await Promise.all([
+      fetchDemandDetail(demandId),
+      fetchDemandCandidates(demandId)
+    ]);
+    if (detail) Object.assign(info.value, detail);
+    if (candidateList) candidates.value = candidateList;
+  } catch (e) { console.warn('[Detail] API fallback to mock:', e.message); }
+}
+
+onMounted(() => { loadFromApi(); });
 </script>
 
 <style scoped>

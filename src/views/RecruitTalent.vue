@@ -231,6 +231,8 @@
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import WorkbenchLayout from '../layouts/WorkbenchLayout.vue';
 import { EXT_DATA, INT_DATA, BLACKLIST_DATA, DEMAND_OPTIONS, MATCH_RESULTS } from '../data/talent.js';
+import { fetchTalent } from '../api/talent.js';
+import { fetchTalent } from '../api/talent.js';
 
 const showReminder = ref(false);
 const showNoteModal = ref(false);
