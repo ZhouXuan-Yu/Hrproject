@@ -105,7 +105,7 @@ const toast = reactive({ show: false, text: '', timer: null });
 function showToast(text) {
   toast.text = text; toast.show = true;
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => { toast.show = false; }, 2000);
+  toast.timer = setTimeout(() => { toast.show = false; }, 2500);
 }
 provide('showToast', showToast);
 onBeforeUnmount(() => { clearTimeout(toast.timer); });
@@ -174,9 +174,9 @@ function focusNextTab() {
   padding: 10px 24px;
   border-radius: 8px;
   font-size: 13px;
-  z-index: 9999;
+  z-index: 10000;
   opacity: 0;
-  transition: opacity .2s, transform .2s;
+  transition: opacity .25s ease, transform .25s ease;
   pointer-events: none;
 }
 [data-slot="ai-toast"].visible {
@@ -193,5 +193,24 @@ function focusNextTab() {
 
 @media (prefers-reduced-motion: reduce) {
   [data-slot="ai-toast"] { transition: none; }
+}
+
+/* ===== Mobile (≤768px) ===== */
+@media (max-width: 768px) {
+  .tabs {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .tab {
+    font-size: 12px;
+    padding: 6px 12px;
+  }
+  .card {
+    padding: 16px;
+  }
+  .permission-bar {
+    padding: 8px 12px;
+    font-size: 11px;
+  }
 }
 </style>
