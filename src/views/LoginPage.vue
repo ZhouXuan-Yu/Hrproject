@@ -102,15 +102,41 @@ function selRole(key) {
   selectedRole.value = key;
 }
 
-function login() {
+async function login() {
   sessionStorage.removeItem('hr_temp_interviewer');
-  if (selectedRole.value === 'temp_interviewer') {
-    localStorage.setItem('hr_role', 'interviewer');
-    sessionStorage.setItem('hr_temp_interviewer', 'true');
-  } else {
-    localStorage.setItem('hr_role', selectedRole.value);
+
+  // Try backend auth API
+  try {
+    const result = await apiLogin(username.value, selectedRole.value);
+    if (result?.token) {
+      localStorage.setItem('hr_token', result.token);
+    }
+    if (result?.user) {
+      localStorage.setItem('hr_user', result.user);
+      localStorage.setItem('hr_role', result.user.role || selectedRole.value);
+    } else {
+      localStorage.setItem('hr_user', username.value || '用户');
+      localStorage.setItem('hr_role', selectedRole.value);
+    }
+  } catch (err) {
+    console.warn('Backend auth unavailable, using localStorage fallback', err);
+    localStorage.setItem('hr_user', username.value || '用户');
+    if (selectedRole.value === 'temp_interviewer') {
+      localStorage.setItem('hr_role', 'interviewer');
+      sessionStorage.setItem('hr_temp_interviewer', 'true');
+    } else {
+      localStorage.setItem('hr_role', selectedRole.value);
+    }
   }
-  localStorage.setItem('hr_user', username.value || '用户');
+
+  // temp_interviewer override for session-scoped role
+  if (selectedRole.value === 'temp_interviewer') {
+    sessionStorage.setItem('hr_temp_interviewer', 'true');
+    if (!localStorage.getItem('hr_role')) {
+      localStorage.setItem('hr_role', 'interviewer');
+    }
+  }
+
   router.push('/recruit-dashboard');
 }
 

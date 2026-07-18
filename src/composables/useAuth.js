@@ -39,6 +39,10 @@ export function getUser(){
   return localStorage.getItem('hr_user') || '用户';
 }
 
+export function getToken(){
+  return localStorage.getItem('hr_token') || null;
+}
+
 export function getVisibleMenus(role){
   const ids = ROLE_MENUS[role] || ROLE_MENUS['employee'];
   return MENU_ROUTES.filter(r => ids.includes(r.id));

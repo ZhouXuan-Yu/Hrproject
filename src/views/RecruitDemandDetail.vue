@@ -224,14 +224,33 @@ function openDrawer(c) {
 
 // Batch actions
 function batchContact() { batchAlert('批量联系'); }
-function addToDemand() {
+async function addToDemand() {
   const names = Object.keys(checkedSet).filter(k => checkedSet[k]);
   if (!names.length) { alert('请先勾选候选人'); return; }
-  const key = 'demand_DM2026070005_linked';
+  const demandId = info.value.id || 'DM2026070005';
+  const key = 'demand_' + demandId + '_linked';
   const linked = (() => { try { return JSON.parse(localStorage.getItem(key)) || []; } catch(e) { return []; } })();
+
+  // Try API first, fall back to localStorage
+  let apiSuccess = false;
+  for (const name of names) {
+    try {
+      await linkCandidateToDemand(demandId, name);
+      apiSuccess = true;
+    } catch (e) {
+      console.warn('[RecruitDemandDetail] linkCandidateToDemand failed for', name, e);
+    }
+  }
+
+  // Still persist locally as fallback
   names.forEach(n => { if (linked.indexOf(n) < 0) linked.push(n); });
   localStorage.setItem(key, JSON.stringify(linked));
-  alert('已将 ' + names.length + ' 位候选人加入需求「高级Java工程师」\n\n' + names.join('、'));
+
+  if (apiSuccess) {
+    alert('已将 ' + names.length + ' 位候选人加入需求「' + (info.value.position || '高级Java工程师') + '」\n\n' + names.join('、'));
+  } else {
+    alert('已将 ' + names.length + ' 位候选人加入需求「' + (info.value.position || '高级Java工程师') + '」\n\n（离线模式，已缓存到本地）\n\n' + names.join('、'));
+  }
   clearSelection();
 }
 function batchMoveDemand() { batchAlert('批量移出需求'); }
