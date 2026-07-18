@@ -288,19 +288,10 @@ function initThree() {
     const bottomY = DISC_Y[i + 1] - 1.4;
     const height = topY - bottomY;
     const geo = new THREE.CylinderGeometry(topR, bottomR, height, 96, 1, true);
-    const mat = new THREE.MeshPhysicalMaterial({
+    const mat = new THREE.MeshBasicMaterial({
       color: STAGE_HEX[i],
       transparent: true,
       opacity: 0.0,
-      roughness: 0.22,
-      metalness: 0.0,
-      clearcoat: 0.7,
-      clearcoatRoughness: 0.25,
-      transmission: 0.28,
-      thickness: 0.4,
-      ior: 1.45,
-      emissive: STAGE_HEX[i],
-      emissiveIntensity: 0.06,
       side: THREE.DoubleSide,
       depthWrite: false,
     });
