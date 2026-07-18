@@ -1,12 +1,12 @@
 <template>
-  <div data-slot="chain-of-thought" :data-expanded="expanded ? 'true' : 'false'">
+  <div data-slot="chain-of-thought" :data-expanded="isExpanded ? 'true' : 'false'">
     <!-- Header toggle -->
     <button
       data-slot="chain-of-thought-header"
       type="button"
-      :aria-expanded="expanded ? 'true' : 'false'"
-      :aria-label="expanded ? '折叠思考过程' : '展开思考过程'"
-      @click="expanded = !expanded"
+      :aria-expanded="isExpanded ? 'true' : 'false'"
+      :aria-label="isExpanded ? '折叠思考过程' : '展开思考过程'"
+      @click="toggleExpanded"
     >
       <span data-slot="chain-of-thought-header-icon">
         <svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round" aria-hidden="true">
@@ -82,9 +82,9 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 
-defineProps({
+const props = defineProps({
   steps: {
     type: Array,
     default: () => [],
@@ -98,6 +98,22 @@ defineProps({
     default: false,
   },
 });
+
+const emit = defineEmits(['update:expanded']);
+
+const isExpanded = ref(props.expanded);
+
+watch(
+  () => props.expanded,
+  (val) => {
+    isExpanded.value = val;
+  }
+);
+
+function toggleExpanded() {
+  isExpanded.value = !isExpanded.value;
+  emit('update:expanded', isExpanded.value);
+}
 </script>
 
 <style scoped>

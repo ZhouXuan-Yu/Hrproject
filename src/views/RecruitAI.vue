@@ -32,6 +32,14 @@
           <!-- Loading -->
           <AiChatMessage v-if="jdLoading" role="ai" status="loading" />
 
+          <!-- Streaming content (shown during SSE, before final parse) -->
+          <AiChatMessage
+            v-if="jdLoading && jdStreamContent"
+            role="ai"
+            status="streaming"
+            :streamingContent="jdStreamContent"
+          />
+
           <!-- Error -->
           <AiChatMessage v-if="jdError && !jdLoading" role="ai" status="error">
             <template #error>{{ jdError }}</template>
