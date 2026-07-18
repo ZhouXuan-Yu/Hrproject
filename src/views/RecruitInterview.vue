@@ -235,8 +235,20 @@ function onScopeChange() {}
 function openCandidateDrawer(name) {
   window.alert('候选人简历抽屉：' + name + '（demo）');
 }
-function openGlobalScheduleModal(name, position, dept) {
-  window.alert('新建面试弹窗（demo）：' + (name || '选择候选人'));
+async function openGlobalScheduleModal(name, position, dept) {
+  const title = name || '选择候选人';
+  try {
+    const res = await createInterview({
+      candidate: name || '',
+      position: position || '',
+      dept: dept || '',
+    });
+    const id = res?.id || '[sample]';
+    window.alert('已创建面试：' + title + ' (ID: ' + id + ')');
+  } catch (e) {
+    console.warn('[RecruitInterview] createInterview failed, using mock:', e);
+    window.alert('新建面试弹窗（demo）：' + title);
+  }
 }
 function doAlert(msg) {
   showAlerts.value = false;
@@ -253,6 +265,16 @@ function onDocClick(e) {
 }
 onMounted(() => {
   document.addEventListener('click', onDocClick);
+  window.addEventListener('interview:evaluate', async (e) => {
+    const name = e.detail;
+    try {
+      await evaluateInterview(name, { result: 'pass', comment: '' });
+      window.alert('【面试评价】' + name + '\n已提交评价（通过→待录用）');
+    } catch (err) {
+      console.warn('[RecruitInterview] evaluateInterview failed, using mock:', err);
+      window.alert('【面试评价】\n填写对' + name + '的评价\n[通过→待录用] [不通过→回流]');
+    }
+  });
   loadFromApi();
 });
 onUnmounted(() => document.removeEventListener('click', onDocClick));
