@@ -228,8 +228,9 @@ let camera = null;
 let coneGroup = null;
 let raycaster = null;
 let pointerNDC = null;
-let discs = []; // { mesh, mat, baseY, r, lift, reveal }
-let coneFillers = []; // { mesh, mat, reveal }
+let rings = []; // { mesh, mat, baseY, r, lift, reveal }
+let cone = null; // { mesh, mat, reveal } — single glass cone surface
+let shell = null; // { mesh, mat, reveal } — outer glass layer
 let helixStrands = []; // { geo, phase }
 let orbitLights = [];
 let rafId = 0;
@@ -247,15 +248,6 @@ const HELIX_N = 150;
 const HELIX_TURNS = 3;
 
 function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
-
-function circlePoints(r, y) {
-  const pts = [];
-  for (let i = 0; i < 64; i++) {
-    const a = (i / 64) * Math.PI * 2;
-    pts.push(new THREE.Vector3(Math.cos(a) * r, y, Math.sin(a) * r));
-  }
-  return pts;
-}
 
 function initThree() {
   const wrap = vizWrap.value;
@@ -287,51 +279,80 @@ function initThree() {
   coneGroup = new THREE.Group();
   scene.add(coneGroup);
 
-  // Frustum side fillers between rings — one colored band per stage
-  for (let i = 0; i < DISC_RADII.length - 1; i++) {
-    const r = DISC_RADII[i];
-    const nextR = DISC_RADII[i + 1];
-    const tube = 0.06 - i * 0.004;
-    const nextTube = 0.06 - (i + 1) * 0.004;
-    const topY = DISC_Y[i] - 1.4;
-    const bottomY = DISC_Y[i + 1] - 1.4;
-    const height = Math.abs(bottomY - topY);
-    // slight flare so the colored side shows past the glass ring edges
-    const topR = (r + tube) * 1.06;
-    const bottomR = (nextR + nextTube) * 1.06;
-    const fillGeo = new THREE.CylinderGeometry(topR, bottomR, height, 64, 1, true);
-    const fillMat = new THREE.MeshBasicMaterial({
-      color: STAGE_HEX[i],
-      transparent: true,
-      opacity: 0.0,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-    });
-    const filler = new THREE.Mesh(fillGeo, fillMat);
-    filler.position.y = (topY + bottomY) / 2;
-    filler.userData.stage = i;
-    filler.renderOrder = 0;
-    coneGroup.add(filler);
-    coneFillers.push({ mesh: filler, mat: fillMat, reveal: 0 });
+  // ---- Single glass cone surface, vertex-colored per stage ----
+  // Profile points bottom → top so the lathe surface passes through every ring radius.
+  const profilePts = [];
+  for (let i = DISC_RADII.length - 1; i >= 0; i--) {
+    profilePts.push(new THREE.Vector2(DISC_RADII[i], DISC_Y[i] - 1.4));
   }
+  const coneGeo = new THREE.LatheGeometry(profilePts, 96);
+  {
+    // LatheGeometry lays out vertices as (segments+1) × profilePoints;
+    // color each vertex by the stage row it belongs to.
+    const pos = coneGeo.attributes.position;
+    const colors = new Float32Array(pos.count * 3);
+    const tmp = new THREE.Color();
+    const P = profilePts.length;
+    for (let v = 0; v < pos.count; v++) {
+      const j = v % P; // 0 = bottom stage, P-1 = top stage
+      tmp.setHex(STAGE_HEX[P - 1 - j]);
+      colors[v * 3] = tmp.r;
+      colors[v * 3 + 1] = tmp.g;
+      colors[v * 3 + 2] = tmp.b;
+    }
+    coneGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  }
+  const coneMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.0,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  const coneMesh = new THREE.Mesh(coneGeo, coneMat);
+  coneMesh.renderOrder = 0;
+  coneGroup.add(coneMesh);
+  cone = { mesh: coneMesh, mat: coneMat, reveal: 0 };
 
-  // 5 glass rings, stacked top → bottom
+  // Outer glass shell for layered depth (very subtle)
+  const shellMat = new THREE.MeshPhysicalMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.0,
+    roughness: 0.05,
+    metalness: 0.0,
+    clearcoat: 1,
+    clearcoatRoughness: 0.1,
+    transmission: 0.6,
+    thickness: 0.3,
+    ior: 1.5,
+    side: THREE.FrontSide,
+    depthWrite: false,
+  });
+  const shellMesh = new THREE.Mesh(coneGeo, shellMat);
+  shellMesh.scale.set(1.03, 1.0, 1.03);
+  shellMesh.renderOrder = 1;
+  coneGroup.add(shellMesh);
+  shell = { mesh: shellMesh, mat: shellMat, reveal: 0 };
+
+  // 5 thin outline rings sitting exactly on the cone silhouette
+  const RING_TUBE = 0.028;
   DISC_RADII.forEach((r, i) => {
-    const tube = 0.06 - i * 0.004;
-    const geo = new THREE.TorusGeometry(r, tube, 18, 120);
+    const geo = new THREE.TorusGeometry(r, RING_TUBE, 16, 120);
     const mat = new THREE.MeshPhysicalMaterial({
       color: STAGE_HEX[i],
       transparent: true,
       opacity: 0.0,
-      roughness: 0.08,
-      metalness: 0.12,
+      roughness: 0.12,
+      metalness: 0.1,
       clearcoat: 1,
-      clearcoatRoughness: 0.12,
-      transmission: 0.55,
-      thickness: 0.4,
-      ior: 1.55,
+      clearcoatRoughness: 0.15,
+      transmission: 0.45,
+      thickness: 0.3,
+      ior: 1.5,
       emissive: STAGE_HEX[i],
-      emissiveIntensity: 0.18,
+      emissiveIntensity: 0.22,
       depthWrite: false,
     });
     const mesh = new THREE.Mesh(geo, mat);
@@ -339,10 +360,10 @@ function initThree() {
     mesh.rotation.x = Math.PI / 2;
     mesh.scale.setScalar(0.55);
     mesh.userData.stage = i;
-    mesh.renderOrder = 1;
+    mesh.renderOrder = 2;
 
     coneGroup.add(mesh);
-    discs.push({ mesh, mat, baseY: DISC_Y[i], r, lift: 0, reveal: 0 });
+    rings.push({ mesh, mat, baseY: DISC_Y[i], r, lift: 0, reveal: 0 });
   });
 
   // Triple particle streams flowing along the funnel surface
@@ -375,21 +396,27 @@ function initThree() {
   rafId = requestAnimationFrame(tick);
 }
 
+// Cone silhouette radius at parameter t (0 = top, 1 = bottom)
+function coneRadiusAt(t) {
+  const n = DISC_RADII.length - 1;
+  const x = Math.min(n - 1e-6, Math.max(0, t * n));
+  const i = Math.floor(x);
+  const f = x - i;
+  return DISC_RADII[i] + (DISC_RADII[i + 1] - DISC_RADII[i]) * f;
+}
+
 function updateHelix(time) {
   const topY = DISC_Y[0] - 1.4;
   const bottomY = DISC_Y[DISC_Y.length - 1] - 1.4;
-  // follow the outer edge of the fully revealed rings
-  const topTube = 0.06;
-  const bottomTube = 0.06 - (DISC_RADII.length - 1) * 0.004;
-  const topR = (DISC_RADII[0] + topTube) * 0.92;
-  const bottomR = (DISC_RADII[DISC_RADII.length - 1] + bottomTube) * 0.92;
   helixStrands.forEach((hx) => {
     const arr = hx.geo.attributes.position.array;
     for (let j = 0; j < HELIX_N; j++) {
       const t = (j / HELIX_N + time * 0.05) % 1;
       const ang = t * HELIX_TURNS * Math.PI * 2 + hx.phase;
       const y = topY + t * (bottomY - topY);
-      const r = topR + t * (bottomR - topR);
+      // orbit just outside the cone surface, wider at the top
+      const offset = 0.22 * (1 - t) + 0.14 * t;
+      const r = coneRadiusAt(t) + offset + Math.sin(ang * 2 + time * 1.4) * 0.02;
       arr[j * 3] = Math.cos(ang) * r;
       arr[j * 3 + 1] = y;
       arr[j * 3 + 2] = Math.sin(ang) * r;
@@ -398,34 +425,41 @@ function updateHelix(time) {
   });
 }
 
-function updateDiscs(now) {
+function updateScene(now) {
   if (revealStart >= 0) {
     const el = now - revealStart;
-    discs.forEach((d, i) => {
-      const order = discs.length - 1 - i; // bottom → top stagger
+    rings.forEach((d, i) => {
+      const order = rings.length - 1 - i; // bottom → top stagger
       const local = Math.min(1, Math.max(0, (el - order * 140) / 850));
       d.reveal = easeOutCubic(local);
     });
-    coneFillers.forEach((f, i) => {
-      const order = coneFillers.length - 1 - i;
-      const local = Math.min(1, Math.max(0, (el - order * 140 - 100) / 850));
-      f.reveal = easeOutCubic(local);
-    });
+    if (cone) {
+      const local = Math.min(1, Math.max(0, (el - 120) / 900));
+      cone.reveal = easeOutCubic(local);
+      if (shell) shell.reveal = cone.reveal;
+    }
   }
-  discs.forEach((d, i) => {
+  rings.forEach((d, i) => {
     const isSel = i === selected.value;
     d.lift += ((isSel ? 0.18 : 0) - d.lift) * 0.07;
-    d.mat.emissiveIntensity += ((isSel ? 0.55 : 0.12) - d.mat.emissiveIntensity) * 0.08;
+    d.mat.emissiveIntensity += ((isSel ? 0.6 : 0.22) - d.mat.emissiveIntensity) * 0.08;
     const rv = d.reveal;
     d.mesh.position.y = d.baseY - (1 - rv) * 1.4 + d.lift;
     d.mesh.scale.setScalar(0.55 + 0.45 * rv);
-    d.mat.opacity = 0.58 * rv;
+    d.mat.opacity = (isSel ? 0.95 : 0.8) * rv;
   });
-  coneFillers.forEach((f) => {
-    const s = 0.55 + 0.45 * f.reveal;
-    f.mesh.scale.setScalar(s);
-    f.mat.opacity = 0.62 * f.reveal;
-  });
+  if (cone) {
+    const rv = cone.reveal;
+    const s = 0.55 + 0.45 * rv;
+    cone.mesh.scale.set(s, 1, s);
+    cone.mat.opacity = 0.55 * rv;
+  }
+  if (shell) {
+    const rv = shell.reveal;
+    const s = 1.03 * (0.55 + 0.45 * rv);
+    shell.mesh.scale.set(s, 1, s);
+    shell.mat.opacity = 0.12 * rv;
+  }
 }
 
 const hudVec = new THREE.Vector3();
@@ -438,7 +472,7 @@ function updateHUD() {
   if (!w || !h) return;
   const e = camera.matrixWorld.elements;
   hudRight.set(e[0], e[1], e[2]).normalize();
-  discs.forEach((d, i) => {
+  rings.forEach((d, i) => {
     const chip = chipEls.value[i];
     const line = lineEls.value[i];
     const dot = dotEls.value[i];
@@ -477,7 +511,7 @@ function tick(nowMs) {
   orbitLights[1].position.set(Math.cos(-time * 0.4 + Math.PI) * 3.2, -1.3, Math.sin(-time * 0.4 + Math.PI) * 3.0);
 
   updateHelix(time);
-  updateDiscs(nowMs);
+  updateScene(nowMs);
 
   // scroll-driven depth + pointer parallax (lerped)
   const targetZ = 8.2 - scrollP * 1.6;
