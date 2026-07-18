@@ -396,3 +396,20 @@
   - `npm test`：通过，**33/33**
 
 下一步：Phase 6E — 面试计划 (`recruit-interview`) Vue 化。
+
+## 2026-07-18 招聘看板漏斗 2.5D 动态螺旋重设计
+
+- 彻底重写 `src/views/RecruitDashboard.vue` 的招聘全漏斗卡片。
+- **SVG 2.5D 等距圆盘堆叠锥体**：5 个圆盘（rx 126→46，ry=rx×0.28），从上到下形成一个圆锥视觉，每个圆盘显示计数值和阶段名称。
+- **双螺旋线（Double Helix）**：两根相位差 π 的螺旋线绕锥体从顶部到底部缠绕，带流动虚线动画（`stroke-dashoffset` 循环）。
+- **动态粒子**：12 个 SMIL `animateMotion` 粒子在两根螺旋线上运动；`prefers-reduced-motion` 兜底为 12 个静态点。
+- **环境背景**：卡片内嵌 40px 网格点阵 + 30 个 CSS 浮动光斑（`animate ambientDrift`）+ 20 个 SVG 内浮动点（`svgAmbientDrift`），形成数据大屏质感。
+- **右侧洞察面板**：点击圆盘切换（默认选中瓶颈阶段 Offer/index=3），展示：颜色胶囊+瓶颈徽章、人数/占比、转化率+WoW 环比箭头、平均停留、7 天 sparkline（polyline+填充）、负责人、洞察备注、"查看详情"按钮。
+- **底部步进器**（`.viz-funnel` 容器 + 5 个 `.viz-funnel-step[role=link]` 芯片）保持测试契约。
+- 卡片设置 `data-viz-enhanced="funnel"` 防止 app.js 双重增强。
+- 所有颜色来自 CSS 变量，无 gradient，无 AI 外呼文案，`prefers-reduced-motion` 全覆盖。
+- 验证：
+  - `npm run build`：通过
+  - `npm test`：**33/33** 通过，0 console error
+  - 桌面截图：`test-results/funnel-hero-desktop.png`
+  - 移动端截图：`test-results/funnel-hero-mobile.png`

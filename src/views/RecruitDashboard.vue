@@ -37,11 +37,16 @@
 
     <!-- Funnel Hero Section -->
     <div class="card funnel-hero-card" style="margin-bottom:12px" data-viz-enhanced="funnel">
-      <!-- Ambient dynamic background -->
+      <!-- Immersive data-screen background -->
       <div class="funnel-hero-bg" aria-hidden="true">
         <div class="funnel-bg-grid"></div>
+        <div class="funnel-bg-radial" v-for="r in 3" :key="'r'+r"
+          :style="'--r-size:'+(40+r*28)+'px;--r-x:'+(20+r*25)+'%;--r-y:'+(30+r*15)+'%'"></div>
+        <div v-if="motionOK" class="funnel-bg-scanline"></div>
         <div v-if="motionOK" v-for="p in ambientParticles" :key="'ap'+p.id" class="funnel-ambient-dot"
           :style="p.style"></div>
+        <!-- Floating tech 'nodes' -->
+        <div class="funnel-bg-node" v-for="n in techNodes" :key="'tn'+n.id" :style="n.style"></div>
       </div>
       <div class="card-title funnel-hero-title">
         <svg viewBox="0 0 24 24" style="width:18px;height:18px"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
@@ -53,31 +58,35 @@
         <div class="funnel-viz-row">
           <!-- Centered SVG cone -->
           <div class="funnel-viz-area">
-            <svg viewBox="0 0 320 460" class="funnel-viz-svg">
+            <svg viewBox="0 0 320 520" class="funnel-viz-svg">
               <defs>
-                <filter id="funnelGlow"><feGaussianBlur stdDeviation="1.5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+                <filter id="funnelGlow"><feGaussianBlur stdDeviation="2" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
               </defs>
+              <!-- Decorative concentric rings -->
+              <ellipse cx="160" cy="260" rx="180" ry="50" fill="none" stroke="var(--c-primary)" stroke-width="0.5" opacity="0.04"/>
+              <ellipse cx="160" cy="260" rx="150" ry="42" fill="none" stroke="var(--c-primary)" stroke-width="0.5" opacity="0.06"/>
+              <ellipse cx="160" cy="260" rx="120" ry="34" fill="none" stroke="var(--c-primary)" stroke-width="0.5" opacity="0.08"/>
               <!-- Double helix strands -->
               <g v-for="(hPath, hi) in helixPaths" :key="'h'+hi">
                 <path :id="'funnelHelix'+(hi+1)" :d="hPath" fill="none" class="funnel-helix-glow"
                   :class="{ 'helix-flow': motionOK }" />
                 <path :d="hPath" fill="none" class="funnel-helix-core"
-                  :class="{ 'helix-flow': motionOK }" stroke-dasharray="12 8" />
+                  :class="{ 'helix-flow': motionOK }" stroke-dasharray="16 10" />
               </g>
-              <!-- Animated particles on helix strands (motionOK) -->
+              <!-- Animated particles on helix -->
               <template v-if="motionOK">
-                <circle v-for="p in 12" :key="'pp'+p" r="2.5" fill="var(--c-primary)" opacity="0.5">
-                  <animateMotion :dur="(3.5 + p * 0.7) + 's'" repeatCount="indefinite" rotate="auto">
+                <circle v-for="p in 16" :key="'pp'+p" r="2.5" fill="var(--c-primary)" opacity="0.6">
+                  <animateMotion :dur="(4 + p * 0.5) + 's'" repeatCount="indefinite" rotate="auto">
                     <mpath :href="'#funnelHelix' + ((p % 2) + 1)" />
                   </animateMotion>
                 </circle>
               </template>
-              <!-- Static particles (reduced-motion) -->
+              <!-- Static particles -->
               <template v-else>
                 <circle v-for="(sp, spi) in staticParticles" :key="'sp'+spi"
                   :cx="sp.x" :cy="sp.y" r="2" fill="var(--c-primary)" opacity="0.35" />
               </template>
-              <!-- Ambient particles within SVG (motionOK only) -->
+              <!-- SVG ambient dots -->
               <template v-if="motionOK">
                 <circle v-for="ap in svgAmbient" :key="'sa'+ap.id"
                   :cx="ap.x" :cy="ap.y" :r="ap.r" fill="var(--c-primary)" opacity="0.08"
@@ -88,81 +97,110 @@
                 class="funnel-hero-disc"
                 :class="{ selected: selected === i, dimmed: selected !== null && selected !== i }"
                 @click="selectStage(i)">
-                <!-- Drop shadow -->
                 <ellipse :cx="d.cx" :cy="d.cy + d.ry + d.wallH + 6" :rx="d.rx" :ry="d.rx * 0.08"
                   fill="rgba(23,32,51,0.07)" />
-                <!-- Side wall -->
                 <path :d="d.wallPath" :fill="d.accent" :opacity="d.wallOpacity" />
-                <!-- Top face -->
                 <ellipse :cx="d.cx" :cy="d.cy" :rx="d.rx" :ry="d.ry"
                   :fill="d.accent" :opacity="d.faceOpacity" />
-                <!-- Selection ring -->
                 <ellipse v-if="selected === i" :cx="d.cx" :cy="d.cy"
-                  :rx="d.rx + 3" :ry="d.ry + 1.5"
-                  fill="none" stroke="var(--c-primary)" stroke-width="1.5" opacity="0.45"
+                  :rx="d.rx + 4" :ry="d.ry + 2"
+                  fill="none" stroke="var(--c-primary)" stroke-width="1.5" opacity="0.5"
                   filter="url(#funnelGlow)" />
-                <!-- Stage label + count -->
-                <text :x="d.cx" :y="d.cy - 4" text-anchor="middle"
-                  fill="#fff" font-size="14" font-weight="800"
-                  style="font-variant-numeric:tabular-nums;text-shadow:0 1px 3px rgba(0,0,0,.3)"
+                <text :x="d.cx" :y="d.cy - 5" text-anchor="middle"
+                  fill="#fff" font-size="15" font-weight="800"
+                  style="font-variant-numeric:tabular-nums;text-shadow:0 1px 3px rgba(0,0,0,.35)"
                   pointer-events="none">{{ d.count }}</text>
-                <text :x="d.cx" :y="d.cy + 14" text-anchor="middle"
-                  fill="#fff" font-size="10" font-weight="600"
-                  style="text-shadow:0 1px 2px rgba(0,0,0,.25)"
+                <text :x="d.cx" :y="d.cy + 15" text-anchor="middle"
+                  fill="#fff" font-size="11" font-weight="600"
+                  style="text-shadow:0 1px 2px rgba(0,0,0,.3)"
                   pointer-events="none">{{ d.label }}</text>
               </g>
             </svg>
           </div>
-          <!-- Insight panel (right of SVG) -->
+          <!-- Insight panel (right) -->
           <div class="funnel-insight-panel" v-if="sel" :key="selected">
             <div class="insight-panel-inner">
+              <!-- Header: label + badges -->
               <div class="insight-header">
                 <span class="insight-dot" :style="{ background: selAccent }"></span>
-                <span class="insight-label">{{ sel.label }}</span>
+                <span class="insight-label-main">{{ sel.label }}</span>
                 <span v-if="sel.bottleneck" class="badge-bottleneck">瓶颈</span>
                 <span v-else class="health-badge" :class="'health-'+sel.health">{{ healthLabel(sel.health) }}</span>
               </div>
-              <div class="insight-metrics">
-                <div class="insight-metric">
-                  <div class="insight-metric-val">{{ sel.count }}<span class="insight-metric-unit"> 人</span></div>
-                  <div class="insight-metric-sub">占 {{ sel.pct }}</div>
+              <!-- Core metrics: big numbers -->
+              <div class="insight-metrics-row">
+                <div class="insight-metric-card">
+                  <div class="im-val">{{ sel.count }}<span class="im-unit">人</span></div>
+                  <div class="im-sub">在{{ sel.label }}阶段</div>
                 </div>
-                <div class="insight-metric" v-if="sel.conv">
-                  <div class="insight-metric-val">
-                    {{ sel.conv }}
-                    <span class="wow-delta" :class="sel.wowUp ? 'up' : 'down'">
-                      <svg viewBox="0 0 10 10" style="width:8px;height:8px">
-                        <polyline v-if="sel.wowUp" points="1,7 5,2 9,7" fill="none" stroke="currentColor" stroke-width="1.5"/>
-                        <polyline v-else points="1,3 5,8 9,3" fill="none" stroke="currentColor" stroke-width="1.5"/>
-                      </svg>
-                      {{ sel.wow }}
-                    </span>
-                  </div>
-                  <div class="insight-metric-sub">转化率 · WoW</div>
+                <div class="insight-metric-card" v-if="sel.conv">
+                  <div class="im-val">{{ sel.conv }}</div>
+                  <div class="im-sub">入口转化率</div>
                 </div>
-                <div class="insight-metric">
-                  <div class="insight-metric-val">{{ sel.dwell }}</div>
-                  <div class="insight-metric-sub">平均停留</div>
+                <div class="insight-metric-card">
+                  <div class="im-val">{{ sel.pct }}</div>
+                  <div class="im-sub">占总简历</div>
                 </div>
               </div>
-              <div class="insight-spark-wrap">
-                <svg viewBox="0 0 140 32" class="insight-spark">
-                  <polyline :points="sparkPath(sel.spark)" fill="none" :stroke="selAccent" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                  <polygon :points="sparkFillPath(sel.spark)" :fill="selAccent" opacity="0.08"/>
+              <!-- WoW + Dwell row -->
+              <div class="insight-detail-row">
+                <div class="insight-detail-item">
+                  <span class="detail-label">环比</span>
+                  <span class="wow-delta" :class="sel.wowUp ? 'up' : 'down'">
+                    <svg viewBox="0 0 10 10" style="width:10px;height:10px">
+                      <polyline v-if="sel.wowUp" points="1,8 5,2 9,8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                      <polyline v-else points="1,2 5,8 9,2" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                    </svg>
+                    {{ sel.wow }}
+                    <span class="wow-abs">{{ sel.wowUp ? '▲' : '▼' }}{{ sel.spark ? ((Math.round((sel.spark[sel.spark.length-1] - sel.spark[0]) / sel.spark[0] * 100) || 0) + '%') : '' }}</span>
+                  </span>
+                </div>
+                <div class="insight-detail-item">
+                  <span class="detail-label">平均停留</span>
+                  <span class="detail-val">{{ sel.dwell }}</span>
+                </div>
+                <div class="insight-detail-item">
+                  <span class="detail-label">负责人</span>
+                  <span class="detail-val detail-owner">{{ sel.owner }}</span>
+                </div>
+              </div>
+              <!-- Sparkline + chain conversion -->
+              <div class="insight-chart-block">
+                <div class="block-label">近 7 天趋势</div>
+                <svg viewBox="0 0 180 48" class="insight-spark-lg">
+                  <polyline :points="sparkPath(sel.spark, 180, 44, 4)" fill="none" :stroke="selAccent" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  <polygon :points="sparkFillPath(sel.spark, 180, 44, 4)" :fill="selAccent" opacity="0.08"/>
+                  <text v-if="sel.spark" :x="4" :y="12" fill="var(--c-sub)" font-size="8">{{ Math.max(...sel.spark) }}</text>
+                  <text v-if="sel.spark" :x="4" :y="43" fill="var(--c-sub)" font-size="8">{{ Math.min(...sel.spark) }}</text>
                 </svg>
-                <span class="insight-spark-label">7 天趋势</span>
               </div>
-              <div class="insight-note">{{ sel.note }}</div>
-              <div class="insight-owner">
-                <svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:none;stroke:var(--c-sub);stroke-width:2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                {{ sel.owner }}
+              <!-- Conversion chain: all stages compact -->
+              <div class="insight-chain">
+                <div class="block-label">全链路转化</div>
+                <div class="chain-bars">
+                  <div v-for="(st, ci) in FUNNEL_STEPS" :key="ci" class="chain-step"
+                    :class="{ chainActive: ci === selected }"
+                    @click="selectStage(ci)">
+                    <div class="chain-bar-wrap">
+                      <div class="chain-bar" :style="'height:' + chainHeight(ci) + '%;--chain-accent:' + accentColor(st)"></div>
+                    </div>
+                    <span class="chain-label">{{ st.label }}</span>
+                    <span class="chain-val">{{ st.count }}</span>
+                  </div>
+                </div>
               </div>
+              <!-- Insight note -->
+              <div class="insight-note-block">
+                <svg viewBox="0 0 24 24" style="width:14px;height:14px;flex-shrink:0;fill:none;stroke:var(--c-primary);stroke-width:2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                {{ sel.note }}
+              </div>
+              <!-- CTA -->
               <button class="insight-cta" @click="router.push(sel.link)">查看 {{ sel.label }} 详情 →</button>
             </div>
           </div>
         </div>
       </div>
-      <!-- Bottom stepper (test contract) -->
+      <!-- Bottom stepper -->
       <div class="funnel-stepper viz-funnel">
         <div v-for="(step, i) in FUNNEL_STEPS" :key="'step'+i"
           class="viz-funnel-step funnel-step-chip"
@@ -352,29 +390,56 @@ const svgAmbient = computed(() => {
 // -- CSS ambient background particles --
 const ambientParticles = computed(() => {
   const dots = [];
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < 40; i++) {
     dots.push({
       id: i,
       style: {
         left: (Math.random() * 100) + '%',
         top: (Math.random() * 100) + '%',
-        width: (Math.random() * 4 + 2) + 'px',
-        height: (Math.random() * 4 + 2) + 'px',
-        '--ad-dur': (8 + Math.random() * 20) + 's',
-        '--ad-delay': (Math.random() * 12) + 's',
+        width: (Math.random() * 5 + 2) + 'px',
+        height: (Math.random() * 5 + 2) + 'px',
+        '--ad-dur': (10 + Math.random() * 25) + 's',
+        '--ad-delay': (Math.random() * 15) + 's',
       }
     });
   }
   return dots;
 });
 
+// -- Floating tech nodes in background --
+const techNodes = computed(() => {
+  const nodes = [];
+  const labels = ['HR', 'JD', 'OKR', 'HC', 'KPI', 'ATS', 'CRM'];
+  for (let i = 0; i < 12; i++) {
+    nodes.push({
+      id: i,
+      style: {
+        left: (5 + Math.random() * 90) + '%',
+        top: (5 + Math.random() * 90) + '%',
+        fontSize: (8 + Math.random() * 4) + 'px',
+        opacity: (0.03 + Math.random() * 0.05),
+        '--nd-dur': (15 + Math.random() * 30) + 's',
+        '--nd-delay': (Math.random() * 10) + 's',
+        content: '"' + (labels[i % labels.length]) + '"',
+      }
+    });
+  }
+  return nodes;
+});
+
+// -- Chain bar height for all-stages chart --
+function chainHeight(i) {
+  const maxCount = Math.max(...FUNNEL_STEPS.map(s => s.count));
+  return Math.round((FUNNEL_STEPS[i].count / maxCount) * 100);
+}
+
 // -- Sparkline helpers --
-function sparkPath(spark) {
-  if (!spark || !spark.length) return '0,16 140,16';
+function sparkPath(spark, w, h, pad) {
+  w = w || 140; h = h || 28; pad = pad || 2;
+  if (!spark || !spark.length) return pad + ',' + (h/2) + ' ' + (w-pad) + ',' + (h/2);
   const maxV = Math.max(...spark);
   const minV = Math.min(...spark);
   const range = maxV - minV || 1;
-  const w = 140, h = 28, pad = 2;
   return spark.map((v, i) => {
     const x = pad + (i / (spark.length - 1)) * (w - pad * 2);
     const y = pad + (1 - (v - minV) / range) * (h - pad * 2);
@@ -382,12 +447,13 @@ function sparkPath(spark) {
   }).join(' ');
 }
 
-function sparkFillPath(spark) {
-  if (!spark || !spark.length) return '0,30 140,30 140,32 0,32';
-  const pts = sparkPath(spark).split(' ').map(p => p.split(',').map(Number));
+function sparkFillPath(spark, w, h, pad) {
+  w = w || 140; h = h || 28; pad = pad || 2;
+  if (!spark || !spark.length) return pad + ',' + h + ' ' + (w-pad) + ',' + h + ' ' + (w-pad) + ',' + (h+2) + ' ' + pad + ',' + (h+2);
+  const pts = sparkPath(spark, w, h, pad).split(' ').map(p => p.split(',').map(Number));
   const last = pts[pts.length - 1];
   const first = pts[0];
-  return `${first[0]},32 ${pts.map(p => `${p[0]},${p[1]}`).join(' ')} ${last[0]},32`;
+  return `${first[0]},${h} ${pts.map(p => `${p[0]},${p[1]}`).join(' ')} ${last[0]},${h}`;
 }
 
 function healthLabel(h) {
@@ -511,13 +577,16 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
 }
 .dashboard-kpi-card:hover .kpi-trend { opacity: 1; }
 
-/* Funnel Hero Card — Centered 2.5D Cone + Double Helix + Ambient Background */
+/* ===== Funnel Hero Card — 千亿级数据大屏 ===== */
 .funnel-hero-card {
   position: relative;
   overflow: hidden;
-  min-height: 620px;
+  min-height: 700px;
+  background: linear-gradient(165deg, var(--c-surface, #fff) 0%, #F0F4FF 100%);
+  border: 1px solid rgba(79,110,247,0.08);
 }
-/* — Ambient animated background layer — */
+
+/* — Immersive animated background — */
 .funnel-hero-bg {
   position: absolute;
   inset: 0;
@@ -529,45 +598,89 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgba(79,110,247,0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(79,110,247,0.03) 1px, transparent 1px);
-  background-size: 40px 40px;
+    linear-gradient(rgba(79,110,247,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(79,110,247,0.04) 1px, transparent 1px);
+  background-size: 36px 36px;
+}
+.funnel-bg-radial {
+  position: absolute;
+  width: var(--r-size);
+  height: var(--r-size);
+  left: var(--r-x);
+  top: var(--r-y);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(79,110,247,0.06) 0%, transparent 70%);
+  transform: translate(-50%, -50%);
+}
+.funnel-bg-scanline {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(79,110,247,0.015) 2px,
+    rgba(79,110,247,0.015) 4px
+  );
+  animation: scanlineMove 8s linear infinite;
+}
+@keyframes scanlineMove {
+  from { transform: translateY(0); }
+  to { transform: translateY(4px); }
 }
 .funnel-ambient-dot {
   position: absolute;
   border-radius: 50%;
   background: var(--c-primary);
-  opacity: 0.06;
+  opacity: 0.05;
   animation: ambientDrift var(--ad-dur) ease-in-out infinite;
   animation-delay: var(--ad-delay);
 }
 @keyframes ambientDrift {
-  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.04; }
-  25% { transform: translate(20px, -15px) scale(1.2); opacity: 0.08; }
-  50% { transform: translate(-10px, 10px) scale(0.9); opacity: 0.05; }
-  75% { transform: translate(15px, 20px) scale(1.1); opacity: 0.07; }
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.03; }
+  25% { transform: translate(25px, -18px) scale(1.3); opacity: 0.08; }
+  50% { transform: translate(-12px, 12px) scale(0.8); opacity: 0.04; }
+  75% { transform: translate(18px, 22px) scale(1.15); opacity: 0.06; }
+}
+.funnel-bg-node {
+  position: absolute;
+  color: var(--c-primary);
+  font-weight: 800;
+  letter-spacing: 2px;
+  animation: nodeDrift var(--nd-dur) ease-in-out infinite;
+  animation-delay: var(--nd-delay);
+  content: attr(data-text);
+}
+.funnel-bg-node::before {
+  position: absolute;
+  content: '';
+  width: 3px; height: 3px;
+  background: var(--c-primary);
+  border-radius: 50%;
+  top: -4px; left: 50%;
+  transform: translateX(-50%);
+}
+@keyframes nodeDrift {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  33% { transform: translate(10px, -8px) rotate(2deg); }
+  66% { transform: translate(-5px, 6px) rotate(-1deg); }
 }
 
-/* — Title stays above bg — */
-.funnel-hero-title {
-  position: relative;
-  z-index: 2;
-}
+.funnel-hero-title { position: relative; z-index: 2; }
 
-/* — Main body — */
 .funnel-hero-body {
   position: relative;
   z-index: 1;
 }
 .funnel-viz-row {
   display: flex;
-  gap: 16px;
+  gap: 24px;
   align-items: flex-start;
   justify-content: center;
-  padding: 4px 0 0;
+  padding: 8px 0 0;
 }
 
-/* — SVG viz area (centered) — */
+/* — SVG viz area (taller, wider) — */
 .funnel-viz-area {
   flex: 0 0 320px;
   min-width: 260px;
@@ -575,60 +688,58 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
 }
 .funnel-viz-svg {
   width: 100%;
-  height: 460px;
+  height: 520px;
   display: block;
-  filter: drop-shadow(0 4px 20px rgba(79,110,247,0.06));
+  filter: drop-shadow(0 8px 32px rgba(79,110,247,0.08));
 }
 
-/* — Double helix styles — */
+/* — Double helix — */
 .funnel-helix-glow {
   stroke: var(--c-primary);
-  stroke-width: 1.0;
-  opacity: 0.10;
+  stroke-width: 1.2;
+  opacity: 0.08;
   filter: blur(2px);
 }
 .funnel-helix-core {
   stroke: var(--c-primary);
-  stroke-width: 1.2;
-  opacity: 0.15;
+  stroke-width: 1.5;
+  opacity: 0.18;
   stroke-linecap: round;
 }
 .funnel-helix-core.helix-flow,
 .funnel-helix-glow.helix-flow {
-  animation: helixOrbit 3.0s linear infinite;
+  animation: helixOrbit 4.0s linear infinite;
 }
 @keyframes helixOrbit {
   from { stroke-dashoffset: 0; }
-  to { stroke-dashoffset: -40; }
+  to { stroke-dashoffset: -52; }
 }
 
-/* — SVG ambient floating dots (drift within SVG) — */
+/* — SVG ambient dots — */
 .funnel-svg-ambient {
   animation: svgAmbientDrift var(--sa-dur) ease-in-out infinite;
   animation-delay: var(--sa-delay);
 }
 @keyframes svgAmbientDrift {
-  0%, 100% { opacity: 0.06; transform: translate(0, 0); }
-  25% { opacity: 0.12; transform: translate(12px, -8px); }
-  50% { opacity: 0.04; transform: translate(-6px, 6px); }
-  75% { opacity: 0.10; transform: translate(8px, 12px); }
+  0%, 100% { opacity: 0.05; transform: translate(0, 0); }
+  25% { opacity: 0.12; transform: translate(14px, -10px); }
+  50% { opacity: 0.03; transform: translate(-8px, 8px); }
+  75% { opacity: 0.09; transform: translate(10px, 14px); }
 }
 
 /* — Disc interaction — */
-.funnel-hero-disc { cursor: pointer; transition: opacity .25s ease; }
-.funnel-hero-disc.dimmed { opacity: 0.48; }
+.funnel-hero-disc { cursor: pointer; transition: opacity .3s ease; }
+.funnel-hero-disc.dimmed { opacity: 0.40; }
 .funnel-hero-disc.selected { opacity: 1; }
-.funnel-hero-disc:hover {
-  filter: brightness(1.08);
-}
+.funnel-hero-disc:hover { filter: brightness(1.10); }
 
-/* — Insight panel (right side) — */
+/* ===== Insight Panel — Bigger, richer ===== */
 .funnel-insight-panel {
   flex: 1;
-  min-width: 200px;
-  max-width: 320px;
-  border-left: 1px solid var(--c-border);
-  padding: 8px 0 8px 20px;
+  min-width: 260px;
+  max-width: 420px;
+  border-left: 1px solid rgba(79,110,247,0.1);
+  padding: 12px 0 12px 24px;
   display: flex;
   align-items: stretch;
 }
@@ -636,122 +747,241 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  animation: insightFadeIn .2s ease;
+  gap: 14px;
+  animation: insightFadeIn .25s ease;
 }
 @keyframes insightFadeIn {
-  from { opacity: 0; transform: translateX(6px); }
+  from { opacity: 0; transform: translateX(10px); }
   to { opacity: 1; transform: translateX(0); }
 }
-.insight-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.insight-dot {
-  width: 10px; height: 10px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.insight-label {
-  font-size: 16px;
-  font-weight: 700;
+
+/* Header */
+.insight-header { display: flex; align-items: center; gap: 10px; }
+.insight-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+.insight-label-main {
+  font-size: 22px;
+  font-weight: 800;
   color: var(--c-text);
+  letter-spacing: 0.5px;
 }
 .badge-bottleneck {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
-  padding: 2px 8px;
-  border-radius: 10px;
+  padding: 3px 10px;
+  border-radius: 12px;
   background: var(--c-reject);
   color: #fff;
-  line-height: 16px;
 }
 .health-badge {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
-  padding: 2px 8px;
-  border-radius: 10px;
-  line-height: 16px;
+  padding: 3px 10px;
+  border-radius: 12px;
 }
-.health-good { background: rgba(34,197,94,0.12); color: var(--c-done); }
-.health-watch { background: rgba(245,158,11,0.12); color: var(--c-warn); }
-.health-risk { background: rgba(239,68,68,0.12); color: var(--c-reject); }
+.health-good { background: rgba(34,197,94,0.15); color: var(--c-done); }
+.health-watch { background: rgba(245,158,11,0.15); color: var(--c-warn); }
+.health-risk { background: rgba(239,68,68,0.15); color: var(--c-reject); }
 
-.insight-metrics {
+/* — Metric cards row (3 big numbers) — */
+.insight-metrics-row {
   display: flex;
-  gap: 14px;
-  flex-wrap: wrap;
+  gap: 10px;
 }
-.insight-metric { flex: 1; min-width: 70px; }
-.insight-metric-val {
-  font-size: 18px;
+.insight-metric-card {
+  flex: 1;
+  background: var(--c-bg);
+  border: 1px solid var(--c-border-light);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.im-val {
+  font-size: 22px;
   font-weight: 800;
   color: var(--c-text);
   font-variant-numeric: tabular-nums;
   display: flex;
-  align-items: center;
-  gap: 4px;
+  align-items: baseline;
+  gap: 2px;
 }
-.insight-metric-unit { font-size: 12px; font-weight: 400; color: var(--c-sub); }
-.insight-metric-sub { font-size: 11px; color: var(--c-sub); margin-top: 2px; }
-.wow-delta { font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 1px; }
+.im-unit { font-size: 13px; font-weight: 400; color: var(--c-sub); margin-left: 2px; }
+.im-sub { font-size: 11px; color: var(--c-sub); margin-top: 3px; }
+
+/* — WoW + dwell row — */
+.insight-detail-row {
+  display: flex;
+  gap: 16px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--c-border-light);
+}
+.insight-detail-item {
+  flex: 1;
+}
+.detail-label {
+  display: block;
+  font-size: 10px;
+  color: var(--c-sub);
+  margin-bottom: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.detail-val {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--c-text);
+  font-variant-numeric: tabular-nums;
+}
+.detail-owner { font-size: 13px; font-weight: 500; color: var(--c-body); }
+.wow-delta {
+  font-size: 14px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
 .wow-delta.up { color: var(--c-done); }
 .wow-delta.down { color: var(--c-reject); }
+.wow-abs {
+  font-size: 10px;
+  font-weight: 600;
+  opacity: 0.6;
+}
 
-.insight-spark-wrap { display: flex; align-items: center; gap: 8px; }
-.insight-spark { width: 120px; height: 28px; flex-shrink: 0; }
-.insight-spark-label { font-size: 10px; color: var(--c-sub); }
-.insight-note {
-  font-size: 12px;
-  color: var(--c-body);
-  line-height: 1.6;
-  padding: 8px 10px;
+/* — Sparkline block — */
+.insight-chart-block {
   background: var(--c-bg);
-  border-radius: 6px;
+  border-radius: 8px;
+  padding: 10px 12px;
   border: 1px solid var(--c-border-light);
 }
-.insight-owner { font-size: 12px; color: var(--c-sub); display: flex; align-items: center; gap: 6px; }
+.block-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--c-sub);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.insight-spark-lg {
+  width: 100%;
+  height: 48px;
+  display: block;
+}
+
+/* — Conversion chain bars — */
+.insight-chain {
+  background: var(--c-bg);
+  border-radius: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--c-border-light);
+}
+.chain-bars {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+  height: 70px;
+  padding-top: 4px;
+}
+.chain-step {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+  transition: opacity .2s;
+}
+.chain-step:hover { opacity: 0.8; }
+.chain-step.chainActive { opacity: 1; }
+.chain-bar-wrap {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.chain-bar {
+  width: 60%;
+  border-radius: 3px 3px 0 0;
+  background: var(--chain-accent, var(--c-primary));
+  opacity: 0.6;
+  min-height: 4px;
+  transition: opacity .2s;
+}
+.chain-step.chainActive .chain-bar {
+  opacity: 1;
+  box-shadow: 0 0 8px rgba(79,110,247,0.15);
+}
+.chain-label {
+  font-size: 9px;
+  color: var(--c-sub);
+  white-space: nowrap;
+}
+.chain-val {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--c-text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* — Insight note — */
+.insight-note-block {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--c-body);
+  line-height: 1.6;
+  padding: 10px 12px;
+  background: rgba(79,110,247,0.04);
+  border-radius: 8px;
+  border-left: 3px solid var(--c-primary);
+}
+
+/* — CTA — */
 .insight-cta {
   width: 100%;
-  padding: 8px 0;
+  padding: 10px 0;
   border: 1px solid var(--c-primary);
-  border-radius: 6px;
+  border-radius: 8px;
   background: transparent;
   color: var(--c-primary);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  transition: background .15s, color .15s;
+  transition: all .2s;
   font-family: inherit;
 }
-.insight-cta:hover { background: var(--c-primary); color: #fff; }
+.insight-cta:hover {
+  background: var(--c-primary);
+  color: #fff;
+  box-shadow: 0 4px 16px rgba(79,110,247,0.2);
+}
 
 /* — Bottom stepper chips — */
 .funnel-stepper {
   display: flex;
-  gap: 4px;
+  gap: 6px;
   justify-content: center;
   padding: 16px 0 4px;
   flex-wrap: wrap;
   border-top: 1px solid var(--c-border-light);
-  margin-top: 10px;
+  margin-top: 12px;
   position: relative;
   z-index: 2;
 }
 .viz-funnel-step.funnel-step-chip {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 5px 12px;
-  border-radius: 16px;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 18px;
   border: 1px solid var(--c-border);
   background: var(--c-card);
   cursor: pointer;
   font-size: 12px;
   font-weight: 500;
   color: var(--c-body);
-  transition: all .18s ease;
+  transition: all .2s ease;
   white-space: nowrap;
 }
 .viz-funnel-step.funnel-step-chip:hover,
@@ -761,7 +991,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
   background: rgba(79,110,247,0.06);
 }
 .viz-funnel-step.funnel-step-chip.active { font-weight: 700; }
-.step-chip-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.step-chip-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .step-chip-count { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--c-text); }
 
 /* — Reduced motion — */
@@ -770,20 +1000,24 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
   .funnel-hero-disc { transition: none !important; }
   .funnel-helix-core.helix-flow,
   .funnel-helix-glow.helix-flow { animation: none !important; }
-  .funnel-ambient-dot { animation: none !important; opacity: 0.05 !important; }
+  .funnel-ambient-dot { animation: none !important; opacity: 0.04 !important; }
+  .funnel-bg-scanline { animation: none !important; }
   .funnel-svg-ambient { animation: none !important; }
+  .funnel-bg-node { animation: none !important; }
   .insight-panel-inner { animation: none !important; }
   .funnel-step-chip { transition: none !important; }
 }
 
-/* — Mobile: stack vertically — */
-@media (max-width: 720px) {
+/* — Mobile — */
+@media (max-width: 780px) {
   .funnel-hero-card { min-height: auto; }
   .funnel-viz-row { flex-direction: column; align-items: center; }
   .funnel-viz-area { flex: 0 0 auto; max-width: 300px; }
-  .funnel-viz-svg { height: 380px; }
-  .funnel-insight-panel { max-width: none; border-left: none; border-top: 1px solid var(--c-border); padding: 14px 0 0; }
+  .funnel-viz-svg { height: 400px; }
+  .funnel-insight-panel { max-width: none; border-left: none; border-top: 1px solid var(--c-border); padding: 16px 0 0; }
+  .insight-metrics-row { flex-wrap: wrap; }
+  .insight-metric-card { min-width: 80px; }
   .funnel-stepper { gap: 6px; }
-  .viz-funnel-step.funnel-step-chip { padding: 4px 10px; font-size: 11px; }
+  .viz-funnel-step.funnel-step-chip { padding: 5px 10px; font-size: 11px; }
 }
 </style>
