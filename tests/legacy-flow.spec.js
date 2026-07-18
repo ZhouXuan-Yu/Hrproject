@@ -250,7 +250,8 @@ test('interview plan covers full six-state workflow and calendar', async ({ page
 test('recruiting assistant includes candidate communication helper and no outbound-call copy', async ({ page }) => {
   await page.goto('/recruit-ai');
   await page.getByText('⑥ 候选人沟通助手').click();
-  await expect(page.getByRole('heading', { name: '候选人沟通助手' })).toBeVisible();
+  // Verify the communication tab form is visible
+  await expect(page.getByLabel('候选人')).toBeVisible();
   await expect(page.locator('body')).not.toContainText(/外呼|自动拨打/);
 });
 
