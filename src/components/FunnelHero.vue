@@ -265,6 +265,7 @@ let scrollP = 0;
 let ptrX = 0;
 let ptrY = 0;
 let destroyed = false;
+let visible = false;
 
 // Linear taper so the CylinderGeometry silhouette passes exactly through each ring
 const DISC_RADII = [1.6, 1.335, 1.07, 0.805, 0.54];
@@ -312,20 +313,15 @@ function initThree() {
     const topY = DISC_Y[i];
     const bottomY = DISC_Y[i + 1];
     const height = topY - bottomY;
-    const geo = new THREE.CylinderGeometry(topR, bottomR, height, 96, 1, true);
-    const mat = new THREE.MeshPhysicalMaterial({
+    const geo = new THREE.CylinderGeometry(topR, bottomR, height, 48, 1, true);
+    const mat = new THREE.MeshStandardMaterial({
       color: STAGE_HEX[i],
       transparent: true,
       opacity: 0.0,
-      roughness: 0.2,
-      metalness: 0.0,
-      clearcoat: 0.8,
-      clearcoatRoughness: 0.2,
-      transmission: 0.25,
-      thickness: 0.4,
-      ior: 1.45,
+      roughness: 0.25,
+      metalness: 0.05,
       emissive: STAGE_HEX[i],
-      emissiveIntensity: 0.05,
+      emissiveIntensity: 0.08,
       side: THREE.DoubleSide,
       depthWrite: false,
     });
@@ -341,18 +337,13 @@ function initThree() {
   // ---- 5 thin outline rings: the exact boundary of each fill band ----
   const RING_TUBE = 0.028;
   DISC_RADII.forEach((r, i) => {
-    const geo = new THREE.TorusGeometry(r, RING_TUBE, 16, 120);
-    const mat = new THREE.MeshPhysicalMaterial({
+    const geo = new THREE.TorusGeometry(r, RING_TUBE, 16, 48);
+    const mat = new THREE.MeshStandardMaterial({
       color: STAGE_HEX[i],
       transparent: true,
       opacity: 0.0,
-      roughness: 0.12,
-      metalness: 0.1,
-      clearcoat: 1,
-      clearcoatRoughness: 0.15,
-      transmission: 0.45,
-      thickness: 0.3,
-      ior: 1.5,
+      roughness: 0.18,
+      metalness: 0.15,
       emissive: STAGE_HEX[i],
       emissiveIntensity: 0.22,
       depthWrite: false,
@@ -609,6 +600,16 @@ onMounted(() => {
   window.addEventListener('scroll', onScroll, { passive: true });
   window.addEventListener('resize', onScroll, { passive: true });
   onScroll();
+  // Pause rAF when off-screen, resume when visible
+  const visIo = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      visible = entry.isIntersecting;
+      if (visible && !destroyed && rafId === 0) {
+        rafId = requestAnimationFrame(tick);
+      }
+    });
+  }, { threshold: 0 });
+  visIo.observe(cardEl.value);
   // Layer-by-layer reveal when the card enters the viewport
   io = new IntersectionObserver((entries) => {
     entries.forEach((entry) => {
