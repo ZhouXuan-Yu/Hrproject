@@ -43,6 +43,7 @@
 
 <script setup>
 import { ref } from 'vue';
+import { api } from '../api/index.js';
 import { useToast } from '../composables/useToast.js';
 
 defineProps({
@@ -56,8 +57,6 @@ const showBossLoginModal = ref(false);
 const loginLoading = ref(false);
 const loginError = ref('');
 let loginTimeoutId = null;
-
-const api = { post: async () => ({ data: {} }) };
 
 function handleLogin() {
   if (loginTimeoutId) return;
