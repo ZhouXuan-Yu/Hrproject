@@ -363,8 +363,8 @@ async function submitEmail() {
   emailSaving.value = true;
   const folder = emailForm.folder === 'custom' ? emailForm.folderCustom : 'INBOX';
   const payload = {
-    address: emailForm.addr, type: emailForm.type, proto: emailForm.proto, port: emailForm.port,
-    server: emailForm.server, ssl: emailForm.ssl, user: emailForm.user || emailForm.addr,
+    address: emailForm.addr.trim(), type: emailForm.type, proto: emailForm.proto, port: emailForm.port,
+    server: emailForm.server || '', ssl: emailForm.ssl, name: emailForm.user || emailForm.addr,
     pass: emailForm.pass, freq: emailForm.freq, folder,
   };
   try {

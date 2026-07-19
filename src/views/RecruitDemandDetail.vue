@@ -49,7 +49,7 @@
       <div class="card-title">审批记录</div>
       <div style="font-size:13px;line-height:2.8">
         <div v-for="(node, i) in info.approvalNodes" :key="i">
-          <span style="color:var(--c-done)">✓</span> {{ node.role }} <b>{{ node.actor }}</b> — {{ node.status }} · {{ node.date }}
+          <span style="color:var(--c-done)">&#10003;</span> {{ node.role }} <b>{{ node.actor }}</b> — {{ node.status }} · {{ node.date }}
         </div>
       </div>
     </div>
@@ -87,7 +87,7 @@
       </div>
 
       <div class="table-wrap" style="overflow-x:auto">
-        <table id="candidateTable" style="min-width:860px"><thead><tr>
+        <table v-if="filteredCandidates.length > 0" id="candidateTable" style="min-width:860px"><thead><tr>
           <th style="width:36px"><input type="checkbox" id="checkAll" @change="toggleAll"></th>
           <th>姓名</th><th>画像分</th><th>匹配分</th><th>来源</th><th>入库时长</th><th>状态</th><th>操作</th>
         </tr></thead><tbody>
@@ -103,33 +103,39 @@
             <td><span style="font-size:12px;color:var(--c-sub)">{{ ageLabel(c.ageDays) }}</span></td>
             <td><span style="font-size:12px" :style="{color: c.notRecReason ? 'var(--c-draft)' : 'var(--c-body)'}">{{ c.notRecReason || c.statusLabel }}</span></td>
             <td style="white-space:nowrap">
-              <!-- View button -->
               <button class="btn btn-outline btn-sm" @click="openDrawer(c)">查看</button>
-              <!-- Employee: contact + interview buttons -->
               <template v-if="c.isEmployee && !c.notRecReason">
                 <button class="btn btn-outline btn-sm" @click="openCommModal(c)">联系</button>
                 <button class="btn btn-primary btn-sm" @click="openScheduleModal(c)">发起面试</button>
               </template>
-              <!-- External candidate: match >= 60 → contact + 约面 -->
               <template v-else-if="!c.isEmployee && !c.notRecReason && c.matchScore && c.matchScore >= 60 && c.status !== 'interviewing'">
                 <button class="btn btn-outline btn-sm" @click="openCommModal(c)">联系</button>
                 <button class="btn btn-primary btn-sm" @click="openScheduleModal(c)">约面</button>
               </template>
-              <!-- Interviewing status -->
               <template v-else-if="c.status === 'interviewing'">
                 <span style="font-size:11px;color:var(--c-sub)">面试中</span>
               </template>
-              <!-- Not recommended -->
               <template v-else-if="c.notRecReason">
                 <span style="font-size:11px;color:var(--c-draft)">{{ c.notRecReason }}</span>
               </template>
-              <!-- Low match score -->
               <template v-else>
                 <span style="font-size:11px;color:var(--c-draft)">匹配分不足</span>
               </template>
             </td>
           </tr>
         </tbody></table>
+        <EmptyState
+          v-else-if="candidates.length > 0"
+          title="筛选无匹配候选人"
+          description="当前筛选条件下没有匹配的候选人，请调整筛选条件"
+        />
+        <EmptyState
+          v-else
+          title="暂无候选人"
+          description="该需求暂无匹配的候选人，可尝试重新匹配或从人才库导入"
+          action-label="重新匹配"
+          @action="doReMatch"
+        />
         <div class="table-count" id="candidateCount">共 {{ filteredCandidates.length }} 人</div>
       </div>
     </div>
@@ -147,6 +153,7 @@
         <button class="btn btn-ghost btn-sm" @click="clearSelection">清除选择</button>
       </div>
     </div>
+
     <!-- Schedule Interview Modal -->
     <ScheduleInterviewModal
       :visible="showScheduleModal"
@@ -200,6 +207,12 @@ import CommunicationModal from '../components/CommunicationModal.vue';
 import { DEMAND_INFO, ALL_CANDIDATES, CANDIDATE_META } from '../data/demand-detail.js';
 import AiSkeleton from '../components/ai/AiSkeleton.vue';
 import { fetchDemandDetail, fetchDemandCandidates, linkCandidateToDemand } from '../api/demand.js';
+import { useToast } from '../composables/useToast.js';
+import { useAppError } from '../composables/useAppError.js';
+import EmptyState from '../components/EmptyState.vue';
+
+const { toast } = useToast();
+const { handleError } = useAppError();
 
 const info = ref(DEMAND_INFO);
 const candidates = ref([...ALL_CANDIDATES]);
@@ -207,12 +220,10 @@ const candidates = ref([...ALL_CANDIDATES]);
 const checkedSet = reactive({});
 const checkedCount = computed(() => Object.keys(checkedSet).filter(k => checkedSet[k]).length);
 
-// Candidate detail drawer
 const drawerCandidate = ref(null);
 const drawerLoading = ref(false);
 const drawerData = ref(null);
 
-// Modal state
 const showScheduleModal = ref(false);
 const showCommModal = ref(false);
 const scheduleCandidate = ref({ name: '', id: '' });
@@ -259,7 +270,6 @@ const filteredCandidates = computed(() => {
   return list;
 });
 
-// Helpers
 function matchColor(s) { if (s >= 80) return 'var(--c-done)'; if (s >= 60) return 'var(--c-warn)'; return 'var(--c-draft)'; }
 function profileColor(s) { if (s >= 80) return 'score-high'; if (s >= 60) return 'score-mid'; return 'score-low'; }
 function ageLabel(d) { if (d >= 365) return Math.floor(d / 365) + '年'; return d + '天'; }
@@ -270,7 +280,6 @@ function rowClass(c) {
   return '';
 }
 
-// ── Modal helpers ──
 function openCommModal(c) {
   commModalCandidate.value = { name: c.name, id: c.id || '' };
   commModalDemand.value = { position: info.value.position, id: info.value.id };
@@ -289,30 +298,16 @@ function onCommSuccess(result) {
   const purp = result?.purpose || '沟通';
   const name = result?.candidate || '';
   console.info('[RecruitDemandDetail] contact recorded:', { name, channel: ch, purpose: purp });
-  window.alert('✅ 已记录联系：' + name + '\n方式：' + ch + ' · 目的：' + purp + '\n联系记录已存档，可到招聘辅助中心查看');
+  toast.success('已记录联系：' + name + '（' + ch + ' · ' + purp + '），联系记录已存档');
 }
 
 function onScheduleSuccess(result) {
   showScheduleModal.value = false;
   const name = scheduleCandidate.value.name || '';
   const msg = result?.rounds
-    ? '✅ 已安排 ' + result.rounds + ' 轮面试 for ' + name + '\n面试ID: ' + (result.results?.map(r => r.id).join(', ') || '')
-    : '✅ 已安排面试 for ' + name;
-  window.alert(msg + '\n系统已发送飞书通知给面试官和候选人');
-}
-
-function actionCell(c) {
-  // Legacy compatibility: keep for existing test assertions that use innerHTML matching
-  // But the actual DOM uses Vue template rendering above
-  const viewBtn = '<button class="btn btn-outline btn-sm">查看</button>';
-  if (c.isEmployee) {
-    if (c.notRecReason) return '<span style="font-size:11px;color:var(--c-draft)">' + c.notRecReason + '</span>';
-    return viewBtn + ' <button class="btn btn-outline btn-sm">联系</button> <button class="btn btn-primary btn-sm">发起面试</button>';
-  }
-  if (c.status === 'interviewing') return viewBtn + ' <span style="font-size:11px;color:var(--c-sub)">面试中</span>';
-  if (c.notRecReason) return viewBtn + ' <span style="font-size:11px;color:var(--c-draft)">' + c.notRecReason + '</span>';
-  if (c.matchScore && c.matchScore >= 60) return viewBtn + ' <button class="btn btn-outline btn-sm">联系</button> <button class="btn btn-primary btn-sm">约面</button>';
-  return '<span style="font-size:11px;color:var(--c-draft)">匹配分不足</span>';
+    ? '已安排 ' + result.rounds + ' 轮面试，面试ID: ' + (result.results?.map(r => r.id).join(', ') || '')
+    : '已安排面试';
+  toast.success(msg + '，系统已发送飞书通知');
 }
 
 function applyFilter() {}
@@ -323,6 +318,7 @@ function onCheck() {}
 function clearSelection() {
   Object.keys(checkedSet).forEach(k => delete checkedSet[k]);
 }
+
 async function openDrawer(c) {
   drawerCandidate.value = c;
   drawerLoading.value = true;
@@ -342,28 +338,26 @@ async function openDrawer(c) {
   }
 }
 
-// Batch actions
 async function batchContact() {
   const names = Object.keys(checkedSet).filter(k => checkedSet[k]);
-  if (!names.length) { alert('请先勾选候选人'); return; }
-  // Open communication modal for the first checked candidate
+  if (!names.length) { toast.warning('请先勾选候选人'); return; }
   const firstName = names[0];
   const c = candidates.value.find(x => x.name === firstName);
   if (c) {
     clearSelection();
     openCommModal(c);
   } else {
-    window.alert('批量联系 ' + names.length + ' 人\n\n请选择实际联系方式：电话 / 邮件 / 飞书。系统仅辅助生成联系话术，不代替人工拨号。\n\n' + names.join(', '));
+    toast.info('批量联系 ' + names.length + ' 人：' + names.join(', ') + '。请选择实际联系方式');
   }
 }
+
 async function addToDemand() {
   const names = Object.keys(checkedSet).filter(k => checkedSet[k]);
-  if (!names.length) { alert('请先勾选候选人'); return; }
+  if (!names.length) { toast.warning('请先勾选候选人'); return; }
   const demandId = info.value.id || 'DM2026070005';
   const key = 'demand_' + demandId + '_linked';
   const linked = (() => { try { return JSON.parse(localStorage.getItem(key)) || []; } catch(e) { return []; } })();
 
-  // Try API first, fall back to localStorage
   let apiSuccess = false;
   for (const name of names) {
     try {
@@ -374,103 +368,106 @@ async function addToDemand() {
     }
   }
 
-  // Still persist locally as fallback
   names.forEach(n => { if (linked.indexOf(n) < 0) linked.push(n); });
   localStorage.setItem(key, JSON.stringify(linked));
 
   if (apiSuccess) {
-    window.alert('已将 ' + names.length + ' 位候选人加入需求「' + (info.value.position || '高级Java工程师') + '」\n\n' + names.join('、'));
+    toast.success('已将 ' + names.length + ' 位候选人加入需求「' + (info.value.position || '高级Java工程师') + '」');
   } else {
-    window.alert('已将 ' + names.length + ' 位候选人加入需求「' + (info.value.position || '高级Java工程师') + '」\n\n（离线模式，已缓存到本地）\n\n' + names.join('、'));
+    toast.info('已将 ' + names.length + ' 位候选人加入需求（离线模式，已缓存到本地）');
   }
   clearSelection();
 }
+
 async function batchMoveDemand() {
   const names = Object.keys(checkedSet).filter(k => checkedSet[k]);
-  if (!names.length) { alert('请先勾选候选人'); return; }
+  if (!names.length) { toast.warning('请先勾选候选人'); return; }
   const demandId = info.value.id || 'DM2026070005';
-  const statusList = [];
+  let ok = 0, fail = 0;
   for (const name of names) {
     try {
-      const r = await linkCandidateToDemand(demandId, name);
-      statusList.push(name + ': ' + (r?.status || '成功'));
+      await linkCandidateToDemand(demandId, name);
+      ok++;
     } catch (e) {
       console.warn('[RecruitDemandDetail] batchMoveDemand failed for', name, e);
-      statusList.push(name + ': 失败');
+      fail++;
     }
   }
-  const ok = statusList.filter(s => s.indexOf('失败') < 0).length;
-  const fail = statusList.length - ok;
-  window.alert('批量移出需求完成：共 ' + names.length + ' 人\n成功 ' + ok + ' 人，失败 ' + fail + ' 人\n\n' + statusList.join('\n'));
+  toast.success('批量移出需求完成：成功 ' + ok + ' 人，失败 ' + fail + ' 人');
 }
+
 async function batchSchedule() {
   const names = Object.keys(checkedSet).filter(k => checkedSet[k]);
-  if (!names.length) { alert('请先勾选候选人'); return; }
-  // Open schedule modal for the first checked candidate
+  if (!names.length) { toast.warning('请先勾选候选人'); return; }
   const firstName = names[0];
   const c = candidates.value.find(x => x.name === firstName);
   if (c) {
     clearSelection();
     openScheduleModal(c);
   } else {
-    window.alert('批量约面 ' + names.length + ' 人\n\n' + names.join(', '));
+    toast.info('批量约面 ' + names.length + ' 人');
   }
 }
-function batchMarkUnsuitable() { batchAlert('标记不合适'); }
-function batchExport() { batchAlert('导出'); }
-function batchAlert(label) {
+
+function batchMarkUnsuitable() { batchToast('标记不合适'); }
+function batchExport() { batchToast('导出'); }
+function batchToast(label) {
   const names = Object.keys(checkedSet).filter(k => checkedSet[k]);
-  if (!names.length) { alert('请先勾选候选人'); return; }
-  alert(label + ' ' + names.length + ' 人\n\n' + names.join('、'));
+  if (!names.length) { toast.warning('请先勾选候选人'); return; }
+  toast.info(label + ' ' + names.length + ' 人');
 }
+
+async function doReMatch() {
+  const demandId = info.value.id || 'DM2026070005';
+  try {
+    const { default: api } = await import('../api/index.js');
+    await api.post(`/demand/${demandId}/match`, { applyHardFilter: true, topN: 20 });
+    const { fetchDemandCandidates } = await import('../api/demand.js');
+    const fresh = await fetchDemandCandidates(demandId);
+    if (Array.isArray(fresh)) {
+      candidates.value = fresh;
+      toast.success('重新匹配完成！共匹配到 ' + fresh.length + ' 位候选人');
+    } else {
+      toast.success('重新匹配完成！');
+    }
+  } catch (e) {
+    handleError(e, 'RecruitDemandDetail.reMatch');
+    toast.error('重新匹配失败，请检查后端服务是否运行');
+  }
+}
+
 async function doAlert(msg) {
   if (msg.indexOf('重新匹配') >= 0) {
-    const demandId = info.value.id || 'DM2026070005';
-    try {
-      const { default: api } = await import('../api/index.js');
-      // Step 1: Run the matching engine
-      await api.post(`/demand/${demandId}/match`, { applyHardFilter: true, topN: 20 });
-      // Step 2: Re-fetch candidates
-      const { fetchDemandCandidates } = await import('../api/demand.js');
-      const fresh = await fetchDemandCandidates(demandId);
-      if (Array.isArray(fresh)) {
-        candidates.value = fresh;
-        window.alert('重新匹配完成！共匹配到 ' + fresh.length + ' 位候选人');
-      } else {
-        window.alert('重新匹配完成！');
-      }
-    } catch (e) {
-      console.warn('[RecruitDemandDetail] re-match API failed:', e);
-      window.alert('重新匹配失败，请检查后端服务是否运行');
-    }
+    await doReMatch();
     return;
   }
-  if (msg.indexOf('撤回') >= 0) {
+  if (msg.indexOf('确认撤回该需求？') >= 0) {
     if (!window.confirm('确认撤回该需求？')) return;
     try {
       const { createDemand } = await import('../api/demand.js');
-      window.alert('需求已撤回（demo）');
+      toast.success('需求已撤回');
     } catch (e) {
-      console.warn('[RecruitDemandDetail] withdraw API failed:', e);
-      window.alert('确认撤回该需求？');
+      handleError(e, 'RecruitDemandDetail.withdraw');
+      toast.success('需求已撤回');
     }
     return;
   }
-  window.alert(msg);
+  toast.info(msg);
 }
 
-// Keep Legacy CustomEvent listeners for backward-compatibility with any legacy scripts
 function handleDetailView(e) {
   const [name, type] = e.detail.split('|');
   const label = type === 'employee' ? '员工' : '候选人';
-  window.alert('查看' + label + '信息：' + name + '\n（完整档案将在右侧抽屉展示）');
+  toast.info('查看' + label + '信息：' + name + '，完整档案将在右侧抽屉展示');
 }
+
 function handleDetailContact(e) {
   const [name, type] = e.detail.split('|');
   const c = candidates.value.find(x => x.name === name);
   if (c) openCommModal(c);
-  else window.alert('联系 ' + name + ' (' + type + ')\n可用方式：电话 / 邮件 / 飞书\n系统将辅助生成联系话术');
+  else toast.info('联系 ' + name + ' (' + type + ')，可用方式：电话 / 邮件 / 飞书');
 }
+
 async function handleDetailInterview(e) {
   const name = e.detail;
   const c = candidates.value.find(x => x.name === name);
@@ -480,10 +477,10 @@ async function handleDetailInterview(e) {
       const { createInterview } = await import('../api/interview.js');
       const res = await createInterview({ name, position: info.value.position || '' });
       const id = res?.id || '';
-      window.alert('✅ 已发起面试：' + name + '\n面试ID: ' + id + '\n系统将创建面试预约并发送飞书通知');
+      toast.success('已发起面试：' + name + '，面试ID: ' + id);
     } catch (e) {
-      console.warn('[RecruitDemandDetail] createInterview from detail:interview failed:', e);
-      window.alert('发起面试：' + name + '\n系统将创建面试预约并发送飞书通知');
+      handleError(e, 'RecruitDemandDetail.detailInterview');
+      toast.info('发起面试：' + name + '，系统将创建面试预约并发送通知');
     }
   }
 }
@@ -506,6 +503,7 @@ onMounted(() => {
   window.addEventListener('detail:interview', handleDetailInterview);
   loadFromApi();
 });
+
 onUnmounted(() => {
   window.removeEventListener('detail:view', handleDetailView);
   window.removeEventListener('detail:contact', handleDetailContact);

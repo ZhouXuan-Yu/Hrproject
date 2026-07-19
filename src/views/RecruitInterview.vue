@@ -25,7 +25,7 @@
       </button>
     </template>
 
-    <!-- Pipeline status stat-cards — clickable filter, talent-library style -->
+    <!-- Pipeline status stat-cards -->
     <div class="iv-stat-row">
       <article v-for="kpi in kpis" :key="kpi.key"
         class="hero-summary-card iv-stat-card"
@@ -40,7 +40,6 @@
         <i class="iv-stat-icon" v-html="stageIcon(kpi.key)"></i>
       </article>
     </div>
-    <!-- Block hero-page-summary (redundant "当前筛选范围" label) — let hero-page-command/workspace inject from app.js -->
     <section class="hero-page-summary" style="display:none" aria-hidden="true"></section>
 
     <!-- Tabs -->
@@ -55,7 +54,7 @@
     <!-- 全部面试 panel -->
     <div class="tab-panel" :class="{ active: activeTab === 'list' }">
       <div class="table-wrap">
-        <table><thead><tr><th>候选人</th><th>岗位</th><th>轮次</th><th>面试官</th><th>时间</th><th>方式</th><th>状态</th><th>操作</th></tr></thead>
+        <table v-if="filteredList.length > 0"><thead><tr><th>候选人</th><th>岗位</th><th>轮次</th><th>面试官</th><th>时间</th><th>方式</th><th>状态</th><th>操作</th></tr></thead>
         <tbody>
           <tr v-for="(item, i) in filteredList" :key="'l'+i">
             <td><a href="javascript:void(0)" style="font-weight:600;color:var(--c-primary)" @click="openCandidateDrawer(item.name)">{{ item.name }}</a></td>
@@ -65,6 +64,13 @@
             <td style="white-space:nowrap" v-html="renderActions(item)"></td>
           </tr>
         </tbody></table>
+        <EmptyState
+          v-else
+          title="暂无面试记录"
+          description="当前没有符合条件的面试安排，可新建面试"
+          action-label="+ 新建面试"
+          @action="openGlobalScheduleModal('','','')"
+        />
         <div class="table-count">共 {{ filteredList.length }} 条</div>
       </div>
     </div>
@@ -72,7 +78,7 @@
     <!-- 我的待办 panel -->
     <div class="tab-panel" :class="{ active: activeTab === 'mine' }">
       <div class="table-wrap">
-        <table><thead><tr><th>候选人</th><th>岗位</th><th>轮次</th><th>时间</th><th>方式</th><th>状态</th><th>操作</th></tr></thead>
+        <table v-if="filteredMine.length > 0"><thead><tr><th>候选人</th><th>岗位</th><th>轮次</th><th>时间</th><th>方式</th><th>状态</th><th>操作</th></tr></thead>
         <tbody>
           <tr v-for="(item, i) in filteredMine" :key="'m'+i">
             <td><a href="javascript:void(0)" style="font-weight:600;color:var(--c-primary)" @click="openCandidateDrawer(item.name)">{{ item.name }}</a></td>
@@ -82,6 +88,11 @@
             <td style="white-space:nowrap" v-html="renderActions(item)"></td>
           </tr>
         </tbody></table>
+        <EmptyState
+          v-else
+          title="暂无待办事项"
+          description="当前没有需要你处理的面试待办"
+        />
         <div class="table-count">共 {{ filteredMine.length }} 条</div>
       </div>
     </div>
@@ -91,9 +102,9 @@
       <div id="calendarViewModal" class="modal-overlay" v-if="showCalendar" @click.self="showCalendar = false" style="display:flex">
         <div class="modal-box" style="width:720px;max-height:85vh;overflow-y:auto">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-            <h3 style="margin:0">面试日程 · {{ calendarMonthLabel }} 第{{ calendarWeekNum }}周</h3>
+            <h3 style="margin:0">面试日程 &middot; {{ calendarMonthLabel }} 第{{ calendarWeekNum }}周</h3>
             <div style="display:flex;gap:6px">
-              <button class="btn btn-outline btn-sm" @click="doAlert('切换月份（demo）')">本月</button>
+              <button class="btn btn-outline btn-sm" @click="toast.info('切换月份（demo）')">本月</button>
               <button class="btn btn-ghost btn-sm" @click="showCalendar = false">关闭</button>
             </div>
           </div>
@@ -101,21 +112,26 @@
             <div v-for="wd in calendarDays" :key="wd.key"
               :style="{ textAlign:'center', padding:'10px 4px', background: wd.today ? 'var(--c-primary-subtle)' : 'var(--c-bg)', border: wd.today ? '2px solid var(--c-primary)' : '1px solid var(--c-border)', borderRadius:'8px' }">
               <div style="font-size:11px;color:var(--c-sub)">周{{ wd.day }}</div>
-              <div style="font-size:20px;font-weight:700;color:var(--c-text)">{{ wd.dateStr }}</div>
+              <div style="font-size:20px;font-weight:700;color:var(--c-text);font-variant-numeric:tabular-nums">{{ wd.dateStr }}</div>
               <div v-if="wd.count > 0" style="margin-top:4px;display:inline-block;padding:1px 8px;border-radius:10px;background:var(--c-primary);color:#fff;font-size:11px;font-weight:700">{{ wd.count }}场</div>
-              <div v-else style="margin-top:4px;font-size:11px;color:var(--c-sub)">—</div>
+              <div v-else style="margin-top:4px;font-size:11px;color:var(--c-sub)">&mdash;</div>
             </div>
           </div>
-          <div v-for="wd in calendarDays.filter(d => d.count > 0)" :key="'cal-'+wd.key" style="margin-bottom:12px">
-            <b style="font-size:13px">{{ wd.monthLabel }} · {{ wd.count }}场</b>
-            <table style="margin-top:4px;font-size:12px"><thead><tr><th>候选人</th><th>岗位</th><th>轮次</th><th>时间</th><th>方式</th><th>状态</th></tr></thead>
-            <tbody>
-              <tr v-for="(item, i) in wd.items" :key="i">
-                <td><a href="javascript:void(0)" style="font-weight:600;color:var(--c-primary)">{{ item.name }}</a></td>
-                <td>{{ item.position }}</td><td>{{ item.round }}</td><td>{{ item.time }}</td><td>{{ item.method }}</td>
-                <td><StatusBadge :type="STATUS_TYPE_MAP[item.status]">{{ item.statusLabel }}</StatusBadge></td>
-              </tr>
-            </tbody></table>
+          <div v-if="calendarDaysWithItems.length > 0">
+            <div v-for="wd in calendarDaysWithItems" :key="'cal-'+wd.key" style="margin-bottom:12px">
+              <b style="font-size:13px">{{ wd.monthLabel }} &middot; {{ wd.count }}场</b>
+              <table style="margin-top:4px;font-size:12px"><thead><tr><th>候选人</th><th>岗位</th><th>轮次</th><th>时间</th><th>方式</th><th>状态</th></tr></thead>
+              <tbody>
+                <tr v-for="(item, i) in wd.items" :key="i">
+                  <td><a href="javascript:void(0)" style="font-weight:600;color:var(--c-primary)">{{ item.name }}</a></td>
+                  <td>{{ item.position }}</td><td>{{ item.round }}</td><td>{{ item.time }}</td><td>{{ item.method }}</td>
+                  <td><StatusBadge :type="STATUS_TYPE_MAP[item.status]">{{ item.statusLabel }}</StatusBadge></td>
+                </tr>
+              </tbody></table>
+            </div>
+          </div>
+          <div v-else style="text-align:center;padding:24px 0;color:var(--c-sub);font-size:13px">
+            本周暂无面试安排
           </div>
           <div class="modal-actions" style="margin-top:12px">
             <button class="btn btn-ghost btn-sm" @click="showCalendar = false">关闭</button>
@@ -149,9 +165,15 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import WorkbenchLayout from '../layouts/WorkbenchLayout.vue';
 import { ALL_INTERVIEWS, STATUSES, STATUS_LABELS, STATUS_TYPE_MAP, ALERTS } from '../data/interview.js';
 import { fetchInterviews, fetchInterviewAlerts, createInterview, evaluateInterview } from '../api/interview.js';
+import { useToast } from '../composables/useToast.js';
+import { useAppError } from '../composables/useAppError.js';
 import { KPI_ICONS } from '../components/kpiIcons.js';
 import ScheduleInterviewModal from '../components/ScheduleInterviewModal.vue';
 import OfferModal from '../components/OfferModal.vue';
+import EmptyState from '../components/EmptyState.vue';
+
+const { toast } = useToast();
+const { handleError } = useAppError();
 
 const showAlerts = ref(false);
 const showCalendar = ref(false);
@@ -189,10 +211,6 @@ function countBy(st, mineOnly = false) {
   if (st === 'all') return pool.length;
   return pool.filter(i => i.status === st).length;
 }
-function countMineBy(st) {
-  if (st === 'all') return INTERVIEWS_SOURCE.value.filter(i => i.isMine).length;
-  return INTERVIEWS_SOURCE.value.filter(i => i.isMine && i.status === st).length;
-}
 
 const kpis = computed(() => {
   const source = INTERVIEWS_SOURCE.value;
@@ -207,7 +225,6 @@ const kpis = computed(() => {
   ];
 });
 
-// 各阶段图标（统一蓝色线性图标，见 components/kpiIcons.js）与副标题
 const STAGE_ICONS = {
   pending: KPI_ICONS.clock,
   scheduled: KPI_ICONS.calendar,
@@ -258,7 +275,7 @@ function renderActions(item) {
     case 'offer':
       return resumeBtn + ' <button class="btn btn-outline btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:approval\',{detail:\'' + item.name + '\'}))">审批中</button> <button class="btn btn-success btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:offer\',{detail:\'' + item.name + '\'}))">发Offer</button>';
     case 'onboard':
-      return resumeBtn + ' <span style="font-size:11px;color:var(--c-sub)">待入职 · 08-01</span>';
+      return resumeBtn + ' <span style="font-size:11px;color:var(--c-sub)">待入职 &middot; 08-01</span>';
     default:
       const extra = item.result === 'reject' ? '已回流人才库' : '已入职';
       return resumeBtn + ' <span style="font-size:11px;color:var(--c-sub)">' + extra + '</span>';
@@ -266,49 +283,51 @@ function renderActions(item) {
 }
 
 function onScopeChange() {}
+
 async function openCandidateDrawer(name) {
   try {
     const { fetchInterviews } = await import('../api/interview.js');
-    window.alert('候选人简历抽屉：' + name + '\n（API数据加载中，将在右侧抽屉展示完整档案）');
+    toast.info('候选人简历抽屉：' + name + '（API数据加载中，将在右侧抽屉展示完整档案）');
   } catch (e) {
     console.warn('[RecruitInterview] openCandidateDrawer failed:', e);
-    window.alert('候选人简历抽屉：' + name + '（demo）');
+    toast.info('候选人简历抽屉：' + name);
   }
 }
+
 function openGlobalScheduleModal(name, position, dept) {
   scheduleCandidate.value = { name: name || '', id: '' };
   scheduleDemand.value = { position: position || '', id: dept || '' };
   showScheduleModal.value = true;
 }
+
 async function doAlert(msg) {
   showAlerts.value = false;
   try {
-    // Connect alert actions to real API calls where possible
     if (msg === '发起Offer' || msg === '发起调岗') {
       const targetName = msg === '发起Offer' ? '郑一' : '王工';
       try {
         await createInterview({ name: targetName, position: '待定', type: msg === '发起Offer' ? 'offer' : 'transfer' });
         const actionLabel = msg === '发起Offer' ? 'Offer' : '调岗';
-        window.alert('✅ ' + actionLabel + '已发起：' + targetName + '\n系统已发送飞书通知');
+        toast.success(actionLabel + '已发起：' + targetName + '，系统已发送飞书通知');
       } catch (e) {
         console.warn('[RecruitInterview] ' + msg + ' API failed:', e);
-        window.alert(msg + '\n' + targetName + '\n（DEMO）');
+        toast.info(msg + ' ' + targetName + '（DEMO）');
       }
     } else if (msg.indexOf('填写对') === 0) {
       const name = msg.replace('填写对', '').replace('的评价', '');
       try {
         await evaluateInterview(name, { result: 'pass', comment: '' });
-        window.alert('【面试评价】' + name + '\n已提交评价（通过→待录用）');
+        toast.success('【面试评价】' + name + '已提交评价（通过待录用）');
       } catch (e) {
         console.warn('[RecruitInterview] evaluate failed:', e);
-        window.alert(msg + '\n[通过→待录用] [不通过→回流]');
+        toast.info(msg + ' [通过待录用] [不通过回流]');
       }
     } else {
-      window.alert(msg);
+      toast.info(msg);
     }
   } catch (e) {
     console.warn('[RecruitInterview] doAlert failed:', e);
-    window.alert(msg);
+    toast.info(msg);
   }
 }
 
@@ -330,6 +349,7 @@ onMounted(() => {
   window.addEventListener('interview:open-drawer', handleOpenDrawer);
   loadFromApi();
 });
+
 onUnmounted(() => {
   document.removeEventListener('click', onDocClick);
   window.removeEventListener('interview:evaluate', handleEvaluate);
@@ -344,12 +364,13 @@ async function handleEvaluate(e) {
   const name = e.detail;
   try {
     await evaluateInterview(name, { result: 'pass', comment: '' });
-    window.alert('【面试评价】' + name + '\n已提交评价（通过→待录用）');
+    toast.success('【面试评价】' + name + '已提交评价（通过待录用）');
   } catch (err) {
     console.warn('[RecruitInterview] evaluateInterview failed, using mock:', err);
-    window.alert('【面试评价】\n填写对' + name + '的评价\n[通过→待录用] [不通过→回流]');
+    toast.info('【面试评价】填写对' + name + '的评价 [通过待录用] [不通过回流]');
   }
 }
+
 async function handleSchedule(e) {
   const parts = e.detail.split('|');
   const name = parts[0] || '';
@@ -358,27 +379,31 @@ async function handleSchedule(e) {
   scheduleDemand.value = { position, id: '' };
   showScheduleModal.value = true;
 }
+
 async function handleCancel(e) {
   const name = e.detail;
   if (!window.confirm('确认取消 ' + name + ' 的面试？')) return;
   try {
     const { createInterview } = await import('../api/interview.js');
-    window.alert('✅ 已取消 ' + name + ' 的面试\n系统已发送飞书通知给面试官');
+    toast.success('已取消 ' + name + ' 的面试，系统已发送飞书通知给面试官');
   } catch (err) {
     console.warn('[RecruitInterview] cancel failed:', err);
-    window.alert('取消面试：' + name + '（mock）');
+    toast.success('已取消面试：' + name);
   }
 }
+
 function handleApproval(e) {
   const name = e.detail;
-  window.alert('审批进度：\n✓ 部门负责人 已通过\n✓ HR 已通过\n○ 财务总监 待审批');
+  toast.info('审批进度：部门负责人 已通过 / HR 已通过 / 财务总监 待审批');
 }
+
 function handleOffer(e) {
   const name = e.detail;
   offerCandidate.value = { name, id: '' };
   offerDemand.value = { position: '', id: '' };
   showOfferModal.value = true;
 }
+
 function handleOpenDrawer(e) {
   const name = e.detail;
   openCandidateDrawer(name);
@@ -394,6 +419,8 @@ async function loadFromApi() {
     if (alertRes) apiAlertData.value = alertRes ?? null;
   } catch (e) { console.warn('[Interview] API fallback:', e.message); }
 }
+
+const calendarDaysWithItems = computed(() => calendarDays.value.filter(d => d.count > 0));
 
 const calendarDays = computed(() => {
   const now = new Date();
@@ -437,14 +464,14 @@ const calendarWeekNum = computed(() => {
 
 function onScheduleSuccess(result) {
   const msg = result?.rounds
-    ? `✅ 已安排 ${result.rounds} 轮面试\n面试ID: ${result.results?.map(r => r.id).join(', ') || ''}`
-    : '✅ 面试安排成功';
-  window.alert(msg + '\n系统已发送飞书通知给面试官');
+    ? '已安排 ' + result.rounds + ' 轮面试，面试ID: ' + (result.results?.map(r => r.id).join(', ') || '')
+    : '面试安排成功';
+  toast.success(msg + '，系统已发送飞书通知给面试官');
   loadFromApi();
 }
 
 function onOfferSuccess(result) {
-  window.alert(`✅ 已发送Offer给 ${result?.name || '候选人'}\nOffer编号: ${result?.id}\n系统将通过邮件/飞书发送Offer函`);
+  toast.success('已发送Offer给 ' + (result?.name || '候选人') + '，Offer编号: ' + (result?.id || '') + '，系统将通过邮件/飞书发送Offer函');
   loadFromApi();
 }
 </script>
@@ -459,7 +486,6 @@ function onOfferSuccess(result) {
 .alert-dot.reject { background: var(--c-reject); }
 .alert-dot.warn { background: var(--c-warn); }
 .alert-dot.done { background: var(--c-done); }
-/* 状态统计卡（人才库 hero-summary-card 同款，6 列可点击筛选） */
 .iv-stat-row {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -475,7 +501,6 @@ function onOfferSuccess(result) {
   border-color: var(--c-primary);
   box-shadow: 0 0 0 3px var(--c-primary-subtle);
 }
-/* 图标块内放蓝色线性图标（隐藏 hero-summary-card 默认彩色圆点装饰） */
 .iv-stat-icon {
   display: flex;
   align-items: center;

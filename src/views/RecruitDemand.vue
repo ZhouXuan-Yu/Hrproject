@@ -4,9 +4,8 @@
       <button class="btn btn-primary btn-sm" @click="openCreateModal">+ 新建需求</button>
     </template>
 
-    <!-- 需求状态统计卡（hero-summary-card 同款，点击按状态筛选） -->
+    <!-- 需求状态统计卡 -->
     <StatCardRow :cards="statCards" :active-key="filters.status" clickable @select="onStatSelect" />
-    <!-- 隐藏块：阻止 app.js 再注入旧的 hero-page-summary 预设卡（避免重复） -->
     <section class="hero-page-summary" style="display:none" aria-hidden="true"></section>
 
     <div class="permission-bar" style="margin-bottom:14px">
@@ -26,13 +25,13 @@
 
     <!-- Table -->
     <div class="table-wrap">
-      <table>
+      <table v-if="filteredDemands.length > 0">
         <thead><tr>
           <th>需求编号</th><th>岗位</th><th>部门</th><th>HC</th><th>紧急度</th><th>提交人</th>
           <th style="min-width:220px">审批进度 / 招聘进展</th><th>状态</th><th>操作</th>
         </tr></thead>
         <tbody>
-          <tr v-for="(d, i) in filteredDemands" :key="d.id" :style="{ opacity: d.status === 'draft' ? 0.6 : 1 }">
+          <tr v-for="d in filteredDemands" :key="d.id" :style="{ opacity: d.status === 'draft' ? 0.6 : 1 }">
             <td><b>{{ d.id }}</b></td>
             <td v-if="d.status === 'open'">
               <a href="/recruit-demand-detail" class="position-link" @click.prevent="goDetail">{{ d.position }}</a>
@@ -43,7 +42,6 @@
             <td><StatusBadge :type="d.urgencyType">{{ d.urgencyLabel }}</StatusBadge></td>
             <td>{{ d.submitter }}</td>
             <td>
-              <!-- Approval progress -->
               <div v-if="d.approvalNodes.length" class="approval-mini" style="margin-bottom:4px">
                 <template v-for="(node, ni) in d.approvalNodes" :key="ni">
                   <span class="am-node" :class="node.state">{{ node.label }}</span>
@@ -51,7 +49,6 @@
                 </template>
               </div>
               <span v-if="d.status === 'draft'" style="font-size:11px;color:var(--c-sub)">未提交审批</span>
-              <!-- Recruiting progress -->
               <div v-if="d.status === 'open'" style="font-size:11px;color:var(--c-sub)">
                 直接投递 <b style="color:var(--c-text)">{{ d.directApply }}</b> ·
                 系统推荐 <b style="color:var(--c-done)">{{ d.systemRecommend }}</b> ·
@@ -71,6 +68,13 @@
           </tr>
         </tbody>
       </table>
+      <EmptyState
+        v-else
+        title="暂无匹配的需求"
+        description="当前筛选条件下没有找到招聘需求，请调整筛选条件或新建需求"
+        action-label="+ 新建需求"
+        @action="openCreateModal"
+      />
       <div class="table-count">共 {{ filteredDemands.length }} 条需求 · {{ statusCounts.approval }} 条审批中 · {{ statusCounts.open }} 条招聘中 · {{ statusCounts.closed }} 条已关闭 · {{ statusCounts.draft }} 条草稿</div>
     </div>
 
@@ -110,10 +114,15 @@ import WorkbenchLayout from '../layouts/WorkbenchLayout.vue';
 import { DEMANDS, getLinkedCount } from '../data/demand.js';
 import { HR_DEPARTMENTS } from '../composables/useMockData.js';
 import { fetchDemands, createDemand } from '../api/demand.js';
+import { useToast } from '../composables/useToast.js';
+import { useAppError } from '../composables/useAppError.js';
 import StatCardRow from '../components/StatCardRow.vue';
+import EmptyState from '../components/EmptyState.vue';
 import { KPI_ICONS } from '../components/kpiIcons.js';
 
 const router = useRouter();
+const { toast } = useToast();
+const { handleError } = useAppError();
 const apiDemands = ref(null);
 const demands = ref(DEMANDS.map(d => ({ ...d, linkedCount: getLinkedCount(d.id) })));
 
@@ -150,7 +159,6 @@ const statusCounts = computed(() => {
   return counts;
 });
 
-// 顶部统计卡（需求状态视角），点击按状态筛选
 const demandList = computed(() => apiDemands.value?.data || demands.value);
 const statCards = computed(() => {
   const cnt = (st) => demandList.value.filter(d => d.status === st).length;
@@ -188,7 +196,12 @@ function openEditModal(d){
 }
 
 function closeModal(){ showModal.value = false; }
-function saveDraft(){ alert('已保存草稿'); closeModal(); }
+
+function saveDraft(){
+  toast.success('已保存草稿');
+  closeModal();
+}
+
 async function submitApproval(){
   const payload = {
     dept: form.dept,
@@ -202,18 +215,21 @@ async function submitApproval(){
   try {
     const res = await createDemand(payload);
     const id = res?.id || '[sample] DM2026070010';
-    alert('已提交审批，需求编号：' + id);
+    toast.success('已提交审批，需求编号：' + id);
   } catch (e) {
-    console.warn('[RecruitDemand] createDemand failed, falling back to mock:', e);
-    alert('已提交审批（mock）');
+    handleError(e, 'RecruitDemand.submitApproval');
+    toast.success('已提交审批（本地模式）');
   }
   closeModal();
 }
 
 function goDetail(){ router.push('/recruit-demand-detail'); }
-function approveDemand(id){ alert('审批通过：' + id); }
-function moreOps(id){ alert('更多操作：' + id); }
-function alert(msg){ window.alert(msg); }
+function approveDemand(id){
+  toast.success('审批通过：' + id);
+}
+function moreOps(id){
+  toast.info('更多操作：' + id);
+}
 
 onMounted(() => {
   loadFromApi();

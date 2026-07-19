@@ -8,19 +8,18 @@
         </button>
         <div id="reminderDropdown" v-if="showReminder" style="display:block;position:absolute;top:100%;right:0;margin-top:6px;width:320px;background:var(--c-card);border:1px solid var(--c-border);border-radius:12px;padding:16px;box-shadow:0 8px 32px rgba(0,0,0,.12);z-index:100;font-size:13px;line-height:2">
           <div style="font-weight:700;margin-bottom:8px;color:var(--c-text)">合规 & 提醒</div>
-          <div style="color:var(--c-body)">• 黑名单候选人自动置灰屏蔽，全局不可操作</div>
-          <div style="color:var(--c-body)">• 入库满 24 个月自动失效封存</div>
-          <div style="color:var(--c-body)">• 过期证书/技能标签自动标记失效</div>
-          <div style="color:var(--c-body)">• 已锁定（面试中）候选人不可重复发起</div>
-          <div style="color:var(--c-body);margin-top:4px">• 本页面仅 <b>HR 专员</b>和<b>系统管理员</b>可见</div>
+          <div style="color:var(--c-body)">&bull; 黑名单候选人自动置灰屏蔽，全局不可操作</div>
+          <div style="color:var(--c-body)">&bull; 入库满 24 个月自动失效封存</div>
+          <div style="color:var(--c-body)">&bull; 过期证书/技能标签自动标记失效</div>
+          <div style="color:var(--c-body)">&bull; 已锁定（面试中）候选人不可重复发起</div>
+          <div style="color:var(--c-body);margin-top:4px">&bull; 本页面仅 <b>HR 专员</b>和<b>系统管理员</b>可见</div>
         </div>
       </div>
-      <button class="btn btn-primary btn-sm" @click="doAlert('上传简历 PDF/DOCX\n解析服务打标并生成画像')">+ 上传简历</button>
+      <button class="btn btn-primary btn-sm" @click="uploadResume">+ 上传简历</button>
     </template>
 
-    <!-- 资产统计卡（hero-summary-card 同款，点击切换对应 tab） -->
+    <!-- 资产统计卡 -->
     <StatCardRow :cards="statCards" :active-key="statActiveKey" clickable @select="onStatSelect" />
-    <!-- 隐藏块：阻止 app.js 再注入旧的 hero-page-summary 预设卡（避免重复） -->
     <section class="hero-page-summary" style="display:none" aria-hidden="true"></section>
 
     <!-- 3 Tabs -->
@@ -41,7 +40,7 @@
         <select id="extSkill" v-model="extFilters.skill" @change="renderExt"><option value="all">全部技能</option><option>Java</option><option>K8s</option><option>React</option><option>Vue</option><option>Python</option><option>SQL</option><option>Go</option></select>
         <select id="extEdu" v-model="extFilters.edu" @change="renderExt"><option value="all">全部学历</option><option>大专</option><option>本科</option><option>硕士</option><option>博士</option></select>
         <select id="extYears" v-model="extFilters.years" @change="renderExt"><option value="all">全部年限</option><option value="fresh">应届</option><option value="1-3">1-3年</option><option value="3-5">3-5年</option><option value="5+">5年+</option></select>
-        <select id="extProfile" v-model="extFilters.profile" @change="renderExt"><option value="0">画像分不限</option><option value="80">≥80</option><option value="60">≥60</option></select>
+        <select id="extProfile" v-model="extFilters.profile" @change="renderExt"><option value="0">画像分不限</option><option value="80">&ge;80</option><option value="60">&ge;60</option></select>
         <select id="extNote" v-model="extFilters.note" @change="renderExt"><option value="all">备注不限</option><option value="yes">有备注</option><option value="no">无备注</option></select>
         <select id="extSort" v-model="extFilters.sort" @change="renderExt"><option value="default">默认排序</option><option value="profile_desc">画像分从高到低</option><option value="time_desc">入库时间最新</option></select>
         <span style="flex:1"></span>
@@ -53,7 +52,7 @@
       </div>
 
       <div class="table-wrap">
-        <table><thead><tr>
+        <table v-if="extFiltered.length > 0"><thead><tr>
           <th style="width:34px"><input type="checkbox" id="checkAllExt" @change="toggleAllExt"></th>
           <th>编号</th><th>姓名</th><th>画像</th><th>学历</th><th>年限</th><th>核心技能</th><th>最近公司</th><th>来源</th><th>入库</th><th>状态</th><th>备注</th><th>操作</th>
         </tr></thead><tbody>
@@ -71,7 +70,9 @@
                 <span @click.stop="openNote(c.id, c.name)" style="display:inline-block;max-width:90px;padding:2px 8px;background:#FFF8E1;color:#B45309;border-radius:10px;font-size:11px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="c.note">{{ c.note }}</span>
               </template>
               <template v-else>
-                <button class="btn btn-ghost btn-sm" @click.stop="openNote(c.id, c.name)" style="font-size:11px;color:var(--c-sub);padding:2px 8px">✎ 备注</button>
+                <button class="btn btn-ghost btn-sm" @click.stop="openNote(c.id, c.name)" style="font-size:11px;color:var(--c-sub);padding:2px 8px">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> 备注
+                </button>
               </template>
             </td>
             <td style="white-space:nowrap">
@@ -90,6 +91,13 @@
             </td>
           </tr>
         </tbody></table>
+        <EmptyState
+          v-else
+          title="暂无外部候选人"
+          description="人才库暂无符合条件的候选人数据，可通过上传简历或从招聘渠道导入"
+          action-label="+ 上传简历"
+          @action="uploadResume"
+        />
         <div class="table-count" id="extTableCount">共 {{ extFiltered.length }} 条数据</div>
       </div>
 
@@ -98,10 +106,10 @@
         <span>已选择 <span class="count" id="batchCountExt">{{ checkedExtCount }}</span> 位候选人</span>
         <div style="display:flex;gap:8px;align-items:center">
           <div style="position:relative" id="demandDropdownWrap">
-            <button class="btn btn-primary btn-sm" @click="showDemandDropdown = !showDemandDropdown">加入需求 ▾</button>
+            <button class="btn btn-primary btn-sm" @click="showDemandDropdown = !showDemandDropdown">加入需求 &#9662;</button>
             <div id="demandDropdown" v-if="showDemandDropdown" style="display:block;position:absolute;bottom:100%;left:0;margin-bottom:4px;width:280px;background:var(--c-card);border:1px solid var(--c-border);border-radius:12px;padding:12px;box-shadow:0 8px 32px rgba(0,0,0,.12);z-index:100;font-size:13px">
               <div style="font-weight:700;margin-bottom:8px;color:var(--c-text);font-size:12px">选择目标岗位</div>
-              <div v-for="d in DEMAND_OPTIONS" :key="d.id" style="padding:6px 8px;cursor:pointer;border-radius:4px;margin-bottom:2px" @mouseover="hoverStyle($event, true)" @mouseout="hoverStyle($event, false)" @click="addToDemand(d.id, d.name)">{{ d.name }} · {{ d.dept }} · {{ d.status }}</div>
+              <div v-for="d in DEMAND_OPTIONS" :key="d.id" style="padding:6px 8px;cursor:pointer;border-radius:4px;margin-bottom:2px" @mouseover="hoverStyle($event, true)" @mouseout="hoverStyle($event, false)" @click="addToDemand(d.id, d.name)">{{ d.name }} &middot; {{ d.dept }} &middot; {{ d.status }}</div>
             </div>
           </div>
           <button class="btn btn-outline btn-sm" @click="batchContact">批量联系</button>
@@ -119,7 +127,7 @@
         <button class="btn btn-primary btn-sm" @click="showMatchModal = true">内部匹配</button>
       </div>
       <div class="table-wrap">
-        <table><thead><tr><th style="width:34px"><input type="checkbox" id="checkAllInt" @change="toggleAllInt"></th><th>工号</th><th>姓名</th><th>综合评估</th><th>部门</th><th>岗位</th><th>工龄</th><th>绩效</th><th>最近匹配</th><th>技能标签</th><th>可调岗</th><th>备注</th><th>操作</th></tr></thead><tbody>
+        <table v-if="INT_DATA_SOURCE.length > 0"><thead><tr><th style="width:34px"><input type="checkbox" id="checkAllInt" @change="toggleAllInt"></th><th>工号</th><th>姓名</th><th>综合评估</th><th>部门</th><th>岗位</th><th>工龄</th><th>绩效</th><th>最近匹配</th><th>技能标签</th><th>可调岗</th><th>备注</th><th>操作</th></tr></thead><tbody>
           <tr v-for="e in INT_DATA_SOURCE" :key="e.id">
             <td><input type="checkbox" class="int-check" v-model="checkedInt[e.id]" @change="onCheckInt"></td>
             <td>{{ e.id }}</td>
@@ -134,19 +142,26 @@
                 <span @click.stop="openIntNote(e.id, e.name)" style="display:inline-block;max-width:90px;padding:2px 8px;background:#FFF8E1;color:#B45309;border-radius:10px;font-size:11px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="e.note">{{ e.note }}</span>
               </template>
               <template v-else>
-                <button class="btn btn-ghost btn-sm" @click.stop="openIntNote(e.id, e.name)" style="font-size:11px;color:var(--c-sub);padding:2px 8px">✎ 备注</button>
+                <button class="btn btn-ghost btn-sm" @click.stop="openIntNote(e.id, e.name)" style="font-size:11px;color:var(--c-sub);padding:2px 8px">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> 备注
+                </button>
               </template>
             </td>
             <td style="white-space:nowrap"><button class="btn btn-outline btn-sm" @click="openEmployeeDrawer(e.name)">查看</button></td>
           </tr>
         </tbody></table>
+        <EmptyState
+          v-else
+          title="暂无内部员工数据"
+          description="内部员工库暂无数据"
+        />
         <div class="table-count" id="intTableCount">共 {{ INT_DATA_SOURCE.length }} 条数据</div>
       </div>
       <!-- Batch bar internal -->
       <div class="batch-bar" id="batchBarInt" :style="{ display: checkedIntCount > 0 ? 'flex' : 'none' }">
         <span>已选择 <span class="count" id="batchCountInt">{{ checkedIntCount }}</span> 位员工</span>
         <div style="display:flex;gap:8px">
-          <button class="btn btn-primary btn-sm" @click="doAlert('选择目标岗位后关联内部员工')">加入需求</button>
+          <button class="btn btn-primary btn-sm" @click="toast.info('请选择目标岗位后关联内部员工')">加入需求</button>
           <button class="btn btn-ghost btn-sm" @click="clearSelectionInt">清除选择</button>
         </div>
       </div>
@@ -160,13 +175,18 @@
         <button class="btn btn-outline btn-sm">+ 手动加入黑名单</button>
       </div>
       <div class="table-wrap">
-        <table><thead><tr><th>候选人</th><th>手机</th><th>加入时间</th><th>原因</th><th>操作人</th><th>到期</th><th>操作</th></tr></thead><tbody>
+        <table v-if="BLACKLIST_DATA_SOURCE.length > 0"><thead><tr><th>候选人</th><th>手机</th><th>加入时间</th><th>原因</th><th>操作人</th><th>到期</th><th>操作</th></tr></thead><tbody>
           <tr v-for="(b, i) in BLACKLIST_DATA_SOURCE" :key="i">
             <td style="color:var(--c-reject);font-weight:600">{{ b.name }}</td>
             <td>{{ b.phone }}</td><td>{{ b.date }}</td><td>{{ b.reason }}</td><td>{{ b.operator }}</td><td>{{ b.expiry }}</td>
             <td><button class="btn btn-text btn-sm">详情</button> <button class="btn btn-text-danger btn-sm">移除</button></td>
           </tr>
         </tbody></table>
+        <EmptyState
+          v-else
+          title="暂无黑名单数据"
+          description="黑名单列表为空"
+        />
         <div class="table-count">共 {{ BLACKLIST_DATA_SOURCE.length }} 条数据</div>
       </div>
     </div>
@@ -177,7 +197,7 @@
         <div class="modal-box" style="width:400px">
           <h3>
             <svg viewBox="0 0 24 24" style="width:18px;height:18px;vertical-align:-2px;stroke:var(--c-primary);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-            备注 · <span id="noteTarget">{{ noteTarget }}</span>
+            备注 &middot; <span id="noteTarget">{{ noteTarget }}</span>
           </h3>
           <textarea id="noteText" v-model="noteText" style="width:100%;min-height:80px;padding:10px;border:1px solid var(--c-border);border-radius:6px;font-size:13px;resize:vertical;box-sizing:border-box" placeholder="添加备注，如：ACE框架经验、沟通能力突出..."></textarea>
           <div class="modal-actions" style="margin-top:12px">
@@ -198,10 +218,10 @@
             <label style="font-size:13px;font-weight:600;white-space:nowrap">目标岗位</label>
             <select id="matchPosition" v-model="matchPosition" style="flex:1;padding:8px 12px;border:1px solid var(--c-border);border-radius:6px;font-size:13px">
               <option value="">请选择岗位...</option>
-              <option value="java">高级Java工程师（架构方向）· 技术部 · 招聘中</option>
-              <option value="frontend">前端工程师 · 技术部 · 招聘中</option>
-              <option value="pm">产品经理 · 产品部 · 审批中</option>
-              <option value="data">数据分析师 · 数据部 · 草稿</option>
+              <option value="java">高级Java工程师（架构方向）&middot; 技术部 &middot; 招聘中</option>
+              <option value="frontend">前端工程师 &middot; 技术部 &middot; 招聘中</option>
+              <option value="pm">产品经理 &middot; 产品部 &middot; 审批中</option>
+              <option value="data">数据分析师 &middot; 数据部 &middot; 草稿</option>
             </select>
             <button class="btn btn-primary btn-sm" @click="runMatch">开始匹配</button>
           </div>
@@ -217,7 +237,7 @@
                 <td :style="{fontWeight:'700', color: r.score >= 80 ? 'var(--c-done)' : (r.score >= 60 ? 'var(--c-warn)' : 'var(--c-sub)')}">{{ r.score }}</td>
                 <td><StatusBadge :type="r.transferable ? 'done' : 'warn'">{{ r.transferable ? '可调' : '不可调' }}</StatusBadge></td>
                 <td>
-                  <button v-if="r.transferable" class="btn btn-success btn-sm" @click="doAlert('发起内部面试')">发起面试</button>
+                  <button v-if="r.transferable" class="btn btn-success btn-sm" @click="startInternalInterview(r)">发起面试</button>
                   <span v-else style="font-size:11px;color:var(--c-sub)">不满足条件</span>
                 </td>
               </tr>
@@ -244,7 +264,7 @@
       :visible="showEmployeeDrawer"
       :employee-id="activeEmployeeId"
       @close="showEmployeeDrawer = false"
-      @interview="(data) => doAlert('发起内部面试')"
+      @interview="(data) => toast.info('发起内部面试')"
     />
 
     <!-- Contact Modal (single & batch) -->
@@ -265,11 +285,17 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import WorkbenchLayout from '../layouts/WorkbenchLayout.vue';
 import { EXT_DATA, INT_DATA, BLACKLIST_DATA, DEMAND_OPTIONS } from '../data/talent.js';
 import { fetchTalent, updateTalentNote, fetchMatchResults, linkTalentToDemand } from '../api/talent.js';
+import { useToast } from '../composables/useToast.js';
+import { useAppError } from '../composables/useAppError.js';
 import StatCardRow from '../components/StatCardRow.vue';
 import CandidateDrawer from '../components/CandidateDrawer.vue';
 import EmployeeDrawer from '../components/EmployeeDrawer.vue';
 import ContactModal from '../components/ContactModal.vue';
+import EmptyState from '../components/EmptyState.vue';
 import { KPI_ICONS } from '../components/kpiIcons.js';
+
+const { toast } = useToast();
+const { handleError } = useAppError();
 
 const showReminder = ref(false);
 const showNoteModal = ref(false);
@@ -284,17 +310,16 @@ const matchPosition = ref('');
 const matchResults = ref([]);
 const matchSummary = ref('');
 
-// API data refs — null = not yet loaded (fallback to mock)
+// API data refs
 const apiExtData = ref(null);
 const apiIntData = ref(null);
 const apiBlacklistData = ref(null);
 
-// Data source computed — prefer API data over mock
 const EXT_DATA_SOURCE = computed(() => apiExtData.value ?? EXT_DATA);
 const INT_DATA_SOURCE = computed(() => apiIntData.value ?? INT_DATA);
 const BLACKLIST_DATA_SOURCE = computed(() => apiBlacklistData.value ?? BLACKLIST_DATA);
 
-// 顶部统计卡（人才库资产视角），点击切换对应 tab
+// Top stat cards
 const statCards = computed(() => [
   { key: 'external', label: '外部候选人', value: EXT_DATA_SOURCE.value.length, hint: '可筛选入库', icon: KPI_ICONS.users },
   { key: 'internal', label: '内部人才', value: INT_DATA_SOURCE.value.length, hint: '可调岗评估', icon: KPI_ICONS.userCheck },
@@ -326,20 +351,18 @@ const tabs = [
   { id: 'blacklist', label: '黑名单' }
 ];
 
-// External filters (reactive so test selectors work)
+// External filters
 const extFilters = reactive({
   search: '', status: 'all', source: 'all', skill: 'all',
   edu: 'all', years: 'all', profile: '0', note: 'all', sort: 'default'
 });
 
-// Checked state (reactive objects for checkbox binding)
 const checkedExt = reactive({});
 const checkedInt = reactive({});
 
 const checkedExtCount = computed(() => Object.keys(checkedExt).filter(k => checkedExt[k]).length);
 const checkedIntCount = computed(() => Object.keys(checkedInt).filter(k => checkedInt[k]).length);
 
-// External filtering
 const extFiltered = computed(() => {
   let list = EXT_DATA_SOURCE.value.filter(c => {
     if (extFilters.status !== 'all' && c.status !== extFilters.status) return false;
@@ -371,14 +394,12 @@ const extFiltered = computed(() => {
   return list;
 });
 
-// Row class
 function rowClass(c) {
   if (c.locked && c.status === 'locked') return 'row-locked';
   if (c.status === 'archived') return 'row-archived';
   return '';
 }
 
-// Checkbox handlers
 function toggleAllExt(e) {
   extFiltered.value.forEach(c => {
     if (!c.locked) checkedExt[c.id] = e.target.checked;
@@ -418,15 +439,11 @@ function closeNoteModal() { showNoteModal.value = false; currentNoteId.value = n
 async function saveNote() {
   if (!currentNoteId.value) return;
   const text = noteText.value.trim();
-
-  // Try API first, fall back to local-only
   try {
     await updateTalentNote(currentNoteId.value, text);
   } catch (e) {
     console.warn('[RecruitTalent] updateTalentNote failed, using local fallback:', e);
   }
-
-  // Always update the local data source
   if (currentNoteType.value === 'ext') {
     const c = EXT_DATA_SOURCE.value.find(x => x.id === currentNoteId.value);
     if (c) c.note = text;
@@ -434,13 +451,14 @@ async function saveNote() {
     const e = INT_DATA_SOURCE.value.find(x => x.id === currentNoteId.value);
     if (e) e.note = text;
   }
+  toast.success('备注已保存');
   closeNoteModal();
 }
 
 // Match modal
 function closeMatchModal() { showMatchModal.value = false; matchResults.value = []; }
 async function runMatch() {
-  if (!matchPosition.value) { alert('请先选择一个目标岗位'); return; }
+  if (!matchPosition.value) { toast.warning('请先选择一个目标岗位'); return; }
   const posNames = { java: '高级Java工程师（架构方向）', frontend: '前端工程师', pm: '产品经理', data: '数据分析师' };
   const posName = posNames[matchPosition.value] || matchPosition.value;
 
@@ -449,23 +467,20 @@ async function runMatch() {
     if (resp && resp.results) {
       matchResults.value = resp.results;
     } else {
-      // API returned empty — no internal matches found
       matchResults.value = [];
     }
   } catch (e) {
     console.warn('[RecruitTalent] fetchMatchResults failed:', e);
     matchResults.value = [];
   }
-
   matchSummary.value = '匹配岗位：' + posName + ' · 匹配 ' + matchResults.value.length + ' 人（基于真实数据运算）';
 }
 
-// --- Candidate/Employee Drawer state ---
+// Candidate/Employee Drawer state
 const showCandidateDrawer = ref(false);
 const activeCandidateId = ref('');
 const activeCandidateName = ref('');
 function openCandidateDrawer(name) {
-  // Find the candidate id by name in current data
   const c = EXT_DATA_SOURCE.value.find(x => x.name === name);
   activeCandidateId.value = c?.id || name;
   activeCandidateName.value = name;
@@ -481,7 +496,7 @@ function openEmployeeDrawer(name) {
   showEmployeeDrawer.value = true;
 }
 
-// --- Contact Modal state ---
+// Contact Modal state
 const showContactModal = ref(false);
 const contactCandidateId = ref('');
 const contactCandidateName = ref('');
@@ -507,15 +522,16 @@ async function addToDemand(demandId, demandName) {
     console.warn('[RecruitTalent] linkTalentToDemand failed:', e);
   }
 
-  // Also persist to localStorage for downstream demand detail page
   const key = 'demand_' + demandId + '_linked';
   const linked = (() => { try { return JSON.parse(localStorage.getItem(key)) || []; } catch(e) { return []; } })();
   names.forEach(n => { if (linked.indexOf(n) < 0) linked.push(n); });
   localStorage.setItem(key, JSON.stringify(linked));
 
   showDemandDropdown.value = false;
+  toast.success('已将 ' + names.length + ' 位候选人加入需求「' + demandName + '」');
   clearSelectionExt();
 }
+
 function batchContact() {
   const checkedIds = Object.keys(checkedExt).filter(k => checkedExt[k]);
   const names = checkedIds.map(id => { const c = EXT_DATA_SOURCE.value.find(x => x.id === id); return c ? c.name : ''; }).filter(Boolean);
@@ -529,49 +545,47 @@ function batchContact() {
 
 function onContactDone(result) {
   showContactModal.value = false;
-  const names = result?.names || [];
-  if (result?.fallback) {
-    // API failed but ContactModal already displayed the fallback
-    return;
+  if (!result?.fallback) {
+    toast.success('联系记录已存档');
   }
-  // API recorded successfully — no extra alert needed, data persisted
 }
 
 function onCandidateJoin(data) {
   showCandidateDrawer.value = false;
-  // Prompt user to select demand
   showDemandDropdown.value = true;
 }
 
-async function doAlert(msg) {
-  if (msg.indexOf('上传简历') >= 0) {
-    // TODO: implement file upload via /api/resume/upload
-  } else if (msg.indexOf('发起内部面试') >= 0) {
+function uploadResume() {
+  toast.info('上传简历功能即将开放，支持 PDF/DOCX 格式');
+}
+
+async function startInternalInterview(r) {
+  try {
     const { createInterview } = await import('../api/interview.js');
-    const name = matchResults.value[0]?.name || '';
-    if (name) {
-      await createInterview({ name, position: matchPosition.value, type: 'internal' });
-    }
+    await createInterview({ name: r.name, position: matchPosition.value, type: 'internal' });
+    toast.success('已发起内部面试：' + r.name);
+  } catch (e) {
+    handleError(e, 'RecruitTalent.startInternalInterview');
+    toast.error('发起内部面试失败');
   }
 }
+
 function wrapSkills(html) { return '<span class="skill-inline">' + html + '</span>'; }
 function hoverStyle(e, on) { e.target.style.background = on ? 'var(--c-bg)' : ''; }
 
 // Close dropdowns on external click
 function onDocClick(e) {
-  // Reminder dropdown
   const rb = document.getElementById('reminderBtn'), rd = document.getElementById('reminderDropdown');
   if (showReminder.value && rd && rb && !rb.contains(e.target) && !rd.contains(e.target)) showReminder.value = false;
-  // Demand dropdown
   const dw = document.getElementById('demandDropdownWrap'), dd = document.getElementById('demandDropdown');
   if (showDemandDropdown.value && dd && dw && !dw.contains(e.target)) showDemandDropdown.value = false;
 }
+
 onMounted(() => {
   document.addEventListener('click', onDocClick);
   loadFromApi();
 });
 onUnmounted(() => document.removeEventListener('click', onDocClick));
-
 </script>
 
 <style scoped>
