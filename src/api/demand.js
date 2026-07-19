@@ -3,7 +3,8 @@ import { api } from './index.js';
 
 export async function fetchDemands(params = {}) {
   const qs = new URLSearchParams(params).toString();
-  return await api.get(`/demand/list${qs ? '?' + qs : ''}`);
+  const r = await api.get(`/demand/list${qs ? '?' + qs : ''}`);
+  return { data: r.data.items, total: r.data.total };
 }
 
 export async function fetchDemandDetail(id) {

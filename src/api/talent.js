@@ -3,7 +3,8 @@ import { api } from './index.js';
 
 export async function fetchTalent(params = {}) {
   const qs = new URLSearchParams(params).toString();
-  return await api.get(`/talent/list${qs ? '?' + qs : ''}`);
+  const r = await api.get(`/talent/list${qs ? '?' + qs : ''}`);
+  return { data: r.data.items, total: r.data.total };
 }
 
 export async function updateTalentNote(id, note) {
