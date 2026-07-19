@@ -18,6 +18,11 @@
       <button class="btn btn-primary btn-sm" @click="doAlert('上传简历 PDF/DOCX\n解析服务打标并生成画像')">+ 上传简历</button>
     </template>
 
+    <!-- 资产统计卡（hero-summary-card 同款，点击切换对应 tab） -->
+    <StatCardRow :cards="statCards" :active-key="statActiveKey" clickable @select="onStatSelect" />
+    <!-- 隐藏块：阻止 app.js 再注入旧的 hero-page-summary 预设卡（避免重复） -->
+    <section class="hero-page-summary" style="display:none" aria-hidden="true"></section>
+
     <!-- 3 Tabs -->
     <div class="tabs" role="tablist">
       <button v-for="tab in tabs" :key="tab.id"
@@ -26,9 +31,6 @@
         role="tab" @click="activeTab = tab.id"
       >{{ tab.label }}</button>
     </div>
-
-    <!-- 资产统计卡（hero-summary-card 同款，点击切换对应 tab） -->
-    <StatCardRow :cards="statCards" :active-key="statActiveKey" clickable @select="onStatSelect" />
 
     <!-- ===== Tab 1: 简历储备库（外部） ===== -->
     <div class="tab-panel" :class="{ active: activeTab === 'external' }">

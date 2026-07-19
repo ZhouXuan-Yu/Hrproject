@@ -4,13 +4,15 @@
       <button class="btn btn-primary btn-sm" @click="openCreateModal">+ 新建需求</button>
     </template>
 
+    <!-- 需求状态统计卡（hero-summary-card 同款，点击按状态筛选） -->
+    <StatCardRow :cards="statCards" :active-key="filters.status" clickable @select="onStatSelect" />
+    <!-- 隐藏块：阻止 app.js 再注入旧的 hero-page-summary 预设卡（避免重复） -->
+    <section class="hero-page-summary" style="display:none" aria-hidden="true"></section>
+
     <div class="permission-bar" style="margin-bottom:14px">
       <svg viewBox="0 0 24 24" style="width:14px;height:14px;vertical-align:-2px;stroke:var(--c-sub);fill:none;stroke-width:2;stroke-linecap:round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
       一个表格看全部：审批进度 + 招聘进展 + 岗位匹配，点击「查看详情」进入完整页面
     </div>
-
-    <!-- 需求状态统计卡（hero-summary-card 同款，点击按状态筛选） -->
-    <StatCardRow :cards="statCards" :active-key="filters.status" clickable @select="onStatSelect" />
 
     <!-- Filter bar -->
     <div class="filter-bar">

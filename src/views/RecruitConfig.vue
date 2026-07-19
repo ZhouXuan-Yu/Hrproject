@@ -4,12 +4,14 @@
       <span class="admin-only">仅管理员可见</span>
     </template>
 
+    <!-- 配置概览统计卡（hero-summary-card 同款） -->
+    <StatCardRow :cards="statCards" />
+    <!-- 隐藏块：阻止 app.js 再注入旧的 hero-page-summary 预设卡（避免重复） -->
+    <section class="hero-page-summary" style="display:none" aria-hidden="true"></section>
+
     <div class="permission-bar">
       本页面仅<b>系统管理员</b>可操作 · HR 无配置权限 · 配置变更即时生效，请谨慎操作
     </div>
-
-    <!-- 配置概览统计卡（hero-summary-card 同款） -->
-    <StatCardRow :cards="statCards" />
 
     <!-- 邮箱配置 -->
     <BaseAccordion title="邮箱配置" :open="true">

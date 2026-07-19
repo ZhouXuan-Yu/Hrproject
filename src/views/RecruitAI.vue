@@ -1,5 +1,10 @@
 <template>
   <WorkbenchLayout title="招聘辅助中心" :breadcrumb="{ text: '招聘管理', href: '/recruit-dashboard' }">
+    <!-- 辅助能力统计卡（hero-summary-card 同款） -->
+    <StatCardRow :cards="statCards" />
+    <!-- 隐藏块：阻止 app.js 再注入旧的 hero-page-summary 预设卡（避免重复） -->
+    <section class="hero-page-summary" style="display:none" aria-hidden="true"></section>
+
     <div class="permission-bar">
       本页面仅<b>系统管理员</b>可见 · 集中所有<b>用户主动发起</b>的招聘辅助能力 · 流程内嵌的简历解析、匹配评分、联系话术辅助已嵌入各业务页面
     </div>
@@ -18,9 +23,6 @@
         @keydown.end.prevent="activeTab = tabs[tabs.length - 1].id"
       >{{ tab.number }} {{ tab.title }}</button>
     </div>
-
-    <!-- 辅助能力统计卡（hero-summary-card 同款） -->
-    <StatCardRow :cards="statCards" />
 
     <!-- Dynamic tab content with KeepAlive -->
     <KeepAlive>
