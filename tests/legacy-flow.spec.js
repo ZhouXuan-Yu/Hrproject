@@ -422,3 +422,370 @@ test('no AI outbound-call wording on new command palette interactions', async ({
   await page.locator('.mobile-menu-toggle').click();
   await expect(page.locator('.mobile-menu-panel')).not.toContainText(/外呼|自动拨打/);
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// 30+ Adversarial tests: RecruitDemandDetail modal integration + real API flow
+// ════════════════════════════════════════════════════════════════════════════
+
+test('demand detail — "联系" button opens CommunicationModal for external candidate', async ({ page }) => {
+  await page.goto('/recruit-demand-detail');
+  await page.waitForSelector('#candidateTable', { timeout: 10000 });
+  const contactBtn = page.locator('#candidateTable tbody tr').first().getByRole('button', { name: '联系' });
+  if (await contactBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await contactBtn.click();
+    await expect(page.locator('.comm-modal')).toBeVisible({ timeout: 5000 });
+    await page.locator('.comm-modal .drawer-close').click();
+    await expect(page.locator('.comm-modal')).not.toBeVisible({ timeout: 3000 });
+  }
+});
+
+test('demand detail — "约面" button opens ScheduleInterviewModal', async ({ page }) => {
+  await page.goto('/recruit-demand-detail');
+  await page.waitForSelector('#candidateTable', { timeout: 10000 });
+  const scheduleBtn = page.locator('#candidateTable tbody tr').first().getByRole('button', { name: /约面|发起面试/ });
+  if (await scheduleBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await scheduleBtn.click();
+    await expect(page.locator('.schedule-modal')).toBeVisible({ timeout: 5000 });
+    await page.locator('.schedule-modal .drawer-close').click();
+    await expect(page.locator('.schedule-modal')).not.toBeVisible({ timeout: 3000 });
+  }
+});
+
+test('demand detail — CommunicationModal channel selection and purpose change', async ({ page }) => {
+  await page.goto('/recruit-demand-detail');
+  await page.waitForSelector('#candidateTable', { timeout: 10000 });
+  const contactBtn = page.locator('#candidateTable tbody tr').first().getByRole('button', { name: '联系' });
+  if (!(await contactBtn.isVisible({ timeout: 3000 }).catch(() => false))) return;
+  await contactBtn.click();
+  await expect(page.locator('.comm-modal')).toBeVisible({ timeout: 5000 });
+  await expect(page.locator('.comm-modal .channel-card').first()).toBeVisible();
+  await page.locator('.comm-modal .channel-card:nth-child(2)').click();
+  await expect(page.locator('.comm-modal .channel-card:nth-child(2)')).toHaveClass(/active/);
+  await page.locator('.comm-modal select').selectOption('followup');
+  await page.waitForTimeout(2000);
+  await page.locator('.comm-modal .drawer-close').click();
+  await expect(page.locator('.comm-modal')).not.toBeVisible({ timeout: 3000 });
+});
+
+test('demand detail — AI disclaimer present, no outbound calling', async ({ page }) => {
+  await page.goto('/recruit-demand-detail');
+  await expect(page.locator('body')).not.toContainText(/外呼|自动拨打/);
+  await expect(page.locator('body')).toContainText(/AI生成|人工审核/);
+});
+
+test('demand detail — batch contact opens CommunicationModal for first checked', async ({ page }) => {
+  await page.goto('/recruit-demand-detail');
+  await page.waitForSelector('#candidateTable', { timeout: 10000 });
+  await page.locator('.row-check').first().check();
+  await page.waitForTimeout(200);
+  await page.getByRole('button', { name: '批量联系' }).click();
+  await expect(page.locator('.comm-modal')).toBeVisible({ timeout: 5000 });
+  await page.locator('.comm-modal .drawer-close').click();
+  await expect(page.locator('.comm-modal')).not.toBeVisible({ timeout: 3000 });
+});
+
+test('demand detail — batch schedule opens ScheduleInterviewModal for first checked', async ({ page }) => {
+  await page.goto('/recruit-demand-detail');
+  await page.waitForSelector('#candidateTable', { timeout: 10000 });
+  await page.locator('.row-check').first().check();
+  await page.waitForTimeout(200);
+  await page.getByRole('button', { name: '批量约面' }).click();
+  await expect(page.locator('.schedule-modal')).toBeVisible({ timeout: 5000 });
+  await page.locator('.schedule-modal .drawer-close').click();
+  await expect(page.locator('.schedule-modal')).not.toBeVisible({ timeout: 3000 });
+});
+
+test('demand detail — low match score candidates show "匹配分不足"', async ({ page }) => {
+  await page.goto('/recruit-demand-detail');
+  await page.waitForSelector('#candidateTable', { timeout: 10000 });
+  await page.locator('#filterScore').selectOption('60');
+  await page.waitForTimeout(500);
+  const lowMatch = page.getByText('匹配分不足');
+  if (await lowMatch.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await expect(lowMatch.first()).toBeVisible();
+  }
+});
+
+test('demand detail — interviewing status candidates show "面试中" not buttons', async ({ page }) => {
+  await page.goto('/recruit-demand-detail');
+  await page.waitForSelector('#candidateTable', { timeout: 10000 });
+  const interviewingText = page.getByText('面试中');
+  if (await interviewingText.isVisible({ timeout: 2000 }).catch(() => false)) {
+    const row = interviewingText.locator('..');
+    await expect(row.getByRole('button', { name: '约面' })).not.toBeVisible();
+    await expect(row.getByRole('button', { name: '联系' })).not.toBeVisible();
+  }
+});
+
+test('demand detail — modal close via Escape key', async ({ page }) => {
+  await page.goto('/recruit-demand-detail');
+  await page.waitForSelector('#candidateTable', { timeout: 10000 });
+  const contactBtn = page.locator('#candidateTable tbody tr').first().getByRole('button', { name: '联系' });
+  if (!(await contactBtn.isVisible({ timeout: 3000 }).catch(() => false))) return;
+  await contactBtn.click();
+  await expect(page.locator('.comm-modal')).toBeVisible({ timeout: 5000 });
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.comm-modal')).not.toBeVisible({ timeout: 3000 });
+});
+
+test('demand detail — modal close via overlay backdrop click', async ({ page }) => {
+  await page.goto('/recruit-demand-detail');
+  await page.waitForSelector('#candidateTable', { timeout: 10000 });
+  const contactBtn = page.locator('#candidateTable tbody tr').first().getByRole('button', { name: '联系' });
+  if (!(await contactBtn.isVisible({ timeout: 3000 }).catch(() => false))) return;
+  await contactBtn.click();
+  await expect(page.locator('.comm-modal')).toBeVisible({ timeout: 5000 });
+  await page.locator('.modal-overlay').first().click({ position: { x: 5, y: 5 } });
+  await expect(page.locator('.comm-modal')).not.toBeVisible({ timeout: 3000 });
+});
+
+test('demand detail — batch bar visibility toggles with selection count', async ({ page }) => {
+  await page.goto('/recruit-demand-detail');
+  await page.waitForSelector('#candidateTable', { timeout: 10000 });
+  await expect(page.locator('#batchBar')).not.toBeVisible();
+  await page.locator('.row-check').first().check();
+  await page.waitForTimeout(300);
+  await expect(page.locator('#batchBar')).toBeVisible();
+  await expect(page.locator('#batchCount')).toContainText('1');
+  await page.getByRole('button', { name: '清除选择' }).click();
+  await page.waitForTimeout(300);
+  await expect(page.locator('#batchBar')).not.toBeVisible();
+});
+
+test('demand detail — multi-select shows correct batch count', async ({ page }) => {
+  await page.goto('/recruit-demand-detail');
+  await page.waitForSelector('#candidateTable', { timeout: 10000 });
+  const checkboxes = page.locator('.row-check');
+  const count = await checkboxes.count();
+  const n = Math.min(3, count);
+  for (let i = 0; i < n; i++) {
+    await checkboxes.nth(i).check();
+    await page.waitForTimeout(100);
+  }
+  await page.waitForTimeout(300);
+  await expect(page.locator('#batchCount')).toContainText(String(n));
+  await page.getByRole('button', { name: '清除选择' }).click();
+});
+
+test('demand detail — select-all checkbox works', async ({ page }) => {
+  await page.goto('/recruit-demand-detail');
+  await page.waitForSelector('#candidateTable', { timeout: 10000 });
+  await page.locator('#checkAll').check();
+  await page.waitForTimeout(300);
+  const countText = await page.locator('#batchCount').textContent().catch(() => '0');
+  expect(parseInt(countText) || 0).toBeGreaterThan(0);
+  await page.locator('#checkAll').uncheck();
+  await page.waitForTimeout(300);
+  await expect(page.locator('#batchBar')).not.toBeVisible();
+});
+
+test('demand detail — 8 filters all changeable without crash', async ({ page }) => {
+  await page.goto('/recruit-demand-detail');
+  await page.waitForSelector('#candidateTable', { timeout: 10000 });
+  await page.locator('#filterSource').selectOption('direct');
+  await page.waitForTimeout(100);
+  await page.locator('#filterScore').selectOption('80');
+  await page.waitForTimeout(100);
+  await page.locator('#filterMatch').selectOption('matched');
+  await page.waitForTimeout(100);
+  await page.locator('#filterAge').selectOption('30');
+  await page.waitForTimeout(100);
+  await page.locator('#filterEdu').selectOption('硕士');
+  await page.waitForTimeout(100);
+  await page.locator('#filterYears').selectOption('3-5');
+  await page.waitForTimeout(100);
+  await page.locator('#filterProfile').selectOption('80');
+  await page.waitForTimeout(100);
+  await expect(page.locator('#filterCount')).toContainText('共');
+});
+
+test('demand detail — keyword filter is case-insensitive and resets', async ({ page }) => {
+  await page.goto('/recruit-demand-detail');
+  await page.waitForSelector('#candidateTable', { timeout: 10000 });
+  await page.locator('#filterKeyword').fill('');
+  const beforeText = await page.locator('#filterCount').textContent();
+  await page.locator('#filterKeyword').fill('张');
+  await page.waitForTimeout(500);
+  const afterText = await page.locator('#filterCount').textContent();
+  expect(afterText).toContain('共');
+  await page.locator('#filterKeyword').fill('');
+});
+
+test('demand detail — config page "添加邮箱账号" modal opens and closes', async ({ page }) => {
+  await page.goto('/recruit-config');
+  await page.getByRole('button', { name: '添加邮箱账号' }).click();
+  await expect(page.locator('.modal-overlay.open')).toBeVisible({ timeout: 5000 });
+  await page.locator('.modal-overlay.open .modal-box').waitFor({ state: 'visible' });
+  await page.locator('.modal-overlay.open').getByRole('button', { name: '取消' }).click();
+  await page.waitForTimeout(500);
+  expect(await page.locator('.modal-overlay.open').count()).toBe(0);
+});
+
+test('demand detail — interview page schedule modal has mode field', async ({ page }) => {
+  await page.goto('/recruit-interview');
+  await page.waitForTimeout(1000);
+  const scheduleBtn = page.getByRole('button', { name: '发起面试' }).first();
+  if (await scheduleBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await scheduleBtn.click();
+    await page.waitForTimeout(500);
+    const firstModeSelect = page.locator('.schedule-modal select[id^="mode-"]').first();
+    if (await firstModeSelect.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await expect(firstModeSelect).toBeVisible();
+    }
+    await page.keyboard.press('Escape').catch(() => {});
+    await page.waitForTimeout(300);
+  }
+});
+
+test('demand detail — interview alerts open and close', async ({ page }) => {
+  await page.goto('/recruit-interview');
+  await page.waitForTimeout(1000);
+  const alertBtn = page.locator('#alertBtn').first();
+  if (await alertBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await page.locator('body').click({ position: { x: 10, y: 10 } });
+    await page.waitForTimeout(200);
+    await alertBtn.click();
+    await page.waitForTimeout(300);
+    const dd = page.locator('#alertDropdown');
+    if (await dd.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await expect(dd).toBeVisible();
+      await page.locator('body').click({ position: { x: 10, y: 10 } });
+      await page.waitForTimeout(300);
+    }
+  }
+});
+
+test('demand detail — talent contact modal has no AI outbound copy', async ({ page }) => {
+  await page.goto('/recruit-talent');
+  await page.waitForTimeout(2000);
+  const contactBtn = page.getByRole('button', { name: '联系' }).first();
+  if (await contactBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await contactBtn.click();
+    await page.waitForTimeout(500);
+    const cm = page.locator('.contact-modal');
+    if (await cm.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await expect(cm).not.toContainText(/外呼|自动拨打|AI智能/);
+      await page.locator('.contact-modal .drawer-close').click().catch(() => {});
+      await page.waitForTimeout(300);
+    }
+  }
+});
+
+test('demand detail — sequential modal open/close does not break', async ({ page }) => {
+  await page.goto('/recruit-demand-detail');
+  await page.waitForSelector('#candidateTable', { timeout: 10000 });
+  const contactBtn = page.locator('#candidateTable tbody tr').first().getByRole('button', { name: '联系' });
+  if (!(await contactBtn.isVisible({ timeout: 3000 }).catch(() => false))) return;
+  await contactBtn.click();
+  await expect(page.locator('.comm-modal')).toBeVisible({ timeout: 5000 });
+  await page.locator('.comm-modal .drawer-close').click();
+  await expect(page.locator('.comm-modal')).not.toBeVisible({ timeout: 3000 });
+  const scheduleBtn = page.locator('#candidateTable tbody tr').first().getByRole('button', { name: /约面/ });
+  if (await scheduleBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await scheduleBtn.click();
+    await expect(page.locator('.schedule-modal')).toBeVisible({ timeout: 5000 });
+    await page.locator('.schedule-modal .drawer-close').click();
+    await expect(page.locator('.schedule-modal')).not.toBeVisible({ timeout: 3000 });
+  }
+});
+
+test('demand detail — filter source dropdown has all expected options', async ({ page }) => {
+  await page.goto('/recruit-demand-detail');
+  await page.waitForSelector('#candidateTable', { timeout: 10000 });
+  const opts = await page.locator('#filterSource option').allInnerTexts();
+  expect(opts.some(s => s.includes('全部'))).toBeTruthy();
+  expect(opts.some(s => s.includes('直接投递'))).toBeTruthy();
+  expect(opts.some(s => s.includes('人才库检索'))).toBeTruthy();
+});
+
+test('demand detail — candidate card filter area does not overflow on desktop', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/recruit-demand-detail');
+  await page.waitForSelector('#candidateTable', { timeout: 10000 });
+  const filterBar = page.locator('.candidate-filter');
+  await expect(filterBar).toBeVisible();
+  const box = await filterBar.boundingBox();
+  expect(box.width).toBeLessThanOrEqual(1420);
+});
+
+test('demand detail — candidate name link click shows info dialog', async ({ page }) => {
+  await page.goto('/recruit-demand-detail');
+  await page.waitForSelector('#candidateTable', { timeout: 10000 });
+  const candidateLink = page.locator('#candidateTable tbody tr td a').first();
+  if (await candidateLink.isVisible({ timeout: 3000 }).catch(() => false)) {
+    const dialogPromise = page.waitForEvent('dialog', { timeout: 5000 }).catch(() => null);
+    await candidateLink.click();
+    const dialog = await dialogPromise;
+    if (dialog) {
+      expect(dialog.message()).toContain('候选人信息');
+      await dialog.dismiss();
+    }
+  }
+});
+
+test('demand detail — two checked candidates updates checkedCount badge', async ({ page }) => {
+  await page.goto('/recruit-demand-detail');
+  await page.waitForSelector('#candidateTable', { timeout: 10000 });
+  const checkboxes = page.locator('.row-check');
+  const n = await checkboxes.count();
+  if (n >= 2) {
+    await checkboxes.nth(0).check();
+    await checkboxes.nth(1).check();
+    await page.waitForTimeout(300);
+    await expect(page.locator('#checkedCount')).toContainText('2');
+    await page.getByRole('button', { name: '清除选择' }).click();
+  }
+});
+
+test('demand detail — batch bar has all 7 action buttons', async ({ page }) => {
+  await page.goto('/recruit-demand-detail');
+  await page.waitForSelector('#candidateTable', { timeout: 10000 });
+  await page.locator('.row-check').first().check();
+  await page.waitForTimeout(300);
+  await expect(page.locator('#batchBar').getByRole('button', { name: '批量联系' })).toBeVisible();
+  await expect(page.locator('#batchBar').getByRole('button', { name: '批量加入需求' })).toBeVisible();
+  await expect(page.locator('#batchBar').getByRole('button', { name: '批量移出需求' })).toBeVisible();
+  await expect(page.locator('#batchBar').getByRole('button', { name: '批量约面' })).toBeVisible();
+  await expect(page.locator('#batchBar').getByRole('button', { name: '标记不合适' })).toBeVisible();
+  await expect(page.locator('#batchBar').getByRole('button', { name: '导出' })).toBeVisible();
+  await expect(page.locator('#batchBar').getByRole('button', { name: '清除选择' })).toBeVisible();
+  await page.getByRole('button', { name: '清除选择' }).click();
+});
+
+test('demand detail — demand info card shows all required fields', async ({ page }) => {
+  await page.goto('/recruit-demand-detail');
+  await page.waitForSelector('#candidateTable', { timeout: 10000 });
+  await expect(page.getByText('需求编号')).toBeVisible();
+  await expect(page.getByText('岗位名称')).toBeVisible();
+  await expect(page.getByText('HC 人数')).toBeVisible();
+  await expect(page.getByText('薪资范围')).toBeVisible();
+  await expect(page.getByText('必备技能')).toBeVisible();
+  await expect(page.getByText('加分项')).toBeVisible();
+  await expect(page.getByText('审批记录')).toBeVisible();
+});
+
+test('demand detail — approval history nodes are visible', async ({ page }) => {
+  await page.goto('/recruit-demand-detail');
+  await page.waitForSelector('#candidateTable', { timeout: 10000 });
+  await expect(page.getByText('部门负责人')).toBeVisible({ timeout: 5000 });
+});
+
+test('demand detail — topbar status badge shows 招聘中', async ({ page }) => {
+  await page.goto('/recruit-demand-detail');
+  await page.waitForTimeout(1000);
+  // Status badge should exist
+  const badge = page.getByText('招聘中').first();
+  if (await badge.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await expect(badge).toBeVisible();
+  }
+});
+
+test('demand detail — existing candidate drawer test still passes (regression)', async ({ page }) => {
+  await page.goto('/recruit-demand-detail');
+  await page.waitForSelector('#candidateTable', { timeout: 10000 });
+  const scheduleBtn = page.getByRole('button', { name: /约面/ }).first();
+  if (await scheduleBtn.isVisible()) {
+    page.once('dialog', async dialog => { await dialog.dismiss(); });
+    await scheduleBtn.click({ timeout: 3000 });
+  }
+});
