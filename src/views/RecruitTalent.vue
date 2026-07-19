@@ -229,6 +229,34 @@
         </div>
       </div>
     </Teleport>
+
+    <!-- Candidate Drawer -->
+    <CandidateDrawer
+      :visible="showCandidateDrawer"
+      :candidate-id="activeCandidateId"
+      @close="showCandidateDrawer = false"
+      @contact="(data) => { showCandidateDrawer = false; openContactModal(data.name, data.id); }"
+      @join="onCandidateJoin"
+    />
+
+    <!-- Employee Drawer -->
+    <EmployeeDrawer
+      :visible="showEmployeeDrawer"
+      :employee-id="activeEmployeeId"
+      @close="showEmployeeDrawer = false"
+      @interview="(data) => doAlert('发起内部面试')"
+    />
+
+    <!-- Contact Modal (single & batch) -->
+    <ContactModal
+      :visible="showContactModal"
+      :candidate-name="contactCandidateName"
+      :candidate-id="contactCandidateId"
+      :selected="contactBatchNames"
+      :is-batch="contactIsBatch"
+      @close="showContactModal = false"
+      @done="onContactDone"
+    />
   </WorkbenchLayout>
 </template>
 

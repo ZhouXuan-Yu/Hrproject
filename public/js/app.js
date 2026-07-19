@@ -1507,7 +1507,7 @@ function openInternalContactModal(name, manager){
     var config = configs[route];
     if(!config) return;
     var shell = document.createElement('section');
-    shell.className = 'hero-page-command scroll-reveal';
+    shell.className = 'hero-page-command is-revealed';
     shell.setAttribute('aria-label', config.title);
     shell.innerHTML =
       '<div class="hero-command-title"><span>'+config.overline+'</span><strong>'+config.title+'</strong><em>'+config.desc+'</em></div>' +
