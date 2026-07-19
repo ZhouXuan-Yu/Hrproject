@@ -1,5 +1,7 @@
 <template>
   <div class="legacy-page-shell" :data-route="routeId">
+    <ToastContainer />
+
     <!-- Sidebar -->
     <aside class="sidebar" id="sidebar" role="navigation" aria-label="招聘模块导航">
       <div class="logo">
