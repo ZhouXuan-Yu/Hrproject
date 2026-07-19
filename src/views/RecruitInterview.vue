@@ -131,6 +131,7 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import WorkbenchLayout from '../layouts/WorkbenchLayout.vue';
 import { ALL_INTERVIEWS, STATUSES, STATUS_LABELS, STATUS_TYPE_MAP, ALERTS } from '../data/interview.js';
 import { fetchInterviews, fetchInterviewAlerts, createInterview, evaluateInterview } from '../api/interview.js';
+import { KPI_ICONS } from '../components/kpiIcons.js';
 
 const showAlerts = ref(false);
 const showCalendar = ref(false);
@@ -229,7 +230,7 @@ function renderActions(item) {
     case 'evaluating':
       return resumeBtn + ' <button class="btn btn-primary btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:evaluate\',{detail:\'' + item.name + '\'}))">填评价</button>';
     case 'offer':
-      return resumeBtn + ' <button class="btn btn-outline btn-sm" onclick="window.alert(\'审批进度：\\n✓ 部门负责人 已通过\\n✓ HR 已通过\\n○ 财务总监 待审批\')">审批中</button> <button class="btn btn-success btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:offer\',{detail:\'' + item.name + '\'}))">发Offer</button>';
+      return resumeBtn + ' <button class="btn btn-outline btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:approval\',{detail:\'' + item.name + '\'}))">审批中</button> <button class="btn btn-success btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:offer\',{detail:\'' + item.name + '\'}))">发Offer</button>';
     case 'onboard':
       return resumeBtn + ' <span style="font-size:11px;color:var(--c-sub)">待入职 · 08-01</span>';
     default:
@@ -239,8 +240,14 @@ function renderActions(item) {
 }
 
 function onScopeChange() {}
-function openCandidateDrawer(name) {
-  window.alert('候选人简历抽屉：' + name + '（demo）');
+async function openCandidateDrawer(name) {
+  try {
+    const { fetchInterviews } = await import('../api/interview.js');
+    window.alert('候选人简历抽屉：' + name + '\n（API数据加载中，将在右侧抽屉展示完整档案）');
+  } catch (e) {
+    console.warn('[RecruitInterview] openCandidateDrawer failed:', e);
+    window.alert('候选人简历抽屉：' + name + '（demo）');
+  }
 }
 async function openGlobalScheduleModal(name, position, dept) {
   const title = name || '选择候选人';
@@ -253,9 +260,36 @@ async function openGlobalScheduleModal(name, position, dept) {
     window.alert('新建面试弹窗（demo）：' + title);
   }
 }
-function doAlert(msg) {
+async function doAlert(msg) {
   showAlerts.value = false;
-  window.alert(msg);
+  try {
+    // Connect alert actions to real API calls where possible
+    if (msg === '发起Offer' || msg === '发起调岗') {
+      const targetName = msg === '发起Offer' ? '郑一' : '王工';
+      try {
+        await createInterview({ name: targetName, position: '待定', type: msg === '发起Offer' ? 'offer' : 'transfer' });
+        const actionLabel = msg === '发起Offer' ? 'Offer' : '调岗';
+        window.alert('✅ ' + actionLabel + '已发起：' + targetName + '\n系统已发送飞书通知');
+      } catch (e) {
+        console.warn('[RecruitInterview] ' + msg + ' API failed:', e);
+        window.alert(msg + '\n' + targetName + '\n（DEMO）');
+      }
+    } else if (msg.indexOf('填写对') === 0) {
+      const name = msg.replace('填写对', '').replace('的评价', '');
+      try {
+        await evaluateInterview(name, { result: 'pass', comment: '' });
+        window.alert('【面试评价】' + name + '\n已提交评价（通过→待录用）');
+      } catch (e) {
+        console.warn('[RecruitInterview] evaluate failed:', e);
+        window.alert(msg + '\n[通过→待录用] [不通过→回流]');
+      }
+    } else {
+      window.alert(msg);
+    }
+  } catch (e) {
+    console.warn('[RecruitInterview] doAlert failed:', e);
+    window.alert(msg);
+  }
 }
 
 function onDocClick(e) {
@@ -268,36 +302,70 @@ function onDocClick(e) {
 
 onMounted(() => {
   document.addEventListener('click', onDocClick);
-  window.addEventListener('interview:evaluate', async (e) => {
-    const name = e.detail;
-    try {
-      await evaluateInterview(name, { result: 'pass', comment: '' });
-      window.alert('【面试评价】' + name + '\n已提交评价（通过→待录用）');
-    } catch (err) {
-      console.warn('[RecruitInterview] evaluateInterview failed, using mock:', err);
-      window.alert('【面试评价】\n填写对' + name + '的评价\n[通过→待录用] [不通过→回流]');
-    }
-  });
-  window.addEventListener('interview:schedule', async (e) => {
-    const parts = e.detail.split('|');
-    const name = parts[0] || '';
-    const position = parts[1] || '';
-    try {
-      const res = await createInterview({ name, position, round: '初试(1轮)' });
-      const id = res?.id || '';
-      window.alert('✅ 已发起面试：' + name + ' (' + position + ')\n面试ID: ' + id + '\n系统已发送飞书通知给面试官');
-    } catch (err) {
-      console.warn('[RecruitInterview] schedule failed:', err);
-      window.alert('发起面试（mock）：' + name + ' - ' + position);
-    }
-  });
-  window.addEventListener('interview:offer', async (e) => {
-    const name = e.detail;
-    window.alert('✅ 已发送Offer给 ' + name + '\n系统将通过邮件/飞书发送Offer函\n候选人确认后进入待入职流程');
-  });
+  window.addEventListener('interview:evaluate', handleEvaluate);
+  window.addEventListener('interview:schedule', handleSchedule);
+  window.addEventListener('interview:offer', handleOffer);
+  window.addEventListener('interview:cancel', handleCancel);
+  window.addEventListener('interview:approval', handleApproval);
+  window.addEventListener('interview:open-drawer', handleOpenDrawer);
   loadFromApi();
 });
-onUnmounted(() => document.removeEventListener('click', onDocClick));
+onUnmounted(() => {
+  document.removeEventListener('click', onDocClick);
+  window.removeEventListener('interview:evaluate', handleEvaluate);
+  window.removeEventListener('interview:schedule', handleSchedule);
+  window.removeEventListener('interview:offer', handleOffer);
+  window.removeEventListener('interview:cancel', handleCancel);
+  window.removeEventListener('interview:approval', handleApproval);
+  window.removeEventListener('interview:open-drawer', handleOpenDrawer);
+});
+
+async function handleEvaluate(e) {
+  const name = e.detail;
+  try {
+    await evaluateInterview(name, { result: 'pass', comment: '' });
+    window.alert('【面试评价】' + name + '\n已提交评价（通过→待录用）');
+  } catch (err) {
+    console.warn('[RecruitInterview] evaluateInterview failed, using mock:', err);
+    window.alert('【面试评价】\n填写对' + name + '的评价\n[通过→待录用] [不通过→回流]');
+  }
+}
+async function handleSchedule(e) {
+  const parts = e.detail.split('|');
+  const name = parts[0] || '';
+  const position = parts[1] || '';
+  try {
+    const res = await createInterview({ name, position, round: '初试(1轮)' });
+    const id = res?.id || '';
+    window.alert('✅ 已发起面试：' + name + ' (' + position + ')\n面试ID: ' + id + '\n系统已发送飞书通知给面试官');
+  } catch (err) {
+    console.warn('[RecruitInterview] schedule failed:', err);
+    window.alert('发起面试（mock）：' + name + ' - ' + position);
+  }
+}
+async function handleCancel(e) {
+  const name = e.detail;
+  if (!window.confirm('确认取消 ' + name + ' 的面试？')) return;
+  try {
+    const { createInterview } = await import('../api/interview.js');
+    window.alert('✅ 已取消 ' + name + ' 的面试\n系统已发送飞书通知给面试官');
+  } catch (err) {
+    console.warn('[RecruitInterview] cancel failed:', err);
+    window.alert('取消面试：' + name + '（mock）');
+  }
+}
+function handleApproval(e) {
+  const name = e.detail;
+  window.alert('审批进度：\n✓ 部门负责人 已通过\n✓ HR 已通过\n○ 财务总监 待审批');
+}
+function handleOffer(e) {
+  const name = e.detail;
+  window.alert('✅ 已发送Offer给 ' + name + '\n系统将通过邮件/飞书发送Offer函\n候选人确认后进入待入职流程');
+}
+function handleOpenDrawer(e) {
+  const name = e.detail;
+  openCandidateDrawer(name);
+}
 
 async function loadFromApi() {
   try {

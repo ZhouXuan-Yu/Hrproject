@@ -203,8 +203,9 @@ function clearSelection() {
   Object.keys(checkedSet).forEach(k => delete checkedSet[k]);
 }
 function openDrawer(c) {
-  if (c.isEmployee) doAlert('员工抽屉：' + c.name);
-  else doAlert('候选人抽屉：' + c.name);
+  // Dispatch custom event for action cell buttons to consume
+  const type = c.isEmployee ? 'employee' : 'candidate';
+  window.dispatchEvent(new CustomEvent('detail:view', { detail: c.name + '|' + type }));
 }
 
 // Batch actions
