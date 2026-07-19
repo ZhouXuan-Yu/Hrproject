@@ -169,4 +169,15 @@ const gridStyle = computed(() => ({
     transform: none;
   }
 }
+
+@media (max-width: 768px) {
+  [data-slot="prompt-suggestion"] {
+    grid-template-columns: 1fr !important;
+    gap: 8px;
+  }
+  [data-slot="prompt-suggestion-item"] {
+    padding: 10px 14px;
+    font-size: 12px;
+  }
+}
 </style>
