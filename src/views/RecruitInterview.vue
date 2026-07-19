@@ -31,14 +31,15 @@
     <div data-slot="iv-kpi-row">
       <button v-for="kpi in kpis" :key="kpi.key"
         data-slot="iv-pipeline-chip"
-        :data-active="activeTab === 'list' && listStatus === kpi.key ? 'true' : (activeTab === 'list' && listStatus === 'all' && kpi.key === 'pending' ? 'true' : undefined)"
-        @click="activeTab = 'list'; listStatus = kpi.key"
+        :data-active="activeTab === 'list' ? (listStatus === kpi.key ? 'true' : undefined) : (mineStatus === kpi.key ? 'true' : undefined)"
+        @click="onChipClick(kpi.key)"
       >
         <span data-slot="iv-pipeline-val">{{ kpi.value }}</span>
         <span data-slot="iv-pipeline-label">{{ kpi.label }}</span>
       </button>
     </div>
-    <!-- Sentinel: prevents app.js legacy workspace injection (duplicate content) -->
+    <!-- Sentinels: prevents app.js injecting duplicate hero-page-summary and hero-page-workspace -->
+    <section class="hero-page-summary" style="display:none" aria-hidden="true"></section>
     <section class="hero-page-workspace" style="display:none" aria-hidden="true"></section>
 
     <!-- Tabs -->
@@ -52,14 +53,7 @@
 
     <!-- 全部面试 panel -->
     <div class="tab-panel" :class="{ active: activeTab === 'list' }">
-      <!-- Status chips -->
-      <div class="status-chips">
-        <span v-for="st in STATUSES" :key="st"
-          class="status-chip" :class="{ active: listStatus === st }"
-          :data-status="st" @click="listStatus = st"
-        >{{ STATUS_LABELS[st] }} <span class="cnt">{{ countBy(st, false) }}</span></span>
-      </div>
-      <!-- Table -->
+      <!-- Table (status filtering via top pipeline chips) -->
       <div class="table-wrap">
         <table><thead><tr><th>候选人</th><th>岗位</th><th>轮次</th><th>面试官</th><th>时间</th><th>方式</th><th>状态</th><th>操作</th></tr></thead>
         <tbody>
@@ -77,13 +71,7 @@
 
     <!-- 我的待办 panel -->
     <div class="tab-panel" :class="{ active: activeTab === 'mine' }">
-      <div class="status-chips">
-        <span v-for="st in STATUSES" :key="st"
-          class="status-chip" :class="{ active: mineStatus === st }"
-          :data-status="st" @click="mineStatus = st"
-        >{{ STATUS_LABELS[st] }} <span class="cnt">{{ countMineBy(st) }}</span></span>
-      </div>
-      <div class="table-wrap">
+      <!-- Table -->
         <table><thead><tr><th>候选人</th><th>岗位</th><th>轮次</th><th>时间</th><th>方式</th><th>状态</th><th>操作</th></tr></thead>
         <tbody>
           <tr v-for="(item, i) in filteredMine" :key="'m'+i">
@@ -95,7 +83,6 @@
           </tr>
         </tbody></table>
         <div class="table-count">共 {{ filteredMine.length }} 条</div>
-      </div>
     </div>
 
     <!-- Calendar Modal -->
@@ -257,6 +244,13 @@ function renderActions(item) {
 }
 
 function onScopeChange() {}
+function onChipClick(key) {
+  if (activeTab.value === 'mine') {
+    mineStatus.value = mineStatus.value === key ? 'all' : key;
+  } else {
+    listStatus.value = listStatus.value === key ? 'all' : key;
+  }
+}
 function openCandidateDrawer(name) {
   window.alert('候选人简历抽屉：' + name + '（demo）');
 }
