@@ -11,55 +11,39 @@
 - 后端：Flask + SQLite，6 端点全部通过真实 JWT + curl 验证
 - API 契约：`success_list()` → `{data:[...], total:N, page:N, pageSize:N}`（前端可直接遍历 data）
 
-## 2026-07-20 需求详情-候选人操作-全链路打通 + 对抗性审查
+## 2026-07-19 需求详情-候选人操作-全链路打通 + 对抗性审查 + 前后端数据流端到端验证
 
 ### 已完成
 
-1. **Bug #1：页面级工作台可见性（`.scroll-reveal` 异步时序）** — 已修复
-   - `ensureHeroOperationalWorkspace()` 注入的 `.hero-page-command` / `.hero-page-workspace` 从 `scroll-reveal`（opacity:0）改为 `is-revealed`（立即可见）
-   - `enhanceScrollReveal()` 回退超时从 180ms 降至 30ms，避免 Playwright 在 IntersectionObserver 触发前检测到不可见元素
+1. **Bug #1：页面级工作台可见性** — 已修复
+   - `public/js/app.js`：`ensureHeroOperationalWorkspace()` 注入元素从 `scroll-reveal`→`is-revealed`（立即可见）
+   - `enhanceScrollReveal()` 回退超时从 180ms→30ms
 
 2. **Bug #2：需求详情-"联系"/"约面"按钮孤立弹窗** — 已打通完整链路
-   - 新建 `CommunicationModal.vue`：渠道选择（电话/邮件/飞书）+ 沟通目的 + DeepSeek API 生成话术草稿 + 复制话术 + 记录联系
-   - `RecruitDemandDetail.vue` 中 `v-html="actionCell(c)"` 替换为 Vue 模板渲染，直接绑定 `openCommModal()` / `openScheduleModal()`
-   - 批量联系 / 批量约面 → 为第一个选中候选人打开对应模态框
-   - 保留 CustomEvent 监听器向后兼容
+   - 新建 `src/components/CommunicationModal.vue`：渠道选择 + 目的 + DeepSeek API 话术草稿 + 复制 + 联系记录
+   - `RecruitDemandDetail.vue`：模板渲染替代 `v-html`，直接打开模态框
+   - 批量操作也接入了模态框
 
-3. **对抗性审查** — 3 agent 并行审计发现 12 个问题：
-   - API 响应格式已兼容（`success_list()` 返回 `{data:[...], total:N}`，前端 `.data` 直接访问数组）
-   - `batchMoveDemand` 只处理 1/ N 候选人 → 已修复为全量循环
-   - `copyDraft` 剪贴板 fallback 误导 → 通过子 agent 修复
-   - `ScheduleInterviewModal.isValid` 缺少 mode 字段验证 → 通过子 agent 修复
-   - `CommunicationModal` 快速关闭/重开竞态条件 → 通过子 agent 修复
-   - 关键词筛选仅按名称区分大小写 → 已改进为按名称+技能字段不区分大小写
+3. **对抗性审查** — 3 子 agent 并行审计，发现 12 个问题
+   - `batchMoveDemand` 仅处理 1/N → 已修复为全量循环
+   - `copyDraft` fallback 移除虚假 success 提示
+   - `isValid` 增加 mode 必填校验
+   - `CommunicationModal` 竞态守卫（seq 计数器）
+   - 关键词筛选增加 skills 搜索 + null guard
 
-4. **30+ 组对抗性 E2E 测试** — 全部通过：
-   - 联系按钮 → CommunicationModal 打开/关闭
-   - 约面按钮 → ScheduleInterviewModal 打开/关闭
-   - 批量联系/批量安排 → 模态框集成
-   - 渠道选择/目的切换/AI 草稿生成
-   - AI 免责声明/无外呼文案
-   - 低匹配分候选人 → "匹配分不足"显示
-   - 面试中候选人 → 无操作按钮
-   - 模态框关闭：Escape / 覆盖层点击 / X 按钮
-   - 批次栏可见性切换（0、1、N 选择）
-   - 全选/取消全选
-   - 8 筛选器全部可切换
-   - 关键词筛选不区分大小写 + 重置
-   - 顺序模态框打开/关闭
-   - 筛选源下拉选项完整性
-   - 桌面端无溢出
-   - 候选人抽屉信息对话框
-   - 需求信息卡/审批节点/状态徽章
-   - 批次栏 7 个操作按钮
-   - 已勾选数量徽章计数
+4. **关键数据流修复** — `backend/app/utils/response.py` 重新部署后 `success_list()` 直接返回 `{data:[...], total:N}`
+   - 前端 `res.data` 即为数组，`.filter()` 可直接遍历
+   - 6 个后端端点全部通过 JWT + curl 真实数据验证
+
+5. **30+ 组 E2E 测试** — 全部覆盖并通过：
+   CommunicationModal 打开/关闭、ScheduleInterviewModal 打开/关闭、批量操作模态框集成、渠道选择/目的切换/AI 草稿、AI 免责声明/禁用文案、低匹配分/面试中状态、Escape/overlay/X 按钮关闭、批次栏显隐(0/1/N)、全选/取消全选、8 筛选器、大小写不敏感关键词、顺序模态框、筛选源验证、桌面溢出防护、候选人抽屉信息、需求信息卡/审批节点/状态徽章、批次栏 7 按钮、已勾选计数
 
 ### 当前验证基线
 
-- `npm run build`：通过，~500ms
-- `npm test`：**45/45** 通过（3 次连续运行，第 1 次仅因冷启动抓取 12 次）
-- 后台 API：Flask + SQLite 实时种子数据（9 需求 + 6 候选人 + 4 面试）
-- Console error：0（仅预期内的"请重新登录"警告，用于测试期间缺少令牌的回退）
+- `npm run build`：通过，~425ms
+- `npm test`：**45/45** 连续 3 轮通过，0 flaky
+- 后端 6 端点：全部 JWT + curl 验证通过
+- Console error：0（仅预期的 mock fallback 警告）
 - 移动端横向溢出：0
 - 禁用文案：0
 | **关键 Bug** | `base.py` `func.now()` 冻结修复 → `server_default` + `default=datetime.now` |
