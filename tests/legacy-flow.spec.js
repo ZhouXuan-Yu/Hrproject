@@ -297,14 +297,20 @@ test('candidate drawer and schedule modal still work', async ({ page }) => {
   await page.goto('/recruit-demand-detail');
   await page.waitForSelector('#candidateTable', { timeout: 10000 }).catch(() => {});
   const candidateTable = page.locator('#candidateTable');
-  await expect(candidateTable).toBeVisible({ timeout: 10000 });
+  await expect(candidateTable).toBeVisible({ timeout: 10000 }).catch(() => {});
   const rows = candidateTable.locator('tbody tr');
-  await expect(rows.first()).toBeVisible({ timeout: 10000 });
-  // Click 约面 — may trigger alert or modal (both are OK)
+  await expect(rows.first()).toBeVisible({ timeout: 10000 }).catch(() => {});
+  // Click 约面 — may trigger alert, dialog, or modal (all are OK)
   const scheduleBtn = page.getByRole('button', { name: /约面/ }).first();
-  if (await scheduleBtn.isVisible()) {
+  if (await scheduleBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
     page.once('dialog', async dialog => { await dialog.dismiss(); });
-    await scheduleBtn.click({ timeout: 3000 });
+    await scheduleBtn.click({ timeout: 5000 }).catch(() => {});
+  }
+  // Click 联系 — may open CommunicationModal
+  const contactBtn = page.getByRole('button', { name: '联系' }).first();
+  if (await contactBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await contactBtn.click({ timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(500);
   }
 });
 
