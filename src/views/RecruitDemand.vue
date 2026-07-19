@@ -114,6 +114,7 @@ import WorkbenchLayout from '../layouts/WorkbenchLayout.vue';
 import { DEMANDS, getLinkedCount } from '../data/demand.js';
 import { HR_DEPARTMENTS } from '../composables/useMockData.js';
 import { fetchDemands, createDemand, submitForApproval, approveDemandApi, rejectDemandApi } from '../api/demand.js';
+import { api } from '../api/index.js';
 import { useToast } from '../composables/useToast.js';
 import { useAppError } from '../composables/useAppError.js';
 import StatCardRow from '../components/StatCardRow.vue';
@@ -250,12 +251,6 @@ async function moreOps(d) {
 }
 
 function goDetail(){ router.push('/recruit-demand-detail'); }
-function approveDemand(id){
-  toast.success('审批通过：' + id);
-}
-function moreOps(id){
-  toast.info('更多操作：' + id);
-}
 
 onMounted(() => {
   loadFromApi();

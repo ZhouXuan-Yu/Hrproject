@@ -384,17 +384,19 @@ async function handleCancel(e) {
   const name = e.detail;
   if (!window.confirm('确认取消 ' + name + ' 的面试？')) return;
   try {
-    const { createInterview } = await import('../api/interview.js');
-    toast.success('已取消 ' + name + ' 的面试，系统已发送飞书通知给面试官');
+    const { cancelInterview } = await import('../api/interview.js');
+    await cancelInterview(name, 'HR 手动取消');
+    toast.success('已取消 ' + name + ' 的面试');
+    await loadFromApi();
   } catch (err) {
     console.warn('[RecruitInterview] cancel failed:', err);
-    toast.success('已取消面试：' + name);
+    toast.error('取消失败：' + (err.message || '未知错误'));
   }
 }
 
 function handleApproval(e) {
   const name = e.detail;
-  toast.info('审批进度：部门负责人 已通过 / HR 已通过 / 财务总监 待审批');
+  toast.info('审批进度：请进入需求管理页面查看审批详情');
 }
 
 function handleOffer(e) {

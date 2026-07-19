@@ -410,7 +410,21 @@ async function batchSchedule() {
 }
 
 function batchMarkUnsuitable() { batchToast('标记不合适'); }
-function batchExport() { batchToast('导出'); }
+function batchExport() {
+  const names = Object.keys(checkedSet).filter(k => checkedSet[k]);
+  if (!names.length) { toast.warning('请先勾选候选人'); return; }
+  // Build CSV from visible candidates
+  const filtered = filteredCandidates.value.filter(c => names.includes(c.name));
+  const csv = ['姓名,学历,工作年限,状态'].concat(
+    filtered.map(c => `${c.name},${c.edu},${c.years},${c.statusLabel}`)
+  ).join('\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `候选人导出_${info.value.id || 'unknown'}.csv`;
+  a.click(); URL.revokeObjectURL(url);
+  toast.success(`已导出 ${filtered.length} 人`);
+}
 function batchToast(label) {
   const names = Object.keys(checkedSet).filter(k => checkedSet[k]);
   if (!names.length) { toast.warning('请先勾选候选人'); return; }
