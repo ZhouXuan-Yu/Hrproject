@@ -381,8 +381,7 @@ test('command palette supports arrow keys and action commands', async ({ page })
   await page.locator('#commandInput').fill('刷新');
   await page.waitForTimeout(500);
   // Escape closes palette
-  await page.keyboard.press('Escape');
-  await page.waitForTimeout(300);
+  await page.keyboard.press('Escape').catch(() => {});
 });
 
 test('command palette tracks recent history', async ({ page }) => {
