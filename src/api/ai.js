@@ -26,11 +26,16 @@ function delay(ms) {
 async function aiPost(workflow, params, mockData, mockDelay = 600) {
   try {
     const r = await api.post(`/ai/run/${workflow}`, params);
-    return r.data || r;
+    const data = r.data || r;
+    // Surface fallback warnings to the user
+    if (data._fallback) {
+      console.warn(`[AI API] ${workflow} returned fallback data:`, data._fallback_reason || 'unknown reason');
+    }
+    return data;
   } catch (e) {
     console.warn(`[AI API] ${workflow} failed, using mock data:`, e.message);
     await delay(mockDelay);
-    return mockData;
+    return { ...mockData, _fallback: true, _fallback_reason: e.message };
   }
 }
 

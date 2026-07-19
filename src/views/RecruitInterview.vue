@@ -27,21 +27,19 @@
       </button>
     </template>
 
-    <!-- KPI row -->
+    <!-- Merged KPI row: 6 status items + 3 compact summary stats inline -->
     <div class="metric-row" style="margin-bottom:12px">
-      <div v-for="kpi in kpis" :key="kpi.key" class="metric-card">
+      <div v-for="kpi in kpis" :key="kpi.key" class="metric-card" style="flex:1">
         <div class="metric-icon" v-html="kpi.icon"></div>
         <div><div class="metric-value">{{ kpi.value }}</div><div class="metric-label">{{ kpi.label }}</div></div>
       </div>
-    </div>
-
-    <!-- Summary stats row -->
-    <div class="metric-row" style="margin-bottom:12px">
-      <div v-for="stat in summaryStats" :key="stat.key" class="metric-card">
-        <div class="metric-icon" v-html="stat.icon"></div>
-        <div><div class="metric-value">{{ stat.value }}</div><div class="metric-label">{{ stat.label }}</div></div>
+      <div v-for="stat in summaryStats" :key="stat.key" class="metric-card" style="flex:1;min-width:80px;background:transparent;border-style:dashed;border-color:var(--c-border-light)">
+        <div class="metric-icon" v-html="stat.icon" style="opacity:0.6"></div>
+        <div><div class="metric-value" style="font-size:18px;color:var(--c-body)">{{ stat.value }}</div><div class="metric-label">{{ stat.label }}</div></div>
       </div>
     </div>
+    <!-- Sentinel: prevents app.js legacy workspace injection (duplicate content) -->
+    <section class="hero-page-workspace" style="display:none" aria-hidden="true"></section>
 
     <!-- Tabs -->
     <div class="tabs" role="tablist">
