@@ -32,8 +32,9 @@
         :data-active="listStatus === kpi.key"
         @click="listStatus = listStatus === kpi.key ? 'all' : kpi.key"
       >
-        <span data-slot="iv-pipeline-val">{{ kpi.value }}</span>
+        <i class="iv-dot" :style="{ background: stageColor(kpi.key) }"></i>
         <span data-slot="iv-pipeline-label">{{ kpi.label }}</span>
+        <span data-slot="iv-pipeline-val">{{ kpi.value }}</span>
       </button>
     </div>
     <!-- Block hero-page-summary (redundant "当前筛选范围" label) — let hero-page-command/workspace inject from app.js -->
@@ -176,6 +177,17 @@ const kpis = computed(() => {
   ];
 });
 
+// 各阶段状态点配色（柔和克制，与企业后台蓝色系协调）
+const STAGE_COLORS = {
+  pending: '#F59E0B',
+  scheduled: '#4F6EF7',
+  evaluating: '#8B5CF6',
+  offer: '#6366F1',
+  onboard: '#14B8A6',
+  done: '#22A06B',
+};
+function stageColor(key) { return STAGE_COLORS[key] || '#4F6EF7'; }
+
 const filteredList = computed(() => {
   return INTERVIEWS_SOURCE.value.filter(item => {
     if (currentScope.value === 'created' && item.createdBy !== user) return false;
@@ -196,13 +208,13 @@ function renderActions(item) {
   const resumeBtn = '<button class="btn btn-outline btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:open-drawer\',{detail:\'' + item.name + '\'}))">简历</button>';
   switch (item.status) {
     case 'pending':
-      return resumeBtn + ' <button class="btn btn-primary btn-sm" onclick="window.alert(\'发起面试：' + item.name + ' - ' + item.position + '\')">发起面试</button>';
+      return resumeBtn + ' <button class="btn btn-primary btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:schedule\',{detail:\'' + item.name + '|' + item.position + '\'}))">发起面试</button>';
     case 'scheduled':
       return resumeBtn + ' <button class="btn btn-text-danger btn-sm" onclick="window.alert(\'取消面试：' + item.name + '\')">取消</button>';
     case 'evaluating':
       return resumeBtn + ' <button class="btn btn-primary btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:evaluate\',{detail:\'' + item.name + '\'}))">填评价</button>';
     case 'offer':
-      return resumeBtn + ' <button class="btn btn-outline btn-sm" onclick="window.alert(\'审批进度：\\n✓ 部门负责人 已通过\\n✓ HR 已通过\\n○ 财务总监 待审批\')">审批中</button> <button class="btn btn-success btn-sm" onclick="window.alert(\'发送Offer给' + item.name + '\')">发Offer</button>';
+      return resumeBtn + ' <button class="btn btn-outline btn-sm" onclick="window.alert(\'审批进度：\\n✓ 部门负责人 已通过\\n✓ HR 已通过\\n○ 财务总监 待审批\')">审批中</button> <button class="btn btn-success btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:offer\',{detail:\'' + item.name + '\'}))">发Offer</button>';
     case 'onboard':
       return resumeBtn + ' <span style="font-size:11px;color:var(--c-sub)">待入职 · 08-01</span>';
     default:
@@ -326,9 +338,9 @@ const calendarWeekNum = computed(() => {
 [data-slot="iv-pipeline-chip"] {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  border-radius: 20px;
+  gap: 7px;
+  padding: 6px 14px;
+  border-radius: 18px;
   border: 1px solid var(--c-border);
   background: var(--c-card);
   cursor: pointer;
@@ -340,15 +352,28 @@ const calendarWeekNum = computed(() => {
 [data-slot="iv-pipeline-chip"]:hover {
   border-color: var(--c-primary);
   color: var(--c-primary);
+  box-shadow: 0 2px 8px rgba(79, 110, 247, 0.12);
 }
-[data-slot="iv-pipeline-chip"][data-active] {
+/* 仅当真正激活（data-active="true"）时才填充主色，
+   注意必须用属性值选择器，否则 data-active="false" 也会被命中 */
+[data-slot="iv-pipeline-chip"][data-active="true"] {
   background: var(--c-primary);
   border-color: var(--c-primary);
   color: #fff;
   font-weight: 600;
 }
+[data-slot="iv-pipeline-chip"][data-active="true"] .iv-dot {
+  background: #fff !important;
+}
+.iv-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
 [data-slot="iv-pipeline-val"] {
   font-weight: 700;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
 [data-slot="iv-pipeline-label"] {
