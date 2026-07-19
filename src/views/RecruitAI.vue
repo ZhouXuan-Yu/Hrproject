@@ -135,8 +135,8 @@ async function loadBackendData() {
       fetchDemands({ page: 1, pageSize: 50 }),
       fetchTalent({ tab: 'external', page: 1, pageSize: 50 }),
     ]);
-    if (demandRes.data?.data) {
-      const dl = demandRes.data.data;
+    if (demandRes.data) {
+      const dl = demandRes.data;
       demands.value = dl.map(d => ({
         id: d.id || d.demand_id,
         name: d.position || d.position_id || d.position_name,

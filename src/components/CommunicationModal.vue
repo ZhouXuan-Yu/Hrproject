@@ -116,6 +116,7 @@ const draftText = ref('');
 const draftLoading = ref(false);
 const draftError = ref('');
 const copied = ref(false);
+let draftSeq = 0; // nonce to prevent stale draft overwrite on rapid close/reopen
 
 const channelOptions = [
   { id: 'phone', label: '电话', icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>' },
@@ -127,6 +128,7 @@ const purposeLabels = { initial: '初次联系', followup: '跟进面试', offer
 const channelLabels = { phone: '电话', email: '邮件', feishu: '飞书' };
 
 async function generateDraft() {
+  const seq = ++draftSeq;
   draftLoading.value = true;
   draftError.value = '';
   try {
@@ -136,6 +138,8 @@ async function generateDraft() {
       channel: channelLabels[channel.value] || '电话',
       purpose: purposeLabels[purpose.value] || '初次联系',
     });
+    // Discard result if modal was closed/reopened since this request began
+    if (seq !== draftSeq) return;
     // Extract draft from API response (handle various shapes)
     const text =
       result?.draft ||
@@ -146,6 +150,7 @@ async function generateDraft() {
       '暂未生成话术，请手动填写。';
     draftText.value = typeof text === 'string' ? text : JSON.stringify(text, null, 2);
   } catch (e) {
+    if (seq !== draftSeq) return;
     console.warn('[CommunicationModal] draft generation failed:', e);
     draftError.value = '生成失败：' + (e.message || '网络错误');
     // Use fallback placeholder text
@@ -153,7 +158,7 @@ async function generateDraft() {
       draftText.value = `【${channelLabels[channel.value]}沟通草稿】\n\n${props.candidate?.name || '候选人'} 您好，\n\n关于「${props.demand?.position || '招聘岗位'}」岗位的${purposeLabels[purpose.value] || '沟通'}：\n\n[请根据实际情况补充具体内容]\n\n如有任何问题，欢迎随时联系。`;
     }
   } finally {
-    draftLoading.value = false;
+    if (seq === draftSeq) draftLoading.value = false;
   }
 }
 
@@ -164,11 +169,10 @@ async function copyDraft() {
     copied.value = true;
     setTimeout(() => { copied.value = false; }, 2000);
   } catch (e) {
-    // Fallback: select text for manual copy
+    // Fallback: select text and tell user to copy manually
     const ta = document.querySelector('.comm-modal .form-textarea');
     if (ta) { ta.select(); ta.setSelectionRange(0, 99999); }
-    copied.value = true;
-    setTimeout(() => { copied.value = false; }, 2000);
+    window.alert('自动复制失败，请按 Ctrl+C 手动复制话术');
   }
 }
 

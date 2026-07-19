@@ -196,7 +196,7 @@ const rounds = ref([createEmptyRound()]);
 const submitting = ref(false);
 
 const isValid = computed(() => {
-  return rounds.value.every((r) => r.interviewer && r.date && r.time);
+  return rounds.value.every((r) => r.interviewer && r.mode && r.date && r.time);
 });
 
 function onModeChange(round) {
