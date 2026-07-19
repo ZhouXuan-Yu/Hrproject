@@ -1516,7 +1516,7 @@ function openInternalContactModal(name, manager){
       '</nav>';
 
     var workspace = document.createElement('section');
-    workspace.className = 'hero-page-workspace scroll-reveal';
+    workspace.className = 'hero-page-workspace is-revealed';
     workspace.setAttribute('aria-label', config.title + '核心工作区');
     workspace.innerHTML =
       '<article class="hero-board-card hero-board-card--wide hero-page-primary">' +
@@ -1591,9 +1591,11 @@ function openInternalContactModal(name, manager){
       node.dataset.revealReady = 'true';
       node.style.setProperty('--reveal-index', index % 8);
       window.__heroRevealObserver.observe(node);
+      // Short staggered fallback: ensures elements become visible quickly
+      // even if IntersectionObserver hasn't fired yet (e.g., in tests / screenshots)
       setTimeout(function(){
         node.classList.add('is-revealed');
-      }, 180 + (index % 8) * 35);
+      }, 30 + (index % 8) * 8);
     });
   }
 
