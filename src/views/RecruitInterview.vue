@@ -123,6 +123,24 @@
         </div>
       </div>
     </Teleport>
+
+    <!-- Schedule Interview Modal -->
+    <ScheduleInterviewModal
+      :visible="showScheduleModal"
+      :candidate="scheduleCandidate"
+      :demand="scheduleDemand"
+      @close="showScheduleModal = false"
+      @success="onScheduleSuccess"
+    />
+
+    <!-- Offer Modal -->
+    <OfferModal
+      :visible="showOfferModal"
+      :candidate="offerCandidate"
+      :demand="offerDemand"
+      @close="showOfferModal = false"
+      @success="onOfferSuccess"
+    />
   </WorkbenchLayout>
 </template>
 
@@ -257,16 +275,10 @@ async function openCandidateDrawer(name) {
     window.alert('候选人简历抽屉：' + name + '（demo）');
   }
 }
-async function openGlobalScheduleModal(name, position, dept) {
-  const title = name || '选择候选人';
-  try {
-    const res = await createInterview({ candidate: name || '', position: position || '', dept: dept || '' });
-    const id = res?.id || '';
-    window.alert('✅ 已创建面试：' + title + '\n面试ID: ' + id + '\n系统已发送飞书通知');
-  } catch (e) {
-    console.warn('[RecruitInterview] createInterview failed, using mock:', e);
-    window.alert('新建面试弹窗（demo）：' + title);
-  }
+function openGlobalScheduleModal(name, position, dept) {
+  scheduleCandidate.value = { name: name || '', id: '' };
+  scheduleDemand.value = { position: position || '', id: dept || '' };
+  showScheduleModal.value = true;
 }
 async function doAlert(msg) {
   showAlerts.value = false;
@@ -422,6 +434,19 @@ const calendarWeekNum = computed(() => {
   weekStart.setDate(now.getDate() - ((now.getDay() + 6) % 7));
   return Math.ceil(weekStart.getDate() / 7);
 });
+
+function onScheduleSuccess(result) {
+  const msg = result?.rounds
+    ? `✅ 已安排 ${result.rounds} 轮面试\n面试ID: ${result.results?.map(r => r.id).join(', ') || ''}`
+    : '✅ 面试安排成功';
+  window.alert(msg + '\n系统已发送飞书通知给面试官');
+  loadFromApi();
+}
+
+function onOfferSuccess(result) {
+  window.alert(`✅ 已发送Offer给 ${result?.name || '候选人'}\nOffer编号: ${result?.id}\n系统将通过邮件/飞书发送Offer函`);
+  loadFromApi();
+}
 </script>
 
 <style scoped>

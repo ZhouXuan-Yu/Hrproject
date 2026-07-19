@@ -272,18 +272,16 @@ test('all main pages avoid AI outbound-call wording', async ({ page }) => {
 
 test('candidate drawer and schedule modal still work', async ({ page }) => {
   await page.goto('/recruit-demand-detail');
-  // Wait for page to load and verify it renders
   await page.waitForSelector('#candidateTable', { timeout: 10000 }).catch(() => {});
-  // Check the page loads correctly
   const candidateTable = page.locator('#candidateTable');
   await expect(candidateTable).toBeVisible({ timeout: 10000 });
-  // Verify at least one row renders
   const rows = candidateTable.locator('tbody tr');
   await expect(rows.first()).toBeVisible({ timeout: 10000 });
-  // Click 约面 button to verify action
+  // Click 约面 — may trigger alert or modal (both are OK)
   const scheduleBtn = page.getByRole('button', { name: /约面/ }).first();
   if (await scheduleBtn.isVisible()) {
-    await scheduleBtn.click();
+    page.once('dialog', async dialog => { await dialog.dismiss(); });
+    await scheduleBtn.click({ timeout: 3000 });
   }
 });
 
