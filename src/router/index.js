@@ -8,6 +8,38 @@ import RecruitDemandDetail from '../views/RecruitDemandDetail.vue';
 import RecruitDashboard from '../views/RecruitDashboard.vue';
 import LoginPage from '../views/LoginPage.vue';
 
+// ── Auth guard ──────────────────────────────────────────────────────────
+const AUTH_GUARD_ENABLED = true;
+const PUBLIC_ROUTES = new Set(['/login']);
+const ROLE_PAGE_MAP = {
+  admin:           '*',
+  hr:              '/recruit-dashboard',
+  dept_head:       '/recruit-demand',
+  employee:        '/recruit-demand',
+  interviewer:     '/recruit-interview',
+  temp_interviewer:'/recruit-interview',
+  no_recruit:      '/login',
+};
+
+function checkAuth(to) {
+  if (!AUTH_GUARD_ENABLED) return null;
+  if (PUBLIC_ROUTES.has(to.path)) return null;
+
+  const token = localStorage.getItem('hr_token');
+  if (!token) return '/login';
+
+  // Role-based page access (soft redirect)
+  const role = localStorage.getItem('hr_role') || 'no_recruit';
+  const allowed = ROLE_PAGE_MAP[role];
+  if (allowed === '*') return null;           // admin: all pages
+  if (allowed === to.path) return null;        // exact match
+  if (to.path.startsWith(allowed)) return null; // subtree match
+
+  // Redirect to the role's default page (soft)
+  return allowed !== '/login' ? allowed : '/login';
+}
+// ─────────────────────────────────────────────────────────────────────────
+
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
@@ -22,6 +54,15 @@ export const router = createRouter({
     { path: '/recruit-config', component: RecruitConfig, meta: { title: '招聘基础配置' } },
     { path: '/:pathMatch(.*)*', redirect: '/login' },
   ],
+});
+
+router.beforeEach((to, from, next) => {
+  const redirect = checkAuth(to);
+  if (redirect && redirect !== to.path) {
+    next(redirect);
+  } else {
+    next();
+  }
 });
 
 router.afterEach((to) => {
