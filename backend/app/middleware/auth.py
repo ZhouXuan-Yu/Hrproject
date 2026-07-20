@@ -9,6 +9,18 @@ AUTH_WHITELIST = {
     'auth.login',
     'static',
     'health.health_check',
+    # Boss endpoints — used for browser automation, auth is via boss-cli session
+    'boss.login',
+    'boss.get_status',
+    'boss.list_positions',
+    'boss.get_position_detail',
+    'boss.search_candidates',
+    'boss.chat_list',
+    'boss.chat_open',
+    'boss.chat_send',
+    'boss.action',
+    'boss.resume_preview',
+    'boss.greet_candidate',
 }
 
 # SSE streaming endpoints use query param for auth (EventSource doesn't support headers)

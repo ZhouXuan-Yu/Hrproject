@@ -49,3 +49,12 @@ class AuditLog(BaseModel):
     action = Column(String(64), nullable=False, comment='动作描述')
     detail = Column(String(512), nullable=True, comment='详情')
     operate_time = Column(DateTime, nullable=False, comment='操作时间')
+
+
+class ApiKeyConfig(BaseModel):
+    __tablename__ = 't_hr_api_key'
+
+    key_name = Column(String(64), unique=True, nullable=False, comment='密钥标识: deepseek/feishu/dify/boss')
+    value_encrypted = Column(String(512), nullable=False, comment='AES-256-GCM 加密后的值')
+    display_label = Column(String(64), nullable=True, comment='前端显示名称')
+    status = Column(Integer, nullable=False, default=1, comment='1启用 0停用')

@@ -143,3 +143,28 @@ def get_audit_logs():
     from app.services.config_service import get_audit_logs
     data = get_audit_logs()
     return success(data)
+
+
+# ── API Key management ──
+
+_API_KEY_FIELDS = ['deepseek', 'feishu', 'dify']
+
+
+@bp.route('/api-keys')
+def get_api_keys():
+    """GET /api/config/api-keys — returns mask values only, never raw keys."""
+    from app.services.config_service import get_api_keys
+    data = get_api_keys()
+    return success(data)
+
+
+@bp.route('/api-keys', methods=['PUT'])
+def save_api_keys():
+    """PUT /api/config/api-keys — encrypt and store API keys."""
+    from app.services.config_service import save_api_keys, append_audit_log
+    data = request.get_json(silent=True) or {}
+    result = save_api_keys(data)
+    if result.get('saved'):
+        append_audit_log('系统', '配置', '更新密钥',
+                         f"更新密钥: {', '.join(result.get('keys', []))}")
+    return success(result)
