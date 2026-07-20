@@ -108,6 +108,44 @@
       <button class="btn btn-primary btn-sm" style="margin-top:10px" @click="openAddTemplate">+ 新增模板</button>
     </BaseAccordion>
 
+    <!-- API Key 管理 -->
+    <BaseAccordion title="API 密钥管理">
+      <div class="accordion-desc">
+        配置外部服务的 API 密钥，所有密钥 <b>AES-256-GCM 加密存储</b>，不可逆向查看。输入新值即覆盖。
+      </div>
+      <div v-for="keyInfo in secretKeys" :key="keyInfo.key_name" class="secret-key-row">
+        <div class="secret-key-info">
+          <div class="secret-key-label">{{ keyInfo.label }}</div>
+          <div class="secret-key-desc">{{ keyInfo.desc }}</div>
+        </div>
+        <div class="secret-key-input-group">
+          <input
+            :type="keyInfo.showInput ? 'text' : 'password'"
+            :id="'key-' + keyInfo.key_name"
+            :placeholder="keyInfo.has_value ? keyInfo.masked : '输入密钥...'"
+            v-model="keyInfo.inputValue"
+            class="secret-key-field"
+            autocomplete="off"
+          >
+          <button
+            class="btn btn-text btn-sm secret-key-toggle"
+            @click="keyInfo.showInput = !keyInfo.showInput"
+            :aria-label="keyInfo.showInput ? '隐藏输入' : '显示输入'"
+          >{{ keyInfo.showInput ? '隐藏' : '显示' }}</button>
+          <button
+            class="btn btn-primary btn-sm"
+            :disabled="!keyInfo.inputValue || keyInfo.inputValue === keyInfo.masked"
+            @click="saveApiKey(keyInfo)"
+            :aria-label="'保存 ' + keyInfo.label"
+          >{{ keyInfo.saving ? '保存中...' : '保存' }}</button>
+        </div>
+      </div>
+      <div class="secret-key-note">
+        <svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:var(--c-warn);fill:none;stroke-width:2;stroke-linecap:round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        密钥保存后即加密存储，仅可覆盖不可查看。环境变量中的密钥优先于此处配置。
+      </div>
+    </BaseAccordion>
+
     <!-- 角色权限 -->
     <BaseAccordion title="角色权限">
       <table class="config-table">
@@ -228,7 +266,7 @@ import { useToast } from '../composables/useToast.js';
 import { useAppError } from '../composables/useAppError.js';
 import {
   fetchEmailAccounts, fetchChannels, fetchScoreRules, fetchNotifyTemplates,
-  fetchRolePermissions, fetchAuditLogs,
+  fetchRolePermissions, fetchAuditLogs, fetchApiKeys, saveApiKeys,
   createEmailAccount, updateEmailAccount, deleteEmailAccount,
   createChannel, updateChannel,
   updateScoreRules,
@@ -248,6 +286,7 @@ const scoreRules = reactive({
 const notifyTemplates = ref([]);
 const rolePermissions = ref([]);
 const auditLogs = ref([]);
+const secretKeys = ref([]);
 
 const showEmailModal = ref(false);
 const showChanModal = ref(false);
@@ -282,9 +321,10 @@ const reverseStatus = (s) => normalizeStatus(s) ? 0 : 1;
 
 async function loadAll() {
   try {
-    const [emails, chs, rules, notifs, roles, logs] = await Promise.all([
+    const [emails, chs, rules, notifs, roles, logs, keys] = await Promise.all([
       fetchEmailAccounts(), fetchChannels(), fetchScoreRules(),
       fetchNotifyTemplates(), fetchRolePermissions(), fetchAuditLogs(),
+      fetchApiKeys(),
     ]);
     if (emails && emails.length) emailAccounts.value = emails;
     if (chs && chs.length) channels.value = chs;
@@ -292,6 +332,7 @@ async function loadAll() {
     if (notifs && notifs.length) notifyTemplates.value = notifs;
     if (roles && roles.length) rolePermissions.value = roles;
     if (logs && logs.length) auditLogs.value = logs;
+    if (keys) secretKeys.value = Object.values(keys).map(k => ({ ...k, inputValue: '', showInput: false, saving: false }));
   } catch (e) {
     console.warn('Config API fallback:', e.message);
   }

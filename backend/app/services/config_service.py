@@ -662,3 +662,92 @@ def get_ai_capabilities():
         {'ability': '招聘风险预警', 'page': '招聘看板', 'trigger': '页面加载时自动分析',
          'workflow': '规则引擎 + AI 异常检测', 'status': 'draft'},
     ]
+
+
+# ── API Key management ──
+
+_API_KEY_DISPLAY = {
+    'deepseek': {'label': 'DeepSeek API Key', 'desc': 'AI 简历解析、匹配打分、JD生成'},
+    'feishu':   {'label': '飞书 App Secret',  'desc': '消息通知、审批推送'},
+    'dify':     {'label': 'Dify API Key',     'desc': 'Dify 工作流引擎（兼容保留）'},
+}
+
+
+def get_api_keys():
+    """Return masked API key entries — never expose raw values."""
+    from app.extensions import db
+    from app.models.auxiliary import ApiKeyConfig
+
+    result = {}
+    for key_name, display in _API_KEY_DISPLAY.items():
+        row = ApiKeyConfig.active().filter_by(key_name=key_name).first()
+        masked = '••••••••'
+        has_value = False
+        if row and row.value_encrypted:
+            masked = _mask_value(row.value_encrypted)
+            has_value = True
+        result[key_name] = {
+            'key_name': key_name,
+            'label': display['label'],
+            'desc': display['desc'],
+            'masked': masked,
+            'has_value': has_value,
+        }
+    return result
+
+
+def save_api_keys(data):
+    """Encrypt and persist API keys."""
+    from flask import current_app
+    from app.extensions import db
+    from app.models.auxiliary import ApiKeyConfig
+
+    saved_keys = []
+    secret = current_app.config['SECRET_KEY']
+    for key_name in _API_KEY_DISPLAY:
+        raw = data.get(key_name, '')
+        if not raw:
+            continue
+        # Don't re-encrypt if the user sent the masked placeholder
+        if raw.strip() == '••••••••':
+            continue
+
+        row = ApiKeyConfig.active().filter_by(key_name=key_name).first()
+        encrypted = encrypt(raw, secret)
+        if row:
+            row.value_encrypted = encrypted
+        else:
+            row = ApiKeyConfig(
+                key_name=key_name,
+                value_encrypted=encrypted,
+                display_label=_API_KEY_DISPLAY[key_name]['label'],
+            )
+            db.session.add(row)
+        saved_keys.append(key_name)
+    if saved_keys:
+        db.session.commit()
+    return {'saved': True, 'keys': saved_keys}
+
+
+def get_decrypted_api_key(key_name):
+    """Decrypt the stored API key. Used internally by services (e.g. deepseek_client).
+    Returns None if not configured."""
+    from flask import current_app
+    from app.extensions import db
+    from app.models.auxiliary import ApiKeyConfig
+
+    row = ApiKeyConfig.active().filter_by(key_name=key_name).first()
+    if not row or not row.value_encrypted:
+        return None
+    secret = current_app.config['SECRET_KEY']
+    try:
+        return decrypt(row.value_encrypted, secret)
+    except Exception:
+        return None
+
+
+def _mask_value(encrypted: str) -> str:
+    """Show first 4 + last 4 chars with mask dots."""
+    if len(encrypted) <= 8:
+        return '••••••••'
+    return encrypted[:4] + '••••••••' + encrypted[-4:]
