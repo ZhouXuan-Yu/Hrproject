@@ -22,6 +22,10 @@ backend/**/*.pyc
 backend/instance/
 backend/*.db
 
+# --- Environment & secrets ---
+backend/.env
+backend/.env.*
+
 # --- Logs ---
 backend/logs/
 *.log
@@ -37,3 +41,8 @@ Thumbs.db
 # --- Claude internal state ---
 .claude/.auto-push-counter
 .claude/.needs-remote-setup
+.claude/project-task-state.json
+
+# --- Codebase memory artifacts ---
+.codebase-memory/
+frontend/.codebase-memory/

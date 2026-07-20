@@ -234,6 +234,15 @@ async function handleResponse(resp, method, path) {
   }
 
   if (!resp.ok) {
+    // 502 from boss-cli — extract backend error message
+    if (resp.status === 502) {
+      const msg = json?.error?.message || json?.message || json?.error || '服务暂不可用，请检查 boss-cli 安装状态'
+      const err = new Error(msg)
+      err.code = 'BOSS_UNAVAILABLE'
+      err.status = 502
+      dispatchApiError(err)
+      throw err
+    }
     const message = json?.error?.message || json?.message || `请求失败 (${resp.status})`
     const code = json?.error?.code || 'ERROR'
     const err = new Error(message)

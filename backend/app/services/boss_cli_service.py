@@ -50,7 +50,10 @@ def is_available() -> bool:
     if not _get_enabled():
         log.info("boss-cli disabled via BOSS_CLI_ENABLED config")
         return False
-    return shutil.which("boss") is not None
+    path = shutil.which("boss")
+    if path and path.lower().endswith('.cmd'):
+        return True
+    return path is not None
 
 
 def login() -> dict:
@@ -122,6 +125,7 @@ def _run(args: list, timeout: int = None, check: bool = False) -> subprocess.Com
             text=True,
             timeout=timeout,
             cwd=os.getcwd(),
+            shell=True,  # Windows: .CMD files need shell execution
         )
         elapsed = time.time() - t0
         log.info(
