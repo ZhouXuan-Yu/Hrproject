@@ -24,6 +24,7 @@ class InterviewBook(BaseModel):
     interview_type = Column(Integer, nullable=False, comment='1飞书 2腾讯会议 3其他线上 4线下')
     meeting_code = Column(String(32), nullable=True, comment='会议号码')
     meeting_pwd = Column(String(16), nullable=True, comment='入会密码')
+    meeting_url = Column(String(500), nullable=True, default='', comment='视频会议链接')
     address = Column(String(200), nullable=True, comment='线下地址')
     book_time = Column(DateTime, nullable=False, comment='预约操作时间')
     invite_json = Column(JSON, nullable=True, comment='邀约记录')

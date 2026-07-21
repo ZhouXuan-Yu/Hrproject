@@ -85,6 +85,19 @@
                     {{ m.label }}
                   </option>
                 </select>
+                <span v-if="round.mode === '1' || round.mode === '2'" class="form-hint">提交后自动生成会议链接</span>
+              </div>
+
+              <!-- Meeting URL (only when mode = 3 = other online) -->
+              <div v-if="round.mode === '3'" class="form-field form-field-wide">
+                <label :for="`meeting-url-${round.key}`" class="form-label">会议链接（可选）</label>
+                <input
+                  :id="`meeting-url-${round.key}`"
+                  v-model="round.meetingUrl"
+                  type="url"
+                  class="form-input"
+                  placeholder="https://…"
+                />
               </div>
 
               <!-- Date -->
@@ -189,6 +202,7 @@ function createEmptyRound() {
     date: '',
     time: '',
     address: '',
+    meetingUrl: '',
   };
 }
 
@@ -202,6 +216,9 @@ const isValid = computed(() => {
 function onModeChange(round) {
   if (round.mode !== '4') {
     round.address = '';
+  }
+  if (round.mode !== '3') {
+    round.meetingUrl = '';
   }
 }
 
@@ -250,6 +267,7 @@ async function handleSubmit() {
         date: r.date,
         time: r.time,
         address: r.address || '',
+        meetingUrl: r.mode === '3' ? (r.meetingUrl || '') : '',
       };
       const res = await createInterview(payload);
       results.push(res);
@@ -464,6 +482,12 @@ watch(
 
 .required {
   color: var(--e-reject, #EF4444);
+}
+
+.form-hint {
+  font-size: 11px;
+  color: var(--e-primary, #4F6EF7);
+  line-height: 1.4;
 }
 
 .form-select,

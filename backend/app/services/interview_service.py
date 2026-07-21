@@ -4,6 +4,7 @@ Complete state machine with 6 states: pending -> scheduled -> evaluating -> offe
 All transitions are validated against INTERVIEW_TRANSITIONS. In-memory store removed — DB only.
 """
 import logging
+import random
 from datetime import datetime, timedelta
 from app.utils.response import AppError
 
@@ -93,6 +94,9 @@ def _db_to_dict(book):
         'date': book.book_time.strftime('%m-%d') if book.book_time else '待定',
         'time': book.book_time.strftime('%H:%M') if book.book_time else '待定',
         'method': {1: '飞书视频', 2: '腾讯会议', 3: '其他线上', 4: '线下'}.get(book.interview_type, '待定'),
+        'meetingUrl': getattr(book, 'meeting_url', '') or '',
+        'meetingCode': book.meeting_code or '',
+        'meetingPwd': book.meeting_pwd or '',
         'status': display_status,
         'statusLabel': display_label,
         'createdBy': '系统',
@@ -195,30 +199,140 @@ def create_interview(data):
     if not book_time:
         book_time = datetime.now()
 
-    round_label = data.get('round', '初试(1轮)')
+    # Frontend may send round as an int (e.g. 1); coerce to str before label checks.
+    round_label = str(data.get('round') or '初试(1轮)')
     interview_round = 2 if '复试' in round_label or '终面' in round_label else 1
 
-    method_label = data.get('method', '待定')
+    method_label = data.get('method') or data.get('mode') or '待定'
     interview_type = {'飞书视频': 1, '腾讯会议': 2, '其他线上': 3, '线下': 4, '电话': 1, '现场': 4}.get(method_label, 1)
+    if str(data.get('mode_id', '')).strip() in ('1', '2', '3', '4'):
+        interview_type = int(data.get('mode_id'))
+
+    # ── Meeting link generation by interview type ──
+    meeting_code = data.get('meetingCode', '') or ''
+    meeting_pwd = data.get('meetingPwd', '') or ''
+    meeting_url = ''
+    if interview_type == 1:
+        meeting_url, meeting_code = _build_feishu_vc(data, book_time, meeting_code)
+    elif interview_type == 2:
+        meeting_url, meeting_code = _build_tencent_meeting(data, book_time, meeting_code)
+    elif interview_type == 3:
+        meeting_url = (data.get('meetingUrl') or '').strip()
+    else:  # 4 offline
+        meeting_url = ''
+    if interview_type in (1, 2, 3) and not meeting_pwd:
+        meeting_pwd = _random_digits(random.choice((4, 5, 6)))
 
     book = InterviewBook(
-        demand_id=data.get('position_id', 0) or 0,
-        resume_id=data.get('resume_id', 0) or 0,
+        demand_id=data.get('position_id', 0) or data.get('demand_id', 0) or 0,
+        resume_id=data.get('resume_id', 0) or data.get('candidate_id', 0) or 0,
         process_id=data.get('process_id', 0) or 0,
         slot_id=data.get('slot_id', 0) or 0,
         interview_round=interview_round,
         interview_type=interview_type,
         book_time=book_time,
-        meeting_code=data.get('meetingCode', ''),
-        meeting_pwd=data.get('meetingPwd', ''),
+        meeting_code=meeting_code,
+        meeting_pwd=meeting_pwd,
+        meeting_url=meeting_url,
         address=data.get('address', ''),
     )
     db.session.add(book)
     db.session.commit()
 
-    log.info("面试预约已创建: id=%s, demand=%s, time=%s", book.id, book.demand_id, book_time)
+    # ── Best-effort Feishu notification + invite snapshot ──
+    book.invite_json = _notify_interview_invite(book, data, book_time)
+    db.session.commit()
 
-    return {'created': True, 'id': f'INT{book.id:04d}', 'book_id': book.id}
+    log.info("面试预约已创建: id=%s, demand=%s, time=%s, url=%s", book.id, book.demand_id, book_time, meeting_url)
+
+    return {'created': True, 'id': f'INT{book.id:04d}', 'book_id': book.id, 'meetingUrl': meeting_url}
+
+
+def _random_digits(n):
+    return ''.join(random.choice('0123456789') for _ in range(n))
+
+
+def _build_feishu_vc(data, book_time, meeting_code):
+    """Create a Feishu VC meeting; fall back to a locally-built URL on any error."""
+    from app.services import feishu_client
+    try:
+        topic = f"面试-{data.get('candidate', '')}-{data.get('position', '')}".strip('-') or '招聘面试'
+        start_ts = str(int(book_time.timestamp())) if book_time else ''
+        vc = feishu_client.create_vc_meeting(topic, start_ts, duration_minutes=60)
+        url = vc.get('meeting_url') or ''
+        code = vc.get('meeting_code') or meeting_code
+        if url:
+            return url, code or meeting_code or _random_digits(9)
+    except Exception as exc:
+        log.warning("create_vc_meeting failed, using fallback URL: %s", exc)
+    if not meeting_code:
+        meeting_code = _random_digits(9)
+    return f'https://vc.feishu.cn/j/{meeting_code}', meeting_code
+
+
+def _build_tencent_meeting(data, book_time, meeting_code):
+    """Create a real Tencent Meeting; fall back to a locally-built dm URL on any error."""
+    from app.services import tencent_meeting_client
+    try:
+        topic = f"面试-{data.get('candidate', '')}-{data.get('position', '')}".strip('-') or '招聘面试'
+        start_ts = str(int(book_time.timestamp())) if book_time else str(int(datetime.now().timestamp()))
+        mt = tencent_meeting_client.create_meeting(topic, start_ts, duration_minutes=60)
+        url = mt.get('meeting_url') or ''
+        code = mt.get('meeting_code') or meeting_code
+        if url:
+            return url, code or meeting_code or _random_digits(10)
+    except Exception as exc:
+        log.warning("tencent create_meeting failed, using fallback URL: %s", exc)
+    if not meeting_code:
+        meeting_code = _random_digits(10)
+    return f'https://meeting.tencent.com/dm/{meeting_code}', meeting_code
+
+
+def _notify_interview_invite(book, data, book_time):
+    """Best-effort Feishu interview notification; returns the invite snapshot dict.
+
+    Never raises — failures only degrade the snapshot's notified flag.
+    """
+    from app.services import feishu_client
+    snapshot = {
+        'meeting_url': book.meeting_url or '',
+        'notified': False,
+        'notified_at': None,
+        'channel': 'feishu',
+    }
+    try:
+        candidate_name = data.get('candidate') or ''
+        if not candidate_name:
+            try:
+                from app.models.candidate import Resume, Candidate
+                r = Resume.query.filter_by(id=book.resume_id, is_deleted=0).first()
+                if r and r.candidate_id:
+                    c = Candidate.query.filter_by(id=r.candidate_id, is_deleted=0).first()
+                    if c:
+                        candidate_name = c.candidate_name
+            except Exception:
+                pass
+        result = feishu_client.send_interview_invite(
+            candidate_name or f'候选人#{book.resume_id}',
+            data.get('interviewer') or '面试官',
+            data.get('position') or f'岗位#{book.demand_id}',
+            book_time.strftime('%Y-%m-%d %H:%M') if book_time else '待定',
+            data.get('round') or ('复试' if book.interview_round == 2 else '初试'),
+            meeting_url=book.meeting_url or None,
+            meeting_code=book.meeting_code or None,
+            meeting_pwd=book.meeting_pwd or None,
+        )
+        snapshot['notified'] = bool(result.get('success'))
+        snapshot['notified_at'] = datetime.now().isoformat(timespec='seconds')
+        snapshot['detail'] = {
+            'interviewer_sent': result.get('interviewer_sent'),
+            'candidate_sent': result.get('candidate_sent'),
+            'errors': result.get('errors'),
+        }
+    except Exception as exc:
+        log.warning("面试通知发送失败（best-effort，不影响主流程）: %s", exc)
+        snapshot['error'] = str(exc)
+    return snapshot
 
 
 def schedule_interview(data):
@@ -500,6 +614,10 @@ def get_calendar(week_start=None):
             'status': d['status'],
             'round': d['round'],
             'interviewer': d['interviewer'],
+            'method': d['method'],
+            'meetingUrl': d['meetingUrl'],
+            'meetingCode': d['meetingCode'],
+            'meetingPwd': d['meetingPwd'],
         })
 
     return {

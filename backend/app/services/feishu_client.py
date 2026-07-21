@@ -156,6 +156,53 @@ def health_check() -> Dict[str, Any]:
         return {"status": "error", "error": str(exc)}
 
 
+# ── Video conference (VC) ────────────────────────────────────────────────
+
+
+def create_vc_meeting(topic: str, start_time: str, duration_minutes: int = 60) -> Dict[str, Any]:
+    """Create a Feishu video-conference meeting and return its join URL.
+
+    Mock mode returns a deterministic-shaped fake URL.
+    Real mode calls ``POST /open-apis/vc/v1/reserves/apply``; any failure
+    raises so the caller can fall back to a locally-built URL.
+
+    Returns:
+        {"meeting_url": str, "meeting_code": str}
+    """
+    import random
+
+    if MOCK_MODE:
+        code = str(random.randint(100000000, 999999999))
+        url = f"https://vc.feishu.cn/j/{code}"
+        logger.info("[MOCK] create_vc_meeting topic=%s url=%s", topic, url)
+        return {"meeting_url": url, "meeting_code": code}
+
+    body = _feishu_post(
+        "/vc/v1/reserves/apply",
+        {
+            "meeting_settings": {
+                "topic": topic,
+                "start_time": start_time,
+                "duration": duration_minutes,
+                "action_permissions": [],
+                "meeting_initial_type": 1,
+            },
+            "end_meeting_at_once": False,
+        },
+    )
+    code = body.get("code", -1)
+    if code != 0:
+        raise RuntimeError(f"vc reserves/apply failed: code={code} msg={body.get('msg', '')}")
+
+    data = body.get("data", {}) or {}
+    reserve = data.get("reserve", {}) or {}
+    meeting_url = reserve.get("meeting_link") or reserve.get("url")
+    meeting_code = reserve.get("meeting_no") or str(reserve.get("id", ""))
+    if not meeting_url:
+        raise RuntimeError(f"vc reserves/apply returned no meeting link: {data}")
+    return {"meeting_url": meeting_url, "meeting_code": meeting_code}
+
+
 # ── Contact / user search ─────────────────────────────────────────────────
 
 
@@ -301,11 +348,16 @@ def send_interview_invite(
     *,
     interviewer_open_id: str = None,
     candidate_open_id: str = None,
+    meeting_url: str = None,
+    meeting_code: str = None,
+    meeting_pwd: str = None,
 ) -> Dict[str, Any]:
     """Send interview invitation card to interviewer + candidate.
 
     Prefer explicit ``interviewer_open_id`` / ``candidate_open_id`` (bot mode).
     Falls back to ``search_user()`` and ``get_recipient_open_id()``.
+    Optional meeting info (url/code/pwd) is rendered into the card and the
+    candidate text message when provided.
 
     Returns:
         {"success": bool, "interviewer_sent": bool, "candidate_sent": bool,
@@ -313,11 +365,28 @@ def send_interview_invite(
     """
     errors: List[str] = []
 
+    card_content = f"**候选人**: {candidate_name}\n**岗位**: {position}\n**轮次**: {round_name}\n**时间**: {interview_date}"
+    if meeting_url:
+        card_content += f"\n**会议链接**: [点击进入会议]({meeting_url})"
+    if meeting_code:
+        card_content += f"\n**会议号**: {meeting_code}"
+    if meeting_pwd:
+        card_content += f"\n**入会密码**: {meeting_pwd}"
+
     card_elements = [
-        {"tag": "markdown", "content": f"**候选人**: {candidate_name}\n**岗位**: {position}\n**轮次**: {round_name}\n**时间**: {interview_date}"},
+        {"tag": "markdown", "content": card_content},
+    ]
+    if meeting_url:
+        card_elements.append({"tag": "action", "actions": [{
+            "tag": "button",
+            "text": {"tag": "plain_text", "content": "进入面试"},
+            "type": "primary",
+            "url": meeting_url,
+        }]})
+    card_elements.extend([
         {"tag": "hr"},
         {"tag": "note", "elements": [{"tag": "plain_text", "content": "请在面试结束后及时在系统中提交评价"}]},
-    ]
+    ])
     card = _build_card(header_title=f"面试邀请 — {round_name}", header_color="blue", elements=card_elements)
 
     # ── Interviewer ──
@@ -351,11 +420,11 @@ def send_interview_invite(
         if r["success"] and r["users"]:
             cand_open_id = r["users"][0]["open_id"]
     if MOCK_MODE:
-        r = send_text_message("ou_mock_candidate", "test message")
+        r = send_text_message("ou_mock_candidate", _candidate_text(candidate_name, position, interview_date, meeting_url))
         candidate_sent = r["success"]
         candidate_msg_id = r.get("message_id")
     elif cand_open_id:
-        text = f"您好 {candidate_name}，您有一场关于 {position} 的面试安排在 {interview_date}，请准时参加。"
+        text = _candidate_text(candidate_name, position, interview_date, meeting_url)
         r = send_text_message(cand_open_id, text)
         candidate_sent = r["success"]
         candidate_msg_id = r.get("message_id")
@@ -370,6 +439,14 @@ def send_interview_invite(
         "success": overall, "interviewer_sent": interviewer_sent, "candidate_sent": candidate_sent,
         "interviewer_msg_id": interviewer_msg_id, "candidate_msg_id": candidate_msg_id, "errors": errors,
     }
+
+
+def _candidate_text(candidate_name: str, position: str, interview_date: str, meeting_url: str = None) -> str:
+    """Candidate notification text, appending the meeting link when present."""
+    text = f"您好 {candidate_name}，您有一场关于 {position} 的面试安排在 {interview_date}，请准时参加。"
+    if meeting_url:
+        text += f"\n会议链接：{meeting_url}"
+    return text
 
 
 def send_reminder(book_id: str, *, recipient_open_id: str = None, interviewer_name: str = None) -> Dict[str, Any]:

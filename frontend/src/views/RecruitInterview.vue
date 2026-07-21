@@ -59,7 +59,14 @@
           <tr v-for="(item, i) in filteredList" :key="'l'+i">
             <td><a href="javascript:void(0)" style="font-weight:600;color:var(--c-primary)" @click="openCandidateDrawer(item.name)">{{ item.name }}</a></td>
             <td>{{ item.position }}</td><td>{{ item.round }}</td><td>{{ item.interviewer }}</td>
-            <td>{{ item.date }} {{ item.time }}</td><td>{{ item.method }}</td>
+            <td>{{ item.date }} {{ item.time }}</td>
+            <td>
+              <a v-if="item.meetingUrl" :href="item.meetingUrl" target="_blank" rel="noopener" class="meeting-link">
+                {{ item.method }}
+                <svg viewBox="0 0 24 24" class="meeting-link-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              </a>
+              <template v-else>{{ item.method }}</template>
+            </td>
             <td><StatusBadge :type="STATUS_TYPE_MAP[item.status]">{{ item.statusLabel }}</StatusBadge></td>
             <td style="white-space:nowrap" v-html="renderActions(item)"></td>
           </tr>
@@ -83,7 +90,14 @@
           <tr v-for="(item, i) in filteredMine" :key="'m'+i">
             <td><a href="javascript:void(0)" style="font-weight:600;color:var(--c-primary)" @click="openCandidateDrawer(item.name)">{{ item.name }}</a></td>
             <td>{{ item.position }}</td><td>{{ item.round }}</td>
-            <td>{{ item.date }} {{ item.time }}</td><td>{{ item.method }}</td>
+            <td>{{ item.date }} {{ item.time }}</td>
+            <td>
+              <a v-if="item.meetingUrl" :href="item.meetingUrl" target="_blank" rel="noopener" class="meeting-link">
+                {{ item.method }}
+                <svg viewBox="0 0 24 24" class="meeting-link-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              </a>
+              <template v-else>{{ item.method }}</template>
+            </td>
             <td><StatusBadge :type="STATUS_TYPE_MAP[item.status]">{{ item.statusLabel }}</StatusBadge></td>
             <td style="white-space:nowrap" v-html="renderActions(item)"></td>
           </tr>
@@ -124,7 +138,14 @@
               <tbody>
                 <tr v-for="(item, i) in wd.items" :key="i">
                   <td><a href="javascript:void(0)" style="font-weight:600;color:var(--c-primary)">{{ item.name }}</a></td>
-                  <td>{{ item.position }}</td><td>{{ item.round }}</td><td>{{ item.time }}</td><td>{{ item.method }}</td>
+                  <td>{{ item.position }}</td><td>{{ item.round }}</td><td>{{ item.time }}</td>
+                  <td>
+                    <a v-if="item.meetingUrl" :href="item.meetingUrl" target="_blank" rel="noopener" class="meeting-link">
+                      {{ item.method }}
+                      <svg viewBox="0 0 24 24" class="meeting-link-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                    </a>
+                    <template v-else>{{ item.method }}</template>
+                  </td>
                   <td><StatusBadge :type="STATUS_TYPE_MAP[item.status]">{{ item.statusLabel }}</StatusBadge></td>
                 </tr>
               </tbody></table>
@@ -511,6 +532,17 @@ function onOfferSuccess(result) {
 }
 .iv-stat-icon::after { display: none; }
 .iv-stat-icon svg { width: 18px; height: 18px; }
+
+.meeting-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--c-primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+.meeting-link:hover { text-decoration: underline; }
+.meeting-link-icon { width: 12px; height: 12px; flex-shrink: 0; }
 
 @media (max-width: 1200px) { .iv-stat-row { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 720px) { .iv-stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
