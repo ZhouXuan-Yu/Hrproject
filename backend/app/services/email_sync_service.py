@@ -12,7 +12,6 @@ Used by:
 """
 import imaplib
 import logging
-import re
 from datetime import datetime
 from email import message_from_bytes
 from email.header import decode_header
@@ -190,14 +189,16 @@ def _get_password(account):
     raw = account.password_encrypted or ''
     if not raw:
         return ''
-    if re.fullmatch(r'[0-9a-f]+', raw) and len(raw) > 64:
+    # "enc:" prefix marks AES-256-GCM encrypted hex
+    if raw.startswith('enc:'):
         try:
             from flask import current_app
             from app.services.crypto_utils import decrypt
-            return decrypt(raw, current_app.config['SECRET_KEY'])
+            return decrypt(raw[4:], current_app.config['SECRET_KEY'])
         except Exception as exc:
             log.warning("Password decrypt failed for account %s, "
                         "trying plaintext fallback: %s", account.id, exc)
+    # Fallback: treat as plaintext
     return raw
 
 
