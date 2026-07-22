@@ -183,10 +183,11 @@ test('non-dashboard pages expose page-level operational workspaces', async ({ pa
 
 test('talent library exposes resume ingestion pipeline panel', async ({ page }) => {
   await page.goto('/recruit-talent');
-  // 原「人才资产工作台」已移除，替换为简历处理管道
-  await expect(page.locator('.pipeline-panel')).toBeVisible();
-  await expect(page.locator('.pipeline-panel .pp-title')).toContainText('简历处理管道');
-  await expect(page.locator('.pipeline-panel .pp-log-title')).toContainText('最近入库');
+  // 原「人才资产工作台」已移除，替换为简历处理管道（页面上另有「系统邮件看板」同款面板，需按名称区分）
+  const panel = page.getByRole('region', { name: '简历处理管道' });
+  await expect(panel).toBeVisible();
+  await expect(panel.locator('.pp-title')).toContainText('简历处理管道');
+  await expect(panel.locator('.pp-log-title')).toContainText('最近入库');
   // 简历储备库 tab 行最右侧有手动刷新按钮
   await expect(page.locator('.tabs .mail-sync-btn')).toBeVisible();
   await expect(page.locator('.tabs .mail-sync-btn')).toContainText('刷新邮箱简历');
