@@ -138,18 +138,59 @@ def _enqueue_sync(account_id=None):
         return 'thread', _run_sync_in_background(current_app._get_current_object(), account_id)
 
 
+@bp.route('/email-accounts/get-preview', methods=['POST'])
+def get_sync_preview():
+    """POST /api/config/email-accounts/get-preview — 获取邮箱预览数据（不真正收取邮件）。"""
+    try:
+        from app.services.config_service import get_email_accounts
+        accounts = get_email_accounts()
+        if not accounts:
+            return success({
+                'accounts_checked': 0, 'new_emails': 0, 'resumes_ingested': 0,
+                'details': []
+            })
+        # 返回各邮箱状态和最近检查时间
+        details = []
+        for acct in accounts:
+            details.append({
+                'email': acct.get('address', ''),
+                'status': acct.get('status', '未知'),
+                'last_sync': acct.get('lastSync', '—'),
+                'new_emails': 0,
+                'resumes_ingested': 0
+            })
+        return success({
+            'accounts_checked': len(accounts),
+            'new_emails': 0,
+            'resumes_ingested': 0,
+            'details': details,
+            '_mock': True,
+        })
+    except Exception as exc:
+        log.error("get_sync_preview failed: %s", exc, exc_info=True)
+        return success({
+            'accounts_checked': 0, 'new_emails': 0, 'resumes_ingested': 0,
+            'details': []
+        })
+
+
 @bp.route('/email-accounts/sync', methods=['POST'])
 def sync_all_email_accounts():
     """POST /api/config/email-accounts/sync — 手动刷新：异步同步所有启用邮箱。
 
-    立即返回 accepted；实际 IMAP 拉取 → 简历识别 → 解析 → 入库在后台执行，
-    前端提示"同步已开始，稍后刷新"。
+    立即返回 accepted（无 Celery 时代码依然自洽）；前端提示"同步已开始，稍后刷新"。
     """
-    mode, task_id = _enqueue_sync()
-    return success({
-        'accepted': True, 'mode': mode, 'taskId': task_id,
-        'message': '同步已开始，请稍后刷新查看结果',
-    })
+    try:
+        mode, task_id = _enqueue_sync()
+        return success({
+            'accepted': True, 'mode': mode, 'taskId': task_id,
+            'message': '同步已开始，请稍后刷新查看结果',
+        })
+    except Exception as exc:
+        log.error("sync_all_email_accounts failed: %s", exc, exc_info=True)
+        import traceback
+        log.error(traceback.format_exc())
+        return error('SYNC_FAILED', str(exc))
 
 
 @bp.route('/email-accounts/<account_id>/sync', methods=['POST'])

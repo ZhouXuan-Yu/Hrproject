@@ -234,7 +234,10 @@ def _connect(account):
     """Open an authenticated IMAP connection, selecting the monitor folder."""
     host = account.imap_host
     port = account.imap_port or 993
-    password = _get_password(account)
+    try:
+        password = _get_password(account)
+    except Exception as exc:
+        raise RuntimeError(f'获取邮箱密码失败: {exc}')
     if not host or not password:
         raise RuntimeError('邮箱未配置 IMAP 服务器或密码/授权码')
 
