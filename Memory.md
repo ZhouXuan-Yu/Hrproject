@@ -205,9 +205,18 @@
 ```bash
 # Backend
 cd backend/ && python scripts/seed.py && python app.py  # :5000
-cd backend/ && python -m pytest tests/ -v                # 14/14
+cd backend/ && python -m pytest tests/ -v                # 37/37
 
 # Frontend
 cd frontend/ && npm run dev                              # :5173
-cd frontend/ && npm test                                 # 45/45 E2E
+cd frontend/ && npx playwright test --workers=2          # 49/49 E2E
 ```
+
+## 2026-07-22 凌晨批次 ✅
+
+| 事项 | 说明 |
+|------|------|
+| 502 抖动修复 | 根因=debug reloader 重启窗口；前端 api/ai.js + useStreaming.js 加 3s/6s 长退避重试，api/index.js 增 `silent` 选项（AI 工作流不再刷全局错误 toast），502 提示按路径区分 boss-cli |
+| Offer 草稿陷阱修复 | `interview_service.send_offer` 现在真正完成 draft→sent（此前只建草稿导致重复发送被 DUPLICATE_OFFER 堵死）；已有草稿自动复用，已发送则明确报错；新增 tests/test_interview_offer.py 4 用例 |
+| README 重写 | 8 张真实数据 UI 截图（docs/screenshots/，1440×900@1.5x）+ 全链路功能/结构/启动/环境变量文档；截图脚本 `frontend/scripts/capture-readme-shots.mjs` |
+| 待办 | 工作区仍有另一会话未提交改动（腾讯会议/邮件同步）；建议后端统一用 .venv 启动、reloader 做成环境变量开关 |
