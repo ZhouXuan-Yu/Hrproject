@@ -131,9 +131,33 @@ def _run_sync_in_background(app, account_id=None):
     return f'thread-{t.ident}'
 
 
+def _redis_reachable() -> bool:
+    """快速探测 Redis 是否可用（0.6s 超时），避免 Celery .delay() 连接重试阻塞请求。"""
+    import os
+    import socket
+    from urllib.parse import urlparse
+
+    try:
+        from flask import current_app
+        url = current_app.config.get('REDIS_URL') or os.getenv('REDIS_URL', 'redis://127.0.0.1:6379/0')
+    except Exception:
+        url = os.getenv('REDIS_URL', 'redis://127.0.0.1:6379/0')
+    try:
+        parsed = urlparse(url)
+        host = parsed.hostname or '127.0.0.1'
+        port = parsed.port or 6379
+        sock = socket.create_connection((host, port), timeout=0.6)
+        sock.close()
+        return True
+    except Exception:
+        return False
+
+
 def _enqueue_sync(account_id=None):
     """优先投递 Celery 任务；无 Redis/Celery 时降级后台线程。返回 (mode, task_id)。"""
     try:
+        if not _redis_reachable():
+            raise RuntimeError('Redis 不可达，直接使用后台线程')
         if account_id:
             from tasks.email_sync import sync_single_mailbox
             task = sync_single_mailbox.delay(account_id)

@@ -22,7 +22,7 @@
         <tbody>
           <tr v-for="(acct, i) in emailAccounts" :key="acct.id || i">
             <td>{{ acct.address }}</td>
-            <td>{{ acct.type }}</td>
+            <td>{{ emailTypeLabel(acct.type) }}</td>
             <td>{{ acct.freq }}</td>
             <td><span :style="{ color: acct.statusColor === 'done' ? 'var(--c-done)' : 'var(--c-warn)', fontWeight: 600 }">{{ acct.status }}</span></td>
             <td>{{ acct.lastSync }}</td>
@@ -458,6 +458,12 @@ function onEmailAddrBlur() {
   if (validateEmailAddr()) autoDetectEmail();
 }
 
+// 邮箱类型：后端 mail_type 可能是代码（qq/163/...）或历史中文标签，双向映射
+const EMAIL_TYPE_LABELS = { qq: 'QQ 邮箱', '163': '163 邮箱', gmail: 'Gmail', corp: '企业邮箱（Exchange）', custom: '自定义' };
+const EMAIL_TYPE_CODES = { 'QQ 邮箱': 'qq', '163 邮箱': '163', 'Gmail': 'gmail', '企业邮箱': 'corp', '企业邮箱（Exchange）': 'corp', '自定义': 'custom' };
+function emailTypeLabel(t) { return EMAIL_TYPE_LABELS[t] || t || '—'; }
+function emailTypeCode(t) { return EMAIL_TYPE_LABELS[t] ? t : (EMAIL_TYPE_CODES[t] || ''); }
+
 const normalizeStatus = (s) => s === '启用' || s === 1 || s === '1' || s === true;
 const reverseStatus = (s) => normalizeStatus(s) ? 0 : 1;
 
@@ -634,7 +640,7 @@ function editEmail(acct) {
   emailAddrError.value = '';
   emailServerDetected.value = false;
   Object.assign(emailForm, {
-    addr: acct.address || '', type: acct.type || '',
+    addr: acct.address || '', type: emailTypeCode(acct.type),
     proto: acct.proto || 'IMAP（推荐）', port: acct.port || '993',
     server: acct.server || '', ssl: acct.ssl || 'SSL/TLS',
     user: acct.address || '', pass: '',
@@ -732,7 +738,10 @@ async function submitEmail() {
       await createEmailAccount(payload);
     }
   } catch (e) {
+    // 失败时保留弹窗与已填内容，避免用户输入丢失
     toast.error('操作失败: ' + e.message);
+    emailSaving.value = false;
+    return;
   }
   emailSaving.value = false;
   showEmailModal.value = false;

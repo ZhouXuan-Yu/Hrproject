@@ -230,7 +230,8 @@
             <button class="btn btn-primary btn-sm" @click="showDemandDropdown = !showDemandDropdown">加入需求 &#9662;</button>
             <div id="demandDropdown" v-if="showDemandDropdown" style="display:block;position:absolute;bottom:100%;left:0;margin-bottom:4px;width:280px;background:var(--c-card);border:1px solid var(--c-border);border-radius:12px;padding:12px;box-shadow:0 8px 32px rgba(0,0,0,.12);z-index:100;font-size:13px">
               <div style="font-weight:700;margin-bottom:8px;color:var(--c-text);font-size:12px">选择目标岗位</div>
-              <div v-for="d in DEMAND_OPTIONS" :key="d.id" style="padding:6px 8px;cursor:pointer;border-radius:4px;margin-bottom:2px" @mouseover="hoverStyle($event, true)" @mouseout="hoverStyle($event, false)" @click="addToDemand(d.id, d.name)">{{ d.name }} &middot; {{ d.dept }} &middot; {{ d.status }}</div>
+              <div v-for="d in demandOptions" :key="d.id" style="padding:6px 8px;cursor:pointer;border-radius:4px;margin-bottom:2px" @mouseover="hoverStyle($event, true)" @mouseout="hoverStyle($event, false)" @click="addToDemand(d.id, d.position)">{{ d.position }} &middot; {{ d.dept }} &middot; {{ d.statusLabel }}</div>
+              <div v-if="demandOptionsLoaded && demandOptions.length === 0" style="padding:6px 8px;color:var(--c-sub);font-size:12px">暂无招聘中的需求，请先到「需求管理」新建</div>
             </div>
           </div>
           <button class="btn btn-outline btn-sm" @click="batchContact">批量联系</button>
@@ -404,8 +405,9 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import WorkbenchLayout from '../layouts/WorkbenchLayout.vue';
-import { EXT_DATA, INT_DATA, BLACKLIST_DATA, DEMAND_OPTIONS } from '../data/talent.js';
-import { fetchTalent, updateTalentNote, fetchMatchResults, linkTalentToDemand, uploadResumeFile, fetchIngestLog, fetchMailLog } from '../api/talent.js';
+import { EXT_DATA, INT_DATA, BLACKLIST_DATA } from '../data/talent.js';
+import { fetchTalent, updateTalentNote, fetchMatchResults, uploadResumeFile, fetchIngestLog, fetchMailLog } from '../api/talent.js';
+import { fetchDemands, linkCandidateToDemand } from '../api/demand.js';
 import { syncAllEmailAccounts } from '../api/config.js';
 import { useToast } from '../composables/useToast.js';
 import { useAppError } from '../composables/useAppError.js';
@@ -437,6 +439,27 @@ const apiExtData = ref(null);
 const apiIntData = ref(null);
 const apiBlacklistData = ref(null);
 
+// 「加入需求」下拉：来自真实需求列表 API（与需求管理页一致），不再使用 mock
+const demandOptions = ref([]);
+const demandOptionsLoaded = ref(false);
+
+async function loadDemandOptions() {
+  try {
+    const { data } = await fetchDemands({ pageSize: 100 });
+    const list = Array.isArray(data) ? data : [];
+    // 优先展示招聘中/审批中的需求，其余状态排后
+    const rank = { open: 0, approval: 1 };
+    demandOptions.value = list
+      .filter(d => d.status === 'open' || d.status === 'approval')
+      .sort((a, b) => (rank[a.status] ?? 9) - (rank[b.status] ?? 9));
+  } catch (e) {
+    console.warn('[RecruitTalent] 需求列表加载失败:', e);
+    demandOptions.value = [];
+  } finally {
+    demandOptionsLoaded.value = true;
+  }
+}
+
 const EXT_DATA_SOURCE = computed(() => apiExtData.value ?? EXT_DATA);
 const INT_DATA_SOURCE = computed(() => apiIntData.value ?? INT_DATA);
 const BLACKLIST_DATA_SOURCE = computed(() => apiBlacklistData.value ?? BLACKLIST_DATA);
@@ -461,7 +484,14 @@ async function loadFromApi() {
   try {
     const talentData = await fetchTalent();
     if (talentData) {
-      apiExtData.value = talentData.ext ?? talentData.external ?? null;
+      const ext = talentData.ext ?? talentData.external ?? null;
+      // 后端列表返回 skills 数组而非 skillsHtml（mock 用 HTML 字符串）；
+      // 统一补齐 skillsHtml，避免模板渲染 "undefined" 及搜索/技能筛选 TypeError 崩溃
+      apiExtData.value = Array.isArray(ext) ? ext.map(c => ({
+        ...c,
+        skillsHtml: c.skillsHtml
+          || (Array.isArray(c.skills) ? c.skills.map(s => `<span class="tag-item tag-hit">${s}</span>`).join('') : (c.skills || '')),
+      })) : null;
       apiIntData.value = talentData.int ?? talentData.internal ?? null;
       apiBlacklistData.value = talentData.blacklist ?? null;
     }
@@ -704,19 +734,38 @@ async function addToDemand(demandId, demandName) {
   const names = checkedIds.map(id => { const c = EXT_DATA_SOURCE.value.find(x => x.id === id); return c ? c.name : ''; }).filter(Boolean);
   if (names.length === 0) return;
 
-  try {
-    await linkTalentToDemand(demandId, names);
-  } catch (e) {
-    console.warn('[RecruitTalent] linkTalentToDemand failed:', e);
+  // 逐个调用真实 link 接口，按返回的 linked 判定成败，汇总提示
+  const okNames = [];
+  const failReasons = [];
+  for (const name of names) {
+    try {
+      const r = await linkCandidateToDemand(demandId, name);
+      if (r && r.linked) {
+        okNames.push(name);
+      } else {
+        failReasons.push(name + '：' + ((r && r.reason) || '加入失败'));
+      }
+    } catch (e) {
+      console.warn('[RecruitTalent] linkCandidateToDemand failed for', name, e);
+      failReasons.push(name + '：接口异常');
+    }
   }
 
-  const key = 'demand_' + demandId + '_linked';
-  const linked = (() => { try { return JSON.parse(localStorage.getItem(key)) || []; } catch(e) { return []; } })();
-  names.forEach(n => { if (linked.indexOf(n) < 0) linked.push(n); });
-  localStorage.setItem(key, JSON.stringify(linked));
+  if (okNames.length) {
+    const key = 'demand_' + demandId + '_linked';
+    const linked = (() => { try { return JSON.parse(localStorage.getItem(key)) || []; } catch(e) { return []; } })();
+    okNames.forEach(n => { if (linked.indexOf(n) < 0) linked.push(n); });
+    localStorage.setItem(key, JSON.stringify(linked));
+  }
 
   showDemandDropdown.value = false;
-  toast.success('已将 ' + names.length + ' 位候选人加入需求「' + demandName + '」');
+  if (failReasons.length === 0) {
+    toast.success('已将 ' + okNames.length + ' 位候选人加入需求「' + demandName + '」');
+  } else if (okNames.length === 0) {
+    toast.error('加入需求「' + demandName + '」失败：' + failReasons.join('；'));
+  } else {
+    toast.warning('已加入 ' + okNames.length + ' 人，失败 ' + failReasons.length + ' 人（' + failReasons.join('；') + '）');
+  }
   clearSelectionExt();
 }
 
@@ -793,6 +842,7 @@ function onDocClick(e) {
 onMounted(() => {
   document.addEventListener('click', onDocClick);
   loadFromApi();
+  loadDemandOptions();
   loadIngestLog();
   loadMailLog();
 });

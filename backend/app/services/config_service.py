@@ -27,7 +27,8 @@ def _encrypt_mail_password(raw):
     if not raw:
         return None
     from flask import current_app
-    return encrypt(raw, current_app.config['SECRET_KEY'])
+    # "enc:" 前缀与 email_sync_service._get_password 的解密约定一致
+    return 'enc:' + encrypt(raw, current_app.config['SECRET_KEY'])
 
 
 # ── In-memory channel cost mapping ──

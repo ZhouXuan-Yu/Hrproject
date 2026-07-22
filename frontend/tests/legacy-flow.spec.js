@@ -256,6 +256,53 @@ test('demand detail enhanced filters and batch actions are available', async ({ 
   await expect(page.locator('#candidateTable')).toBeVisible({ timeout: 10000 });
 });
 
+test('talent "加入需求" dropdown matches real demand list from API', async ({ page }) => {
+  // 后端要求真实 JWT：先在 Node 侧登录换取 token，再通过 initScript 注入
+  // （beforeEach 的假 token 会导致 401，且 api 层收到 401 会异步清掉 hr_token，
+  //   因此必须在首次导航前就注入真实 token）
+  const loginResp = await page.request.post('/api/auth/login', {
+    data: { username: 'admin', role: 'admin' },
+  });
+  const loginBody = await loginResp.json();
+  const token = loginBody.data && loginBody.data.token;
+  expect(token).toBeTruthy();
+  await page.addInitScript(t => localStorage.setItem('hr_token', t), token);
+
+  await page.goto('/recruit-talent');
+  // 等待人才库数据与需求下拉数据加载
+  await page.waitForTimeout(1500);
+
+  // 勾选一位未锁定的候选人，唤起批量操作栏
+  const firstCheck = page.locator('.ext-check:not([disabled])').first();
+  await expect(firstCheck).toBeVisible({ timeout: 10000 });
+  await firstCheck.check();
+  await expect(page.locator('#batchBarExt')).toBeVisible();
+
+  // 打开「加入需求」下拉
+  await page.locator('#demandDropdownWrap button', { hasText: '加入需求' }).click();
+  await expect(page.locator('#demandDropdown')).toBeVisible();
+
+  // 从真实 API 取需求列表，按前端规则过滤（招聘中优先，其次审批中）
+  const expected = await page.evaluate(async () => {
+    const token = localStorage.getItem('hr_token');
+    const resp = await fetch('/api/demand/list?pageSize=100', {
+      headers: { 'X-Requested-With': 'XMLHttpRequest', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
+    const body = await resp.json();
+    const list = Array.isArray(body.data) ? body.data : [];
+    const rank = { open: 0, approval: 1 };
+    return list
+      .filter(d => d.status === 'open' || d.status === 'approval')
+      .sort((a, b) => (rank[a.status] ?? 9) - (rank[b.status] ?? 9))
+      .map(d => `${d.position} · ${d.dept} · ${d.statusLabel}`);
+  });
+  expect(expected.length).toBeGreaterThan(0);
+
+  const items = page.locator('#demandDropdown > div').filter({ hasNotText: '选择目标岗位' });
+  const actual = await items.allTextContents();
+  expect(actual.map(t => t.trim())).toEqual(expected);
+});
+
 test('talent library filters and contact flow avoid unrealistic outbound calling', async ({ page }) => {
   await page.goto('/recruit-talent');
   // Wait for the talent page to render (data loads from API)

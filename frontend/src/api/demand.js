@@ -49,6 +49,7 @@ export async function deleteDemand(demandId) {
 }
 
 export async function linkCandidateToDemand(demandId, name) {
-  const r = await api.post(`/demand/${demandId}/candidates/${name}/link`, { link: true });
+  // 候选人姓名含中文/特殊字符，路径段必须 URL 编码
+  const r = await api.post(`/demand/${demandId}/candidates/${encodeURIComponent(name)}/link`, { link: true });
   return r.data;
 }

@@ -190,17 +190,21 @@ def _get_password(account):
     raw = account.password_encrypted or ''
     if not raw:
         return ''
+    from flask import current_app
+    from app.services.crypto_utils import decrypt
     # "enc:" prefix marks AES-256-GCM encrypted hex
     if raw.startswith('enc:'):
         try:
-            from flask import current_app
-            from app.services.crypto_utils import decrypt
             return decrypt(raw[4:], current_app.config['SECRET_KEY'])
         except Exception as exc:
-            log.warning("Password decrypt failed for account %s, "
-                        "trying plaintext fallback: %s", account.id, exc)
-    # Fallback: treat as plaintext
-    return raw
+            log.warning("Password decrypt failed for account %s: %s", account.id, exc)
+            return ''
+    # 兼容历史数据：此前 _encrypt_mail_password 漏写 enc: 前缀，存的是裸密文。
+    # 先按密文尝试解密，失败再按明文兜底。
+    try:
+        return decrypt(raw, current_app.config['SECRET_KEY'])
+    except Exception:
+        return raw
 
 
 # ===========================================================================

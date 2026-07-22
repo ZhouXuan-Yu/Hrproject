@@ -66,7 +66,7 @@
               <button v-if="d.status === 'approval'" class="btn btn-primary btn-sm" @click="approveDemand(d)">同意</button>
               <button v-if="d.status === 'draft'" class="btn btn-outline btn-sm" @click="openEditModal(d)">编辑</button>
               <button v-if="['draft', 'rejected', 'cancelled'].includes(d.status)" class="btn btn-ghost btn-sm" style="color:var(--c-reject,#d4380d)" @click="removeDemand(d)">删除</button>
-              <button class="btn btn-ghost btn-sm" @click="moreOps(d.id)">更多</button>
+              <button class="btn btn-ghost btn-sm" @click="moreOps(d)">更多</button>
             </td>
           </tr>
         </tbody>
@@ -132,7 +132,7 @@ const demands = ref(DEMANDS.map(d => ({ ...d, linkedCount: getLinkedCount(d.id) 
 
 async function loadFromApi() {
   try {
-    const res = await fetchDemands();
+    const res = await fetchDemands({ pageSize: 100 });
     apiDemands.value = res;
   } catch (e) {
     console.warn('[RecruitDemand] API fetch failed, using mock data:', e);
@@ -297,7 +297,19 @@ async function moreOps(d) {
   if (!action) return;
   try {
     if (action === '驳回' || action === '1') {
-      await rejectDemandApi(d.id, { level: 1, opinion: '不合适' });
+      // 与 approveDemand 一致：取当前待审批层级，避免对已处理层级驳回报"已处理"
+      const nodes = d.approvalNodes || [];
+      let level = null;
+      for (let i = 0; i < nodes.length; i++) {
+        if (nodes[i].state === 'current') { level = nodes[i].level || (i + 1); break; }
+      }
+      if (!level) {
+        for (let i = 0; i < nodes.length; i++) {
+          if (nodes[i].state !== 'done') { level = nodes[i].level || (i + 1); break; }
+        }
+      }
+      if (!level) { toast.warning('该需求没有待审批节点，无法驳回'); return; }
+      await rejectDemandApi(d.id, { level, opinion: '不合适' });
       toast.info('已驳回：' + d.id);
     } else if (action === '关闭' || action === '2') {
       await api.post(`/demand/${d.id}/close`);

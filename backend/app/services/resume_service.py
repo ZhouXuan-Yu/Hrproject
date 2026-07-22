@@ -516,18 +516,25 @@ def ingest_resume(file_bytes, filename, source_channel='邮箱', mail_account_id
 
 
 def _next_candidate_no():
-    """Generate next candidate number: C{YYYYMM}{seq:04d}."""
+    """Generate next candidate number: C{YYYYMM}{seq:04d}.
+
+    Uses numeric comparison on the sequence suffix rather than string
+    ordering, so legacy numbers with a different width (e.g. C202607004
+    vs C2026070005) cannot shadow newer rows and cause collisions.
+    """
     from app.models.candidate import Candidate
     prefix = 'C' + datetime.now().strftime('%Y%m')
-    last = (
+    rows = (
         Candidate.query.filter(Candidate.candidate_no.like(f'{prefix}%'))
-        .order_by(Candidate.candidate_no.desc())
-        .first()
+        .with_entities(Candidate.candidate_no)
+        .all()
     )
-    seq = 1
-    if last and last.candidate_no and last.candidate_no[len(prefix):].isdigit():
-        seq = int(last.candidate_no[len(prefix):]) + 1
-    return f'{prefix}{seq:04d}'
+    seq = 0
+    for (no,) in rows:
+        suffix = (no or '')[len(prefix):]
+        if suffix.isdigit():
+            seq = max(seq, int(suffix))
+    return f'{prefix}{seq + 1:04d}'
 
 
 def _store_file(file_bytes, filename, candidate_no):

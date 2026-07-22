@@ -21,13 +21,6 @@ export const BLACKLIST_DATA = [
   {name:'周八',phone:'189****',date:'2026-05-15',reason:'面试严重违纪（代面）',operator:'李HR',expiry:'2027-05-15'}
 ];
 
-export const DEMAND_OPTIONS = [
-  {id:'DM2026070005',name:'高级Java工程师',dept:'技术部',status:'招聘中'},
-  {id:'DM2026070004',name:'产品经理',dept:'产品部',status:'审批中'},
-  {id:'DM2026070003',name:'运营总监',dept:'运营部',status:'招聘中'},
-  {id:'DM2026070002',name:'前端工程师',dept:'技术部',status:'已关闭'}
-];
-
 export const MATCH_RESULTS = {
   java: [
     {id:'EMP001',name:'王工',dept:'技术部',curPos:'高级Java',perf:'A',score:92,transferable:true},
