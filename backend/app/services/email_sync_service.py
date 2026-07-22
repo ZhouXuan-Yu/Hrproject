@@ -65,10 +65,14 @@ def detect_imap_server(email_address):
         provider, host, port = _DOMAIN_IMAP_FALLBACK[domain]
         return {'provider': provider, 'imap_host': host, 'imap_port': port, 'detection': 'domain'}
 
-    # 2. Try MX record lookup
+    # 2. Try MX record lookup (2s timeout — detect 接口被前端输入防抖高频触发，
+    #    DNS 异常时不能长时间阻塞请求线程)
     try:
         import dns.resolver
-        answers = dns.resolver.resolve(domain, 'MX')
+        resolver = dns.resolver.Resolver()
+        resolver.lifetime = 2.0
+        resolver.timeout = 1.0
+        answers = resolver.resolve(domain, 'MX')
         for rdata in sorted(answers, key=lambda r: r.preference):
             mx = str(rdata.exchange).rstrip('.').lower()
             if mx in _MX_IMAP_MAP:

@@ -21,31 +21,50 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _client: Optional[OpenAI] = None
+_client_key: Optional[str] = None  # key used to build the cached client
+
+
+def _resolve_api_key() -> str:
+    """Resolve the DeepSeek API key.
+
+    优先级:
+        1. 环境变量 DEEPSEEK_API_KEY（.env）
+        2. 数据库 t_hr_api_key（网页「API 密钥管理」配置，AES-256-GCM 加密存储）
+    改动原因：支持在网页端配置 DeepSeek key，无需登录服务器改 .env 重启。
+    """
+    from config import Config
+    api_key = Config.DEEPSEEK_API_KEY
+    if not api_key:
+        try:
+            from app.services.config_service import get_decrypted_api_key
+            api_key = get_decrypted_api_key('deepseek') or ''
+        except Exception:
+            api_key = ''
+    return api_key
 
 
 def _get_client() -> OpenAI:
     """Return (and cache) the OpenAI-compatible DeepSeek client.
 
-    REVIEW: key 获取优先级
-        1. 环境变量 DEEPSEEK_API_KEY（.env）
-        2. 数据库 t_hr_api_key（网页「API 密钥管理」配置，AES-256-GCM 加密存储）
-        3. 两者皆空 → API 调用将失败，AI 功能降级为本地规则引擎
-    改动原因：支持在网页端配置 DeepSeek key，无需登录服务器改 .env 重启。
+    FIX: 缓存与 key 绑定——网页端更新 key 后，下一次调用会检测到 key 变化
+    并重建 client，真正实现「线上配置无需重启」。key 为空时不缓存，
+    避免空 key client 被永久固化。
     """
-    global _client
-    if _client is None:
-        from config import Config
-        api_key = Config.DEEPSEEK_API_KEY
-        if not api_key:
-            try:
-                from app.services.config_service import get_decrypted_api_key
-                api_key = get_decrypted_api_key('deepseek') or ''
-            except Exception:
-                pass
-        _client = OpenAI(
-            api_key=api_key,
-            base_url=Config.DEEPSEEK_BASE_URL,
+    global _client, _client_key
+    from config import Config
+    api_key = _resolve_api_key()
+    if _client is not None and _client_key == api_key:
+        return _client
+    if not api_key:
+        raise RuntimeError(
+            'DeepSeek API key 未配置：请在 .env 设置 DEEPSEEK_API_KEY，'
+            '或在网页端「招聘基础配置 → API 密钥管理」中配置 DeepSeek key'
         )
+    _client = OpenAI(
+        api_key=api_key,
+        base_url=Config.DEEPSEEK_BASE_URL,
+    )
+    _client_key = api_key
     return _client
 
 
@@ -127,7 +146,12 @@ def chat_completion_stream(
         max_tokens: Maximum tokens in the response.
     """
     model = _get_model()
-    client = _get_client()
+    try:
+        client = _get_client()
+    except Exception as e:
+        log.error("DeepSeek stream init failed: %s", e)
+        yield {'type': 'error', 'message': str(e)}
+        return
 
     _log_request(model, messages, temperature, max_tokens)
 
