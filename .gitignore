@@ -57,3 +57,5 @@ frontend/.meta-kim/
 backend/*.db-shm
 backend/*.db-wal
 backend/uploads/
+frontend/.claude/
+gstack开发流程/
