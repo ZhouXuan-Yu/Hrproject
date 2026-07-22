@@ -101,19 +101,28 @@ def delete_email_account(account_id):
 
 
 def _run_sync_in_background(app, account_id=None):
-    """无 Celery/Redis 环境的降级：后台线程执行同步。"""
+    """无 Celery/Redis 环境的降级：后台线程执行同步。
+
+    每个 IMAP 连接约 15s 超时；线程异步执行不阻塞 API 响应。
+    """
     import threading
+    import time
 
     def _job():
+        t0 = time.time()
         with app.app_context():
             try:
                 from app.services.email_sync_service import (
                     sync_all_accounts, sync_mail_account,
                 )
                 if account_id:
-                    sync_mail_account(account_id)
+                    result = sync_mail_account(account_id)
+                    log.info("Email sync (single) completed in %.1fs: %s", time.time()-t0, result.get('status'))
                 else:
-                    sync_all_accounts()
+                    result = sync_all_accounts()
+                    log.info("Email sync (all) completed in %.1fs: status=%s new=%d ingested=%d",
+                             time.time()-t0, result.get('status'),
+                             result.get('new_emails'), result.get('resumes_ingested'))
             except Exception as exc:
                 log.error("Background email sync failed: %s", exc, exc_info=True)
 

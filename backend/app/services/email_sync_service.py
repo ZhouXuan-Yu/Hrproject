@@ -12,6 +12,7 @@ Used by:
 """
 import imaplib
 import logging
+import socket
 from datetime import datetime
 from email import message_from_bytes
 from email.header import decode_header
@@ -233,16 +234,24 @@ def test_connection(account):
 
 def _connect(account):
     """Open an authenticated IMAP connection, selecting the monitor folder."""
-    host = account.imap_host
-    port = account.imap_port or 993
+    host, port = (account.imap_host, account.imap_port or 993)
+    if not host:
+        raise RuntimeError('邮箱未配置 IMAP 服务器')
     try:
         password = _get_password(account)
     except Exception as exc:
         raise RuntimeError(f'获取邮箱密码失败: {exc}')
-    if not host or not password:
-        raise RuntimeError('邮箱未配置 IMAP 服务器或密码/授权码')
+    if not password:
+        raise RuntimeError('未配置邮箱密码/授权码——请在「基础配置→邮箱配置」中输入授权码')
 
-    conn = imaplib.IMAP4_SSL(host, port, timeout=30)
+    from imaplib import IMAP4_SSL, IMAP4
+    timeout_secs = 15  # shorter timeout per-connection so UI doesn't hang
+    try:
+        conn = IMAP4_SSL(host, port, timeout=timeout_secs)
+    except Exception:
+        # Some mail servers (especially fake ones in dev) require STARTTLS fallback
+        conn = IMAP4(host, port, timeout=timeout_secs)
+        conn.starttls()
     conn.login(account.email_address, password)
 
     folder = account.monitor_folder or 'INBOX'
