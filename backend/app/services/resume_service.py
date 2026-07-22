@@ -137,8 +137,11 @@ def _strip_html(html_text):
 
 _RESUME_PARSE_SYSTEM = """你是专业的简历解析引擎。从用户提供的简历原文中提取结构化信息。
 
+首先判断这段文本是否是一份真实的个人求职简历（is_resume）：包含个人信息、教育经历、工作/项目经验等内容的求职简历为 true；营销邮件、通知公告、广告推广、账单、验证码、乱码或无意义文本为 false。
+
 严格返回 JSON 对象，字段如下：
 {
+  "is_resume": true 或 false（是否为真实求职简历）,
   "name": "候选人姓名（2-4个中文字符，提取不到则为空字符串）",
   "phone": "11位手机号，没有则为空字符串",
   "email": "邮箱地址，没有则为空字符串",
@@ -194,6 +197,11 @@ def parse_resume_content(text):
     result = regex_parse(text=text)
     result.setdefault('certs', [])
     result['big_company_flag'] = _detect_big_company(result.get('recent_company', ''), text)
+    # 规则降级时的简历判定启发式：有手机号 且 含经验/教育/技能类标记
+    result['is_resume'] = bool(
+        re.search(r'1[3-9]\d{9}', text)
+        and re.search(r'工作经验|教育经历|项目经验|求职意向|技能', text)
+    )
     result['parse_engine'] = 'regex'
     return result
 
@@ -246,6 +254,7 @@ def _normalize_deepseek_result(data, raw_text):
     company = str(data.get('recent_company') or '').strip()
 
     return {
+        'is_resume': bool(data.get('is_resume', True)),
         'name': name,
         'phone': phone,
         'email': email,
@@ -398,6 +407,16 @@ def ingest_resume(file_bytes, filename, source_channel='邮箱', mail_account_id
                 or _name_from_subject(mail_subject)
                 or '未知')
         parsed['name'] = name
+
+    # ---- 入库筛选：非简历内容 / 缺姓名 / 缺手机号 一律拒绝入库 ----
+    # 邮件渠道的营销邮件、通知公告等不应进入人才库；姓名和电话是后续
+    # 联系候选人与去重的最低要求。
+    if parsed.get('is_resume') is False:
+        raise ValueError(f'内容经 AI 判定不是求职简历，已跳过: {filename}')
+    if not name or name == '未知':
+        raise ValueError(f'简历缺少有效姓名，已跳过入库: {filename}')
+    if not (parsed.get('phone') or '').strip():
+        raise ValueError(f'简历缺少手机号，已跳过入库: {filename}（{name}）')
 
     # ---- dedup: mobile_hash → email → 内容指纹 ----
     mobile_hash = hashlib.sha256(parsed['phone'].encode()).hexdigest() if parsed['phone'] else None

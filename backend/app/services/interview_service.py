@@ -166,6 +166,41 @@ def _db_to_dict(book):
             display_status = 'pending'
             display_label = '待安排'
 
+    # ── 联动 Offer 状态：面试通过后展示 Offer 全链路进度 ──
+    # 1已发送=待候选人确认 / 2已接受=已录用 / 3已拒绝 / 4已过期淘汰
+    offer_status = None
+    offer_no = None
+    if record and record.interview_result == 1 and book.resume_id and book.demand_id:
+        try:
+            from app.models.hire import Offer
+            offer = (Offer.query.filter(
+                Offer.resume_id == book.resume_id,
+                Offer.demand_id == book.demand_id,
+                Offer.is_deleted == 0,
+            ).order_by(Offer.id.desc()).first())
+            if offer:
+                offer_status = offer.offer_status
+                offer_no = offer.offer_no
+                if offer.offer_status == 1:
+                    display_status = 'offer'
+                    display_label = 'Offer待确认'
+                elif offer.offer_status == 2:
+                    display_status = 'onboard'
+                    display_label = '已录用'
+                elif offer.offer_status == 3:
+                    display_status = 'done'
+                    display_label = '已拒绝'
+                elif offer.offer_status == 4:
+                    display_status = 'done'
+                    display_label = '已淘汰'
+        except Exception:
+            pass
+
+    # 评价结果/评分下发给前端（面试页"已完成"列据此区分 已入职/已回流人才库）
+    eval_result = None
+    if record:
+        eval_result = {1: 'pass', 2: 'reject', 3: 'hold'}.get(record.interview_result)
+
     round_num = getattr(book, 'interview_round', 1) or 1
     return {
         'id': f'INT{book.id:04d}',
@@ -184,13 +219,15 @@ def _db_to_dict(book):
         'meetingPwd': book.meeting_pwd or '',
         'status': display_status,
         'statusLabel': display_label,
+        'offerStatus': offer_status,
+        'offerNo': offer_no,
         'candidateConfirm': (book.invite_json or {}).get('candidate_confirm'),
         'emailSent': (book.invite_json or {}).get('email_sent', bool((book.invite_json or {}).get('email_log'))),
         'createdBy': '系统',
         'isMine': False,
-        'score': None,
+        'score': (record.score_json or {}).get('total') if record else None,
         'duration': None,
-        'result': None,
+        'result': eval_result,
     }
 
 
@@ -622,7 +659,9 @@ def evaluate_interview(book_id, data):
     record.interview_result = {'pass': 1, 'fail': 2, 'hold': 3}[result]
     record.submit_interviewer_id = data.get('submit_user_id', record.submit_interviewer_id)
     record.evaluate_text = comment
-    record.score_json = data.get('score_json', {})
+    score_json = dict(data.get('score_json') or {})
+    score_json.setdefault('total', score)
+    record.score_json = score_json
     record.end_time = now
 
     # Update process status

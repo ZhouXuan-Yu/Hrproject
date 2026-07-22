@@ -292,3 +292,14 @@ cd frontend/ && npx playwright test --workers=2          # 49/49 E2E
 | Offer 草稿陷阱修复 | `interview_service.send_offer` 现在真正完成 draft→sent（此前只建草稿导致重复发送被 DUPLICATE_OFFER 堵死）；已有草稿自动复用，已发送则明确报错；新增 tests/test_interview_offer.py 4 用例 |
 | README 重写 | 8 张真实数据 UI 截图（docs/screenshots/，1440×900@1.5x）+ 全链路功能/结构/启动/环境变量文档；截图脚本 `frontend/scripts/capture-readme-shots.mjs` |
 | 待办 | 工作区仍有另一会话未提交改动（腾讯会议/邮件同步）；建议后端统一用 .venv 启动、reloader 做成环境变量开关 |
+
+## 2026-07-22 晚批次 ✅（pytest 45/45，E2E 50/50）
+
+| 事项 | 说明 |
+|------|------|
+| 简历入库筛选 | `resume_service`：DeepSeek 提示词加 `is_resume` 判定（regex 降级用 手机号+经验标记启发式）；`ingest_resume` 闸门：非简历/缺姓名/缺手机号一律 ValueError 拒绝入库，邮件同步记录跳过原因并标记已读 |
+| 需求列表实时计数 | `_demand_to_dict` 原用需求行静态字段（永远 0）→ 新增 `_live_pipeline_counts()` 从 RecruitProcess 实时统计 linked/interviewing/direct/recommend/internal，人才库加入需求后需求管理页立即可见 |
+| 邮件看板同步 | `manualMailSync` 两个分支都补 `loadMailLog()`，刷新后系统邮件看板同步更新 |
+| 加入需求弹窗 | 小下拉 → 正式弹窗：显示已选候选人（含投递岗位）、按投递岗位优先排序（"投递岗位"徽标）、"部分人已在流程"标记、已有 N 人计数、未选禁用确认；抽屉单个加入自动勾选并开弹窗 |
+| 测试 | 新增 `test_resume_screening.py` 5 用例；E2E「加入需求」用例改写为弹窗契约 |
+| 详情页需求透传 | 根因：`RecruitDemand.goDetail()` 跳转不带 id，详情页 `info` 用固定 mock（DM2026070005），任何岗位打开都是同一份候选人 → 修复：列表跳转带 `?id=DM...`，详情页 `useRoute().query.id` 初始化并加载对应需求的真实详情与候选人；新增 E2E 导航透传用例 |

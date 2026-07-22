@@ -110,6 +110,8 @@ const props = defineProps({
   demand: { type: Object, default: () => ({ position: '', id: '' }) },
   processId: { type: [String, Number], default: null },
   resumeId: { type: [String, Number], default: null },
+  // 面试预约ID（如 INT0004）：传入时走面试联动接口，发 Offer 同时推进流程状态
+  bookId: { type: String, default: '' },
 });
 
 const emit = defineEmits(['close', 'success']);
@@ -163,6 +165,19 @@ async function handleSubmit() {
   };
 
   try {
+    // 面试页入口：走面试联动接口（创建+发送+流程状态推进+候选人确认邮件一体）
+    if (props.bookId) {
+      const resp = await api.post(`/interview/${encodeURIComponent(props.bookId)}/offer`, {
+        offer_content: form.content || generateDefaultContent(),
+        salary_json: salaryJson,
+        valid_deadline: form.validDeadline,
+      });
+      const data = resp.data || {};
+      submitting.value = false;
+      emit('success', { id: data.id, name: props.candidate?.name, emailSent: data.emailSent, emailMsg: data.emailMsg });
+      resetForm();
+      return;
+    }
     if (!props.resumeId || !props.demand?.id) {
       submitting.value = false;
       toast.error('该面试记录未关联候选人或岗位，无法发送 Offer');

@@ -194,11 +194,49 @@ def _extract_skills_from_jd(jd_content):
     return skills[:mid], skills[mid:]
 
 
+def _live_pipeline_counts(demand_id):
+    """从 RecruitProcess 实时统计某需求的候选人漏斗计数。
+
+    返回 dict: linked（进行中）/ interviewing（面试中）/ direct / recommend / internal。
+    人才库「加入需求」、邮箱自动关联等路径都会建 RecruitProcess，需求列表页
+    必须读实时计数而不是需求行上的静态字段，否则候选人永远显示为 0。
+    """
+    counts = {'linked': 0, 'interviewing': 0, 'direct': 0, 'recommend': 0, 'internal': 0}
+    try:
+        from app.models.process import RecruitProcess
+        from app.models.candidate import Candidate
+
+        processes = RecruitProcess.query.filter(
+            RecruitProcess.demand_id == demand_id,
+            RecruitProcess.is_deleted == 0,
+        ).all()
+        for p in processes:
+            if p.process_status in (4, 7):  # 淘汰 / 放弃不计入进行中
+                continue
+            counts['linked'] += 1
+            if p.process_status in (2, 3):
+                counts['interviewing'] += 1
+            cand = Candidate.query.filter_by(id=p.candidate_id, is_deleted=0).first()
+            ch = (cand.source_channel if cand else '') or ''
+            if ch in ('内推', '内部推荐'):
+                counts['internal'] += 1
+            elif ch in ('邮箱', 'Boss', '猎聘'):
+                counts['direct'] += 1
+            else:
+                counts['recommend'] += 1
+    except Exception as exc:
+        log.warning("live pipeline counts failed for demand %s: %s", demand_id, exc)
+    return counts
+
+
 def _demand_to_dict(d):
     """Convert a RecruitDemand ORM object to API dict."""
     pos_name = getattr(d, 'position_name', None) or POS_NAMES.get(d.position_id, str(d.position_id))
     dept_name = getattr(d, 'dept_name', None) or DEPT_NAMES.get(d.dept_id, str(d.dept_id))
     submitter = USER_NAMES.get(d.creator_id, str(d.creator_id))
+
+    # 实时流程计数（人才库加入 / 邮箱关联的候选人都会反映在这里）
+    live = _live_pipeline_counts(d.id)
 
     st = d.demand_status
     result = {
@@ -216,7 +254,7 @@ def _demand_to_dict(d):
         'salary': d.salary_range or '',
         'date': d.expect_entry_date.strftime('%Y-%m-%d') if d.expect_entry_date else '',
         'desc': d.jd_content or '',
-        'linkedCount': 0,
+        'linkedCount': live['linked'],
     }
 
     if st == 1:  # approval — always use live progress; audit_flow may be a stale snapshot
@@ -233,11 +271,11 @@ def _demand_to_dict(d):
 
     if st == 2:  # open
         result.update({
-            'directApply': d.internal_searched or 0,
-            'systemRecommend': d.resume_searched or 0,
-            'internalMatch': 0,
+            'directApply': live['direct'],
+            'systemRecommend': live['recommend'],
+            'internalMatch': live['internal'],
             'internalNames': [],
-            'interviewing': 0,
+            'interviewing': live['interviewing'],
         })
 
     return result
@@ -722,7 +760,7 @@ def list_demand_candidates(demand_id, params):
                         0: ('available', '待筛选'), 1: ('available', '已邀约'),
                         2: ('interviewing', '面试中'), 3: ('interviewing', '面试中'),
                         4: ('available', '已淘汰'), 5: ('offer', '待Offer'),
-                        6: ('offer', '已接受'), 7: ('available', '已放弃'), 8: ('onboard', '已入职'),
+                        6: ('offer', '已录用'), 7: ('available', '已放弃'), 8: ('onboard', '已入职'),
                     }
                     status, status_label = ps_map.get(p.process_status, ('available', '可联系'))
 

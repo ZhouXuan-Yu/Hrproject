@@ -294,6 +294,40 @@ def send_offer_email(offer):
                      account_id=_sender_account_id(offer.resume_id), mail_type='offer')
 
 
+def send_offer_reminder_email(offer, days_left, deadline):
+    """Offer 倒计时提醒邮件（每天一次，告知剩余确认天数）。
+
+    Returns (ok, msg, to_addr)。复用与 Offer 邮件相同的发件账号规则。
+    """
+    from app.services.mail_sender import send_mail
+
+    name, email, _ = _candidate_contact(offer.resume_id)
+    if not email:
+        return False, '候选人无邮箱，跳过倒计时提醒', None
+
+    token = generate_confirm_token('offer', offer.offer_no)
+    url = build_confirm_url(token)
+    position = _position_label(offer.demand_id)
+    deadline_str = deadline.strftime('%Y年%m月%d日 %H:%M') if deadline else '—'
+
+    html = f"""
+    <div style="font-family:sans-serif;max-width:560px;margin:auto;color:#333">
+      <h2 style="color:#d97706">Offer 确认倒计时提醒</h2>
+      <p>{name or '候选人'} 您好：</p>
+      <p>您收到的 <b>{position}</b> 录用 Offer 还未确认，
+         距离截止还剩 <b style="color:#d97706">{days_left} 天</b>（{deadline_str}）。</p>
+      <p>逾期未确认将视为放弃本次录用机会，请尽快点击下面按钮查看并确认：</p>
+      <p style="text-align:center;margin:24px 0">
+        <a href="{url}" style="background:#d97706;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold">查看并确认 Offer</a>
+      </p>
+      <p style="color:#999;font-size:12px">如按钮无法点击，请复制链接到浏览器打开：{url}</p>
+    </div>"""
+
+    ok, msg = send_mail(email, f'【倒计时提醒】{position} Offer 确认还剩 {days_left} 天', html,
+                        account_id=_sender_account_id(offer.resume_id), mail_type='offer')
+    return ok, msg, email
+
+
 # ===========================================================================
 # Entry pack（入职包）
 # ===========================================================================

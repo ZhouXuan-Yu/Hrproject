@@ -188,6 +188,7 @@
       :candidate="offerCandidate"
       :demand="offerDemand"
       :resume-id="offerResumeId"
+      :book-id="offerBookId"
       @close="showOfferModal = false"
       @success="onOfferSuccess"
     />
@@ -266,6 +267,7 @@ const scheduleDemand = ref({ position: '', id: '' });
 const offerCandidate = ref({ name: '', id: '' });
 const offerDemand = ref({ position: '', id: '' });
 const offerResumeId = ref(0);
+const offerBookId = ref('');
 const currentScope = ref('all');
 const activeTab = ref('list');
 const listStatus = ref('all');
@@ -356,11 +358,17 @@ function renderActions(item) {
     case 'evaluating':
       return resumeBtn + ' <button class="btn btn-primary btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:evaluate\',{detail:\'' + item.id + '|' + item.name + '\'}))">填评价</button>';
     case 'offer':
+      if (item.offerStatus === 1) {
+        return resumeBtn + ' <span style="font-size:11px;color:var(--c-sub)">Offer已发送（' + (item.offerNo || '') + '），等待候选人确认</span>';
+      }
       return resumeBtn + ' <button class="btn btn-outline btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:approval\',{detail:\'' + item.name + '\'}))">审批中</button> <button class="btn btn-success btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:offer\',{detail:\'' + item.name + '\'}))">发Offer</button>';
     case 'onboard':
-      return resumeBtn + ' <span style="font-size:11px;color:var(--c-sub)">待入职 &middot; 08-01</span>';
+      return resumeBtn + ' <span style="font-size:11px;color:#22a06b">已录用，待入职</span>';
     default:
-      const extra = item.result === 'reject' ? '已回流人才库' : '已入职';
+      if (item.offerStatus === 3) {
+        return resumeBtn + ' <span style="font-size:11px;color:var(--c-reject)">候选人已拒绝 Offer</span>';
+      }
+      const extra = item.result === 'reject' ? '已淘汰 · 回流人才库' : '已入职';
       return resumeBtn + ' <span style="font-size:11px;color:var(--c-sub)">' + extra + '</span>';
   }
 }
@@ -566,6 +574,7 @@ function handleOffer(e) {
   offerCandidate.value = { name, id: item.candidateId || '' };
   offerDemand.value = { position: item.position || '', id: item.demandId || 0 };
   offerResumeId.value = item.resumeId || 0;
+  offerBookId.value = item.id || '';
   showOfferModal.value = true;
 }
 

@@ -226,14 +226,7 @@
       <div class="batch-bar" id="batchBarExt" :style="{ display: checkedExtCount > 0 ? 'flex' : 'none' }">
         <span>已选择 <span class="count" id="batchCountExt">{{ checkedExtCount }}</span> 位候选人</span>
         <div style="display:flex;gap:8px;align-items:center">
-          <div style="position:relative" id="demandDropdownWrap">
-            <button class="btn btn-primary btn-sm" @click="showDemandDropdown = !showDemandDropdown">加入需求 &#9662;</button>
-            <div id="demandDropdown" v-if="showDemandDropdown" style="display:block;position:absolute;bottom:100%;left:0;margin-bottom:4px;width:280px;background:var(--c-card);border:1px solid var(--c-border);border-radius:12px;padding:12px;box-shadow:0 8px 32px rgba(0,0,0,.12);z-index:100;font-size:13px">
-              <div style="font-weight:700;margin-bottom:8px;color:var(--c-text);font-size:12px">选择目标岗位</div>
-              <div v-for="d in demandOptions" :key="d.id" style="padding:6px 8px;cursor:pointer;border-radius:4px;margin-bottom:2px" @mouseover="hoverStyle($event, true)" @mouseout="hoverStyle($event, false)" @click="addToDemand(d.id, d.position)">{{ d.position }} &middot; {{ d.dept }} &middot; {{ d.statusLabel }}</div>
-              <div v-if="demandOptionsLoaded && demandOptions.length === 0" style="padding:6px 8px;color:var(--c-sub);font-size:12px">暂无招聘中的需求，请先到「需求管理」新建</div>
-            </div>
-          </div>
+          <button class="btn btn-primary btn-sm" id="addToDemandBtn" @click="openDemandModal">加入需求</button>
           <button class="btn btn-outline btn-sm" @click="batchContact">批量联系</button>
           <button class="btn btn-ghost btn-sm" @click="clearSelectionExt">清除选择</button>
         </div>
@@ -399,6 +392,43 @@
       @close="showContactModal = false"
       @done="onContactDone"
     />
+
+    <!-- 加入需求：选择目标岗位弹窗（优先展示候选人投递的岗位） -->
+    <Teleport to="body">
+      <div id="demandModal" class="modal-overlay" v-if="showDemandModal" @click.self="showDemandModal = false">
+        <div class="modal-box" style="width:520px">
+          <h3>加入需求 &middot; 选择目标岗位</h3>
+          <div style="font-size:13px;color:var(--c-sub);margin-bottom:12px">
+            已选择 <b style="color:var(--c-primary)">{{ selectedCandidates.length }}</b> 位候选人：
+            <span v-for="c in selectedCandidates" :key="c.id" class="dm-cand-chip">
+              {{ c.name }}<template v-if="c.targetPosition">（投递：{{ c.targetPosition }}）</template>
+            </span>
+          </div>
+          <div v-if="demandOptionViews.length" class="dm-list">
+            <div
+              v-for="d in demandOptionViews" :key="d.id"
+              class="dm-option" :class="{ active: selectedDemandId === d.id }"
+              @click="selectedDemandId = d.id"
+            >
+              <div style="flex:1;min-width:0">
+                <span style="font-weight:600;color:var(--c-text)">{{ d.position }}</span>
+                <span style="color:var(--c-sub);font-size:12px"> &middot; {{ d.dept }} &middot; {{ d.statusLabel }}</span>
+                <span v-if="d.recommended" class="dm-badge dm-badge-rec">投递岗位</span>
+                <span v-if="d.partiallyLinked" class="dm-badge dm-badge-linked">部分人已在流程</span>
+              </div>
+              <span style="font-size:12px;color:var(--c-sub);white-space:nowrap">已有 {{ d.linkedCount || 0 }} 人</span>
+            </div>
+          </div>
+          <div v-else style="padding:24px 0;text-align:center;color:var(--c-sub);font-size:13px">
+            暂无招聘中/审批中的需求，请先到「需求管理」新建
+          </div>
+          <div class="modal-actions" style="margin-top:16px">
+            <button class="btn btn-ghost btn-sm" @click="showDemandModal = false">取消</button>
+            <button class="btn btn-primary btn-sm" :disabled="!selectedDemandId" @click="confirmAddToDemand">确认加入</button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </WorkbenchLayout>
 </template>
 
@@ -424,7 +454,6 @@ const { handleError } = useAppError();
 const showReminder = ref(false);
 const showNoteModal = ref(false);
 const showMatchModal = ref(false);
-const showDemandDropdown = ref(false);
 const activeTab = ref('external');
 const noteTarget = ref('');
 const noteText = ref('');
@@ -439,9 +468,53 @@ const apiExtData = ref(null);
 const apiIntData = ref(null);
 const apiBlacklistData = ref(null);
 
-// 「加入需求」下拉：来自真实需求列表 API（与需求管理页一致），不再使用 mock
+// 「加入需求」弹窗：需求列表来自真实 API；按候选人投递岗位优先排序
 const demandOptions = ref([]);
 const demandOptionsLoaded = ref(false);
+const showDemandModal = ref(false);
+const selectedDemandId = ref('');
+
+// 当前勾选的候选人（含投递岗位与已关联需求，用于推荐与标记）
+const selectedCandidates = computed(() =>
+  Object.keys(checkedExt)
+    .filter(k => checkedExt[k])
+    .map(id => EXT_DATA_SOURCE.value.find(x => x.id === id))
+    .filter(Boolean)
+    .map(c => ({
+      id: c.id,
+      name: c.name,
+      targetPosition: c.targetPosition || '',
+      linkedDemands: Array.isArray(c.linkedDemands) ? c.linkedDemands : [],
+    }))
+);
+
+const demandOptionViews = computed(() => {
+  const targets = selectedCandidates.value
+    .map(c => (c.targetPosition || '').trim())
+    .filter(Boolean);
+  const linkedNos = new Set(
+    selectedCandidates.value.flatMap(c => c.linkedDemands.map(ld => ld.demandNo))
+  );
+  return demandOptions.value
+    .map(d => ({
+      ...d,
+      recommended: targets.some(t => t && (d.position || '').includes(t.slice(0, 4)) || t.includes((d.position || '').slice(0, 4))),
+      partiallyLinked: linkedNos.has(d.id),
+    }))
+    .sort((a, b) => (b.recommended - a.recommended) || ((a.linkedCount || 0) - (b.linkedCount || 0)));
+});
+
+function openDemandModal() {
+  selectedDemandId.value = '';
+  if (!demandOptionsLoaded.value) loadDemandOptions();
+  showDemandModal.value = true;
+}
+
+function confirmAddToDemand() {
+  const d = demandOptionViews.value.find(x => x.id === selectedDemandId.value);
+  if (!d) return;
+  addToDemand(d.id, d.position);
+}
 
 async function loadDemandOptions() {
   try {
@@ -541,7 +614,7 @@ async function manualMailSync() {
       // 异步模式：后台同步已开始，稍后刷新查看结果
       toast.success(r.message || '同步已开始，请稍后刷新查看结果');
       syncProcess.value = [];
-      setTimeout(() => { Promise.all([loadFromApi(), loadIngestLog()]).catch(() => {}); }, 8000);
+      setTimeout(() => { Promise.all([loadFromApi(), loadIngestLog(), loadMailLog()]).catch(() => {}); }, 8000);
     } else {
       // 兼容旧的同步返回契约
       syncProcess.value = (r && r.details) || [];
@@ -554,7 +627,7 @@ async function manualMailSync() {
       } else {
         toast.success('收取完成：暂无新简历邮件');
       }
-      await Promise.all([loadFromApi(), loadIngestLog()]);
+      await Promise.all([loadFromApi(), loadIngestLog(), loadMailLog()]);
     }
   } catch (e) {
     toast.error('邮箱刷新失败: ' + e.message);
@@ -758,7 +831,7 @@ async function addToDemand(demandId, demandName) {
     localStorage.setItem(key, JSON.stringify(linked));
   }
 
-  showDemandDropdown.value = false;
+  showDemandModal.value = false;
   if (failReasons.length === 0) {
     toast.success('已将 ' + okNames.length + ' 位候选人加入需求「' + demandName + '」');
   } else if (okNames.length === 0) {
@@ -789,7 +862,12 @@ function onContactDone(result) {
 
 function onCandidateJoin(data) {
   showCandidateDrawer.value = false;
-  showDemandDropdown.value = true;
+  // 抽屉里对单个候选人点「加入需求」：自动勾选该候选人并打开岗位选择弹窗
+  if (data && data.id) {
+    clearSelectionExt();
+    checkedExt[data.id] = true;
+  }
+  openDemandModal();
 }
 
 const uploading = ref(false);
@@ -835,8 +913,6 @@ function hoverStyle(e, on) { e.target.style.background = on ? 'var(--c-bg)' : ''
 function onDocClick(e) {
   const rb = document.getElementById('reminderBtn'), rd = document.getElementById('reminderDropdown');
   if (showReminder.value && rd && rb && !rb.contains(e.target) && !rd.contains(e.target)) showReminder.value = false;
-  const dw = document.getElementById('demandDropdownWrap'), dd = document.getElementById('demandDropdown');
-  if (showDemandDropdown.value && dd && dw && !dw.contains(e.target)) showDemandDropdown.value = false;
 }
 
 onMounted(() => {
@@ -856,6 +932,16 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
   border: 1px solid rgba(79,110,247,0.18); border-radius: 8px; font-size: 13px; margin-top: 12px;
 }
 .batch-bar .count { font-weight: 700; color: var(--c-primary); }
+/* ── 加入需求弹窗 ── */
+.dm-cand-chip { display: inline-block; padding: 2px 8px; margin: 2px 4px 2px 0; background: var(--c-primary-subtle); border-radius: 10px; font-size: 12px; color: var(--c-text); }
+.dm-list { max-height: 320px; overflow-y: auto; border: 1px solid var(--c-border); border-radius: 8px; }
+.dm-option { display: flex; align-items: center; gap: 8px; padding: 10px 14px; cursor: pointer; border-bottom: 1px solid var(--c-border); font-size: 13px; transition: background 0.15s; }
+.dm-option:last-child { border-bottom: none; }
+.dm-option:hover { background: var(--c-bg); }
+.dm-option.active { background: var(--c-primary-subtle); box-shadow: inset 2px 0 0 var(--c-primary); }
+.dm-badge { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 8px; font-size: 11px; font-weight: 600; }
+.dm-badge-rec { background: var(--c-primary-subtle); color: var(--c-primary); }
+.dm-badge-linked { background: #FFF8E1; color: #B45309; }
 .row-locked { opacity: 0.7; }
 .row-archived { opacity: 0.4; }
 .mail-sync-btn { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }

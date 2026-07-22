@@ -198,6 +198,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
+import { useRoute } from 'vue-router';
 import WorkbenchLayout from '../layouts/WorkbenchLayout.vue';
 import ScheduleInterviewModal from '../components/ScheduleInterviewModal.vue';
 import CommunicationModal from '../components/CommunicationModal.vue';
@@ -210,8 +211,10 @@ import EmptyState from '../components/EmptyState.vue';
 
 const { toast } = useToast();
 const { handleError } = useAppError();
+const route = useRoute();
 
-const info = ref(DEMAND_INFO);
+// 需求管理页通过 ?id=DM... 传入目标需求；无参数时回退默认（直达链接/测试场景）
+const info = ref({ ...DEMAND_INFO, id: route.query.id || DEMAND_INFO.id });
 const candidates = ref([...ALL_CANDIDATES]);
 
 const checkedSet = reactive({});

@@ -425,6 +425,25 @@ def notify_batch(book_ids):
     }
 
 
+@celery_app.task(name='tasks.notify.offer_followup')
+def offer_followup():
+    """Periodic task: Offer 确认倒计时巡检。
+
+    每小时执行一次；任务内部按配置判断：
+      - 已发送 Offer 距上次提醒超过 OFFER_REMINDER_INTERVAL_HOURS（默认24h）
+        → 发倒计时提醒邮件
+      - 超过 OFFER_CONFIRM_DEADLINE_DAYS（默认3天）未确认 → 自动淘汰
+    """
+    try:
+        from app.services import hire_service
+        result = hire_service.offer_followup()
+        log.info("offer_followup complete: %s", result)
+        return {'status': 'ok', **result}
+    except Exception as exc:
+        log.exception("offer_followup failed: %s", exc)
+        return {'status': 'error', 'error': str(exc)}
+
+
 # ============================================================================
 # Celery Beat schedule — merged into the app's beat_schedule
 # ============================================================================
@@ -438,6 +457,12 @@ BEAT_SCHEDULE = {
     },
     'check-overdue-evaluations': {
         'task': 'tasks.notify.check_overdue',
+        'schedule': 3600.0,  # 1 hour
+    },
+    # Offer 确认倒计时：每小时巡检一次，任务内部按 24h 间隔去重提醒、
+    # 超过 OFFER_CONFIRM_DEADLINE_DAYS 自动淘汰
+    'offer-confirm-countdown': {
+        'task': 'tasks.notify.offer_followup',
         'schedule': 3600.0,  # 1 hour
     },
 }

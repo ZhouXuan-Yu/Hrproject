@@ -84,6 +84,15 @@ class Config:
     # Fallback strategies: 'cache' | 'local_ai' | 'mock' | 'error'
     DEEPSEEK_FALLBACK = os.environ.get('DEEPSEEK_FALLBACK', 'cache')
 
+    # ------------------------------------------------------------------
+    # Offer 候选人确认倒计时
+    # OFFER_CONFIRM_DEADLINE_DAYS: Offer 发出后候选人确认截止天数（超时自动淘汰）
+    # OFFER_REMINDER_INTERVAL_HOURS: 倒计时提醒邮件发送间隔（每天一次=24）
+    # 测试可调小（如 0.04 小时≈2.5分钟）验证逻辑
+    # ------------------------------------------------------------------
+    OFFER_CONFIRM_DEADLINE_DAYS = float(os.environ.get('OFFER_CONFIRM_DEADLINE_DAYS', '3'))
+    OFFER_REMINDER_INTERVAL_HOURS = float(os.environ.get('OFFER_REMINDER_INTERVAL_HOURS', '24'))
+
 
 class DevelopmentConfig(Config):
     DEBUG = True

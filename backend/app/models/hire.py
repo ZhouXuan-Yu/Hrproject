@@ -31,6 +31,23 @@ class Offer(BaseModel):
     offer_file_id = Column(BigInteger, nullable=True, comment='Offer附件ID')
 
 
+class OfferRemindLog(BaseModel):
+    """Offer 倒计时提醒发送记录（每天一封倒计时邮件的去重依据）。
+
+    独立小表而非改 t_hr_offer 结构，避免动存量 MySQL 表；
+    表不存在时由 offer_followup 自动创建（best-effort）。
+    """
+    __tablename__ = 't_hr_offer_remind_log'
+
+    offer_id = Column(BigInteger, nullable=False, comment='Offer主键ID')
+    offer_no = Column(String(32), nullable=False, comment='Offer编号')
+    remind_type = Column(String(16), nullable=False, default='countdown', comment='countdown倒计时提醒')
+    days_left = Column(Integer, nullable=False, comment='发送时剩余天数')
+    sent_to = Column(String(128), nullable=True, comment='收件邮箱')
+    send_ok = Column(Integer, nullable=False, default=0, comment='0失败 1成功')
+    send_msg = Column(String(255), nullable=True, comment='发送结果说明')
+
+
 class Entry(BaseModel):
     __tablename__ = 't_hr_entry'
 

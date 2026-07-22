@@ -34,7 +34,7 @@
           <tr v-for="d in filteredDemands" :key="d.id" :style="{ opacity: d.status === 'draft' ? 0.6 : 1 }">
             <td><b>{{ d.id }}</b></td>
             <td v-if="d.status === 'open'">
-              <a href="/recruit-demand-detail" class="position-link" @click.prevent="goDetail">{{ d.position }}</a>
+              <a href="/recruit-demand-detail" class="position-link" @click.prevent="goDetail(d)">{{ d.position }}</a>
             </td>
             <td v-else>{{ d.position }}</td>
             <td>{{ d.dept }}</td>
@@ -62,7 +62,7 @@
             </td>
             <td><StatusBadge :type="d.statusType">{{ d.statusLabel }}</StatusBadge></td>
             <td class="row-actions">
-              <button class="btn btn-outline btn-sm" @click="goDetail">查看详情</button>
+              <button class="btn btn-outline btn-sm" @click="goDetail(d)">查看详情</button>
               <button v-if="d.status === 'approval'" class="btn btn-primary btn-sm" @click="approveDemand(d)">同意</button>
               <button v-if="d.status === 'draft'" class="btn btn-outline btn-sm" @click="openEditModal(d)">编辑</button>
               <button v-if="['draft', 'rejected', 'cancelled'].includes(d.status)" class="btn btn-ghost btn-sm" style="color:var(--c-reject,#d4380d)" @click="removeDemand(d)">删除</button>
@@ -321,7 +321,7 @@ async function moreOps(d) {
   } catch (e) { handleError(e, 'RecruitDemand.moreOps'); }
 }
 
-function goDetail(){ router.push('/recruit-demand-detail'); }
+function goDetail(d){ router.push({ path: '/recruit-demand-detail', query: { id: d.id } }); }
 
 async function removeDemand(d) {
   if (!confirm(`确认删除需求 "${d.id} ${d.position}"？删除后不可恢复。`)) return;

@@ -256,7 +256,32 @@ test('demand detail enhanced filters and batch actions are available', async ({ 
   await expect(page.locator('#candidateTable')).toBeVisible({ timeout: 10000 });
 });
 
-test('talent "加入需求" dropdown matches real demand list from API', async ({ page }) => {
+test('demand list 查看详情 navigates with demand id and detail loads that demand', async ({ page }) => {
+  // 真实 token，保证列表/详情都走真实 API
+  const loginResp = await page.request.post('/api/auth/login', {
+    data: { username: 'admin', role: 'admin' },
+  });
+  const token = (await loginResp.json()).data?.token;
+  expect(token).toBeTruthy();
+  await page.addInitScript(t => localStorage.setItem('hr_token', t), token);
+
+  await page.goto('/recruit-demand');
+  await page.waitForTimeout(1500);
+
+  // 取第一行招聘中需求的编号，点击其「查看详情」
+  const openRow = page.locator('tbody tr', { hasText: '招聘中' }).first();
+  await expect(openRow).toBeVisible({ timeout: 10000 });
+  const demandNo = (await openRow.locator('td').first().textContent()).trim();
+  expect(demandNo).toMatch(/^DM/);
+  await openRow.getByRole('button', { name: '查看详情' }).click();
+
+  // URL 必须携带需求编号，详情页加载同一需求
+  await expect(page).toHaveURL(new RegExp(`/recruit-demand-detail\\?id=${demandNo}`));
+  await page.waitForTimeout(1500);
+  await expect(page.locator('body')).toContainText(demandNo);
+});
+
+test('talent "加入需求" opens demand-select modal matching real demand list', async ({ page }) => {
   // 后端要求真实 JWT：先在 Node 侧登录换取 token，再通过 initScript 注入
   // （beforeEach 的假 token 会导致 401，且 api 层收到 401 会异步清掉 hr_token，
   //   因此必须在首次导航前就注入真实 token）
@@ -269,7 +294,7 @@ test('talent "加入需求" dropdown matches real demand list from API', async (
   await page.addInitScript(t => localStorage.setItem('hr_token', t), token);
 
   await page.goto('/recruit-talent');
-  // 等待人才库数据与需求下拉数据加载
+  // 等待人才库数据与需求列表加载
   await page.waitForTimeout(1500);
 
   // 勾选一位未锁定的候选人，唤起批量操作栏
@@ -278,9 +303,13 @@ test('talent "加入需求" dropdown matches real demand list from API', async (
   await firstCheck.check();
   await expect(page.locator('#batchBarExt')).toBeVisible();
 
-  // 打开「加入需求」下拉
-  await page.locator('#demandDropdownWrap button', { hasText: '加入需求' }).click();
-  await expect(page.locator('#demandDropdown')).toBeVisible();
+  // 点击「加入需求」应弹出岗位选择弹窗
+  await page.locator('#batchBarExt button', { hasText: '加入需求' }).click();
+  const modal = page.locator('#demandModal');
+  await expect(modal).toBeVisible();
+  await expect(modal).toContainText('选择目标岗位');
+  // 未选择岗位时确认按钮禁用
+  await expect(modal.locator('button', { hasText: '确认加入' })).toBeDisabled();
 
   // 从真实 API 取需求列表，按前端规则过滤（招聘中优先，其次审批中）
   const expected = await page.evaluate(async () => {
@@ -290,17 +319,23 @@ test('talent "加入需求" dropdown matches real demand list from API', async (
     });
     const body = await resp.json();
     const list = Array.isArray(body.data) ? body.data : [];
-    const rank = { open: 0, approval: 1 };
     return list
       .filter(d => d.status === 'open' || d.status === 'approval')
-      .sort((a, b) => (rank[a.status] ?? 9) - (rank[b.status] ?? 9))
-      .map(d => `${d.position} · ${d.dept} · ${d.statusLabel}`);
+      .map(d => d.position);
   });
   expect(expected.length).toBeGreaterThan(0);
 
-  const items = page.locator('#demandDropdown > div').filter({ hasNotText: '选择目标岗位' });
-  const actual = await items.allTextContents();
-  expect(actual.map(t => t.trim())).toEqual(expected);
+  // 弹窗选项覆盖全部可加入需求（顺序按投递岗位推荐，不定序，按集合比对）
+  const options = modal.locator('.dm-option');
+  const actual = (await options.allTextContents()).map(t => t.trim());
+  expect(options).toHaveCount(expected.length);
+  for (const pos of expected) {
+    expect(actual.some(t => t.includes(pos))).toBeTruthy();
+  }
+
+  // 选择首个岗位后确认按钮可用
+  await options.first().click();
+  await expect(modal.locator('button', { hasText: '确认加入' })).toBeEnabled();
 });
 
 test('talent library filters and contact flow avoid unrealistic outbound calling', async ({ page }) => {

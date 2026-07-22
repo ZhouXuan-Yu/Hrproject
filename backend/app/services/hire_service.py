@@ -322,31 +322,138 @@ def withdraw_offer(offer_id, reason=None):
     return {'withdrawn': True, 'id': offer_id}
 
 
-def expire_offers():
-    """Mark offers older than 14 days in 'sent'(1) status as 'expired'(4).
+def expire_offers(now=None):
+    """把超过确认截止时间的 sent(1) Offer 置为 expired(4)。
 
-    Returns count of expired offers.
+    截止时间 = send_time + OFFER_CONFIRM_DEADLINE_DAYS（默认 3 天，配置项）。
+    过期联动：流程状态→4(淘汰)、需求名额释放、候选人回流人才库。
+
+    Returns dict: {'expiredCount': n, 'expired': [offer_no, ...]}
     """
     from app.models.hire import Offer
 
-    cutoff = datetime.now() - timedelta(days=14)
-    expired_offers = Offer.query.filter(
+    now = now or datetime.now()
+    deadline_days = _offer_deadline_days()
+    sent_offers = Offer.query.filter(
         Offer.offer_status == 1,  # sent
-        Offer.send_time <= cutoff,
         Offer.is_deleted == 0,
     ).all()
 
-    count = 0
-    for offer in expired_offers:
-        offer.offer_status = 4  # expired
-        _reopen_demand_position(offer)
-        count += 1
+    expired = []
+    for offer in sent_offers:
+        base = offer.send_time or offer.created_at
+        if not base:
+            continue
+        if now - base >= timedelta(days=deadline_days):
+            offer.offer_status = 4  # expired
+            _reopen_demand_position(offer)
+            _update_process_status(offer, 4)  # 淘汰
+            _release_candidate_for_offer(offer)
+            expired.append(offer.offer_no)
+            log.info("Offer 超 %s 天未确认，自动淘汰: %s", deadline_days, offer.offer_no)
 
-    if count > 0:
+    if expired:
         db.session.commit()
-        log.info("Expired %d offers older than 14 days", count)
 
-    return {'expiredCount': count}
+    return {'expiredCount': len(expired), 'expired': expired}
+
+
+def _offer_deadline_days():
+    """读取确认截止天数配置（默认 3 天）。"""
+    try:
+        from flask import current_app
+        return float(current_app.config.get('OFFER_CONFIRM_DEADLINE_DAYS', 3))
+    except Exception:
+        return 3.0
+
+
+def _offer_remind_interval_hours():
+    """读取倒计时提醒间隔配置（默认 24 小时）。"""
+    try:
+        from flask import current_app
+        return float(current_app.config.get('OFFER_REMINDER_INTERVAL_HOURS', 24))
+    except Exception:
+        return 24.0
+
+
+def _ensure_remind_log_table():
+    """best-effort 自动创建提醒记录表（存量 MySQL 无此表时免迁移）。"""
+    from app.models.hire import OfferRemindLog
+    try:
+        OfferRemindLog.__table__.create(db.engine, checkfirst=True)
+    except Exception as exc:
+        log.warning("OfferRemindLog 建表失败（best-effort）: %s", exc)
+
+
+def offer_followup(now=None):
+    """Offer 确认倒计时巡检：每天发一次倒计时提醒 + 超时自动淘汰。
+
+    供 celery 定时任务 / CLI 脚本调用。逻辑：
+      1. 对已发送(1)且未超截止时间的 Offer，距上次提醒超过
+         OFFER_REMINDER_INTERVAL_HOURS（默认24h）则发倒计时提醒邮件，
+         写入 t_hr_offer_remind_log 去重
+      2. 超过 OFFER_CONFIRM_DEADLINE_DAYS（默认3天）未确认的 Offer
+         置为已过期，流程→淘汰（见 expire_offers）
+
+    Returns dict: {'reminded': [...], 'expired': [...]}
+    """
+    from app.models.hire import Offer, OfferRemindLog
+
+    now = now or datetime.now()
+    deadline_days = _offer_deadline_days()
+    interval = timedelta(hours=_offer_remind_interval_hours())
+
+    _ensure_remind_log_table()
+
+    reminded = []
+    sent_offers = Offer.query.filter(
+        Offer.offer_status == 1,
+        Offer.is_deleted == 0,
+    ).all()
+
+    for offer in sent_offers:
+        base = offer.send_time or offer.created_at
+        if not base:
+            continue
+        deadline = base + timedelta(days=deadline_days)
+        if now >= deadline:
+            continue  # 交给下面的 expire_offers 统一处理
+
+        days_left = max(1, int((deadline - now).total_seconds() // 86400) + 1)
+
+        # 查最近一次提醒，间隔未到期则跳过
+        try:
+            last = (OfferRemindLog.query.filter_by(offer_id=offer.id, is_deleted=0)
+                    .order_by(OfferRemindLog.id.desc()).first())
+        except Exception:
+            last = None
+        if last and now - last.created_at < interval:
+            continue
+
+        # 发倒计时提醒邮件（best-effort，失败也记录日志避免轰炸）
+        ok, msg, to_addr = False, '未尝试', None
+        try:
+            from app.services.confirm_service import send_offer_reminder_email
+            ok, msg, to_addr = send_offer_reminder_email(offer, days_left, deadline)
+        except Exception as exc:
+            msg = str(exc)
+            log.warning("Offer 倒计时提醒发送失败: %s -> %s", offer.offer_no, exc)
+
+        try:
+            db.session.add(OfferRemindLog(
+                offer_id=offer.id, offer_no=offer.offer_no,
+                days_left=days_left, sent_to=to_addr,
+                send_ok=1 if ok else 0, send_msg=msg[:250] if msg else None,
+            ))
+            db.session.commit()
+        except Exception as exc:
+            db.session.rollback()
+            log.warning("提醒记录写入失败: %s", exc)
+        reminded.append({'offerNo': offer.offer_no, 'daysLeft': days_left, 'sent': ok})
+
+    expire_result = expire_offers(now=now)
+    return {'reminded': reminded, 'expired': expire_result['expired'],
+            'deadlineDays': deadline_days}
 
 
 def get_offer(offer_id):

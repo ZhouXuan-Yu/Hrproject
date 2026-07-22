@@ -103,7 +103,19 @@ def withdraw_offer(offer_id):
 
 @bp.route('/offers/expire', methods=['POST'])
 def expire_offers():
-    """POST /api/hire/offers/expire — expire all sent offers older than 14 days."""
+    """POST /api/hire/offers/expire — 将超过确认截止时间的已发送 Offer 置为过期。"""
     from app.services.hire_service import expire_offers
     result = expire_offers()
+    return success(result)
+
+
+@bp.route('/offers/followup', methods=['POST'])
+def offer_followup():
+    """POST /api/hire/offers/followup — 手动触发一轮 Offer 倒计时巡检。
+
+    与 celery 定时任务 tasks.notify.offer_followup 等价：
+    倒计时提醒（默认每24h一封）+ 超时自动淘汰（默认3天）。
+    """
+    from app.services.hire_service import offer_followup
+    result = offer_followup()
     return success(result)
