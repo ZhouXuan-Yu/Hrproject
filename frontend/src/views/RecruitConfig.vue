@@ -100,12 +100,30 @@
             <td>{{ tpl.updated }}</td>
             <td class="row-actions">
               <a href="#" class="btn btn-text btn-sm" @click.prevent="editTemplate(tpl)">编辑</a>
-              <a v-if="tpl.name && tpl.name.includes('邀请')" href="#" class="btn btn-text btn-sm" @click.prevent="previewTemplate(tpl)">预览</a>
+              <a href="#" class="btn btn-text btn-sm" @click.prevent="previewTemplate(tpl)">预览</a>
             </td>
           </tr>
         </tbody>
       </table>
       <button class="btn btn-primary btn-sm" style="margin-top:10px" @click="openAddTemplate">+ 新增模板</button>
+    </BaseAccordion>
+
+    <!-- AI 知识库 -->
+    <BaseAccordion title="AI 知识库" data-testid="knowledge-base-panel">
+      <div class="accordion-desc">
+        维护公司基础信息、招聘口径和 AI 补充上下文。JD 生成、候选人沟通话术等 DeepSeek 分析会读取这里的内容。
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>公司名称</label><input data-testid="kb-company-name" type="text" v-model="knowledgeForm.companyName" placeholder="XX公司"></div>
+        <div class="form-group"><label>行业/业务</label><input data-testid="kb-industry" type="text" v-model="knowledgeForm.industry" placeholder="企业服务 / 智能招聘"></div>
+      </div>
+      <div class="form-group"><label>官网</label><input data-testid="kb-website" type="text" v-model="knowledgeForm.website" placeholder="https://example.com"></div>
+      <div class="form-group"><label>公司介绍</label><textarea data-testid="kb-company-profile" v-model="knowledgeForm.companyProfile" rows="4" class="kb-textarea" placeholder="写清楚公司做什么、服务谁、当前业务阶段和组织特点"></textarea></div>
+      <div class="form-group"><label>招聘口径</label><textarea data-testid="kb-hiring-principles" v-model="knowledgeForm.hiringPrinciples" rows="4" class="kb-textarea" placeholder="写清楚岗位分析、候选人沟通、合规表达的基础要求"></textarea></div>
+      <div class="form-group"><label>AI 补充上下文</label><textarea data-testid="kb-ai-context" v-model="knowledgeForm.aiContext" rows="4" class="kb-textarea" placeholder="补充前面 AI 功能需要长期遵守的上下文"></textarea></div>
+      <button data-testid="kb-save" class="btn btn-primary btn-sm" :disabled="knowledgeSaving" @click="saveKnowledgeBase">
+        {{ knowledgeSaving ? '保存中...' : '保存知识库' }}
+      </button>
     </BaseAccordion>
 
     <!-- API Key 管理 -->
@@ -349,6 +367,29 @@
         </div>
       </div>
     </Teleport>
+
+    <Teleport to="body">
+      <div class="modal-overlay" :class="{ open: showPreviewModal }" v-if="showPreviewModal" @click.self="showPreviewModal = false">
+        <div class="modal-box" style="width:560px">
+          <h3>模板预览</h3>
+          <div class="tpl-preview-meta">
+            <span>{{ previewTpl?.name || '通知模板' }}</span>
+            <span>{{ previewTpl?.type || '通用' }}</span>
+            <span>{{ previewTpl?.method || '邮件' }}</span>
+          </div>
+          <div class="tpl-preview-card">
+            <div class="tpl-preview-subject">{{ previewSubject }}</div>
+            <div class="tpl-preview-body">{{ previewBody }}</div>
+          </div>
+          <div class="tpl-preview-vars">
+            样例变量：候选人=张三，公司=XX公司，岗位=高级Java工程师，HR=李HR
+          </div>
+          <div class="modal-actions" style="margin-top:16px">
+            <button class="btn btn-primary btn-sm" @click="showPreviewModal = false">关闭</button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </WorkbenchLayout>
 </template>
 
@@ -368,6 +409,7 @@ import {
   createChannel, updateChannel,
   updateScoreRules,
   createNotifyTemplate, updateNotifyTemplate,
+  fetchKnowledgeBase, updateKnowledgeBase,
 } from '../api/config.js';
 
 const { toast } = useToast();
@@ -381,6 +423,15 @@ const scoreRules = reactive({
   passLine: 60, topCount: 5, searchRange: '近 3 个月',
 });
 const notifyTemplates = ref([]);
+const knowledgeForm = reactive({
+  companyName: 'XX公司',
+  industry: '',
+  website: '',
+  companyProfile: '',
+  hiringPrinciples: '',
+  aiContext: '',
+});
+const knowledgeSaving = ref(false);
 const rolePermissions = ref([]);
 const auditLogs = ref([]);
 const secretKeys = ref([]);
@@ -400,11 +451,43 @@ const feishuMsg = ref('');
 const feishuMsgType = ref('ok');
 const feishuTest = reactive({ status: '', message: '', source: null });
 
+const DEFAULT_NOTIFY_TEMPLATES = [
+  {
+    id: 'default_interview',
+    name: '面试邀请模板',
+    type: '面试',
+    method: '邮件 + 飞书',
+    subject: 'XX公司{{岗位}}面试邀请',
+    body: '{{候选人}}您好，诚邀您参加{{公司}}{{岗位}}的面试，请按{{时间}}准时参加。',
+    updated: '系统默认',
+  },
+  {
+    id: 'default_offer',
+    name: '录用通知模板',
+    type: 'Offer',
+    method: '邮件',
+    subject: 'XX公司{{岗位}}录用通知',
+    body: '{{候选人}}您好，恭喜您通过{{公司}}{{岗位}}面试。请查看录用通知并在有效期内确认。',
+    updated: '系统默认',
+  },
+  {
+    id: 'default_reject',
+    name: '淘汰通知模板',
+    type: '淘汰',
+    method: '邮件',
+    subject: 'XX公司{{岗位}}招聘流程通知',
+    body: '{{候选人}}您好，感谢您参与{{公司}}{{岗位}}招聘流程。经综合评估，本次暂不继续推进。',
+    updated: '系统默认',
+  },
+];
+
 const showEmailModal = ref(false);
 const showChanModal = ref(false);
 const showTplModal = ref(false);
+const showPreviewModal = ref(false);
 const editingEmail = ref(null);
 const editingTpl = ref(null);
+const previewTpl = ref(null);
 const emailSaving = ref(false);
 const ruleSaving = ref(false);
 const ruleMsg = ref('');
@@ -430,6 +513,8 @@ const emailForm = reactive({
 });
 const chanForm = reactive({ name: '', type: '第三方平台', cost: '¥0' });
 const tplForm = reactive({ name: '', type: '面试', method: '飞书', subject: '', body: '' });
+const previewSubject = computed(() => renderTemplateText(previewTpl.value?.subject || previewTpl.value?.name || '来自XX公司的招聘通知'));
+const previewBody = computed(() => renderTemplateText(previewTpl.value?.body || defaultTemplateBody(previewTpl.value)));
 
 import { EMAIL_PRESETS } from '../data/config.js';
 
@@ -469,17 +554,20 @@ const reverseStatus = (s) => normalizeStatus(s) ? 0 : 1;
 
 async function loadAll() {
   try {
-    const [emails, chs, rules, notifs, roles, logs, keys, tStatus, fStatus] = await Promise.all([
+    const [emails, chs, rules, notifs, roles, logs, keys, tStatus, fStatus, kb] = await Promise.all([
       fetchEmailAccounts(), fetchChannels(), fetchScoreRules(),
       fetchNotifyTemplates(), fetchRolePermissions(), fetchAuditLogs(),
-      fetchApiKeys(), fetchTencentStatus(), fetchFeishuStatus(),
+      fetchApiKeys(), fetchTencentStatus(), fetchFeishuStatus(), fetchKnowledgeBase(),
     ]);
     if (emails) emailAccounts.value = emails;
     if (chs) channels.value = chs;
     if (rules) Object.assign(scoreRules, rules);
-    if (notifs) notifyTemplates.value = notifs;
+    notifyTemplates.value = Array.isArray(notifs) && notifs.length
+      ? notifs
+      : DEFAULT_NOTIFY_TEMPLATES.map(t => ({ ...t }));
     if (roles) rolePermissions.value = roles;
     if (logs) auditLogs.value = logs;
+    if (kb) Object.assign(knowledgeForm, kb);
     if (keys) {
       secretKeys.value = Object.values(keys)
         .filter(k => !k.key_name.startsWith('tencent_') && k.key_name !== 'feishu' && k.key_name !== 'feishu_app_id')
@@ -495,6 +583,9 @@ async function loadAll() {
     if (fStatus) feishuStatus.value = fStatus;
   } catch (e) {
     console.warn('Config API fallback:', e.message);
+    if (!notifyTemplates.value.length) {
+      notifyTemplates.value = DEFAULT_NOTIFY_TEMPLATES.map(t => ({ ...t }));
+    }
   }
 }
 
@@ -813,8 +904,51 @@ function editTemplate(tpl) {
   showTplModal.value = true;
 }
 function previewTemplate(tpl) {
-  toast.info('预览：' + tpl.name);
+  previewTpl.value = tpl;
+  showPreviewModal.value = true;
 }
+
+function defaultTemplateBody(tpl) {
+  const type = String(tpl?.type || tpl?.name || '');
+  if (type.includes('Offer') || type.includes('录用')) {
+    return '张三您好，恭喜您通过XX公司的{{岗位}}面试。请查看录用通知并在有效期内确认。';
+  }
+  if (type.includes('淘汰')) {
+    return '张三您好，感谢您参与XX公司的{{岗位}}招聘流程。经综合评估，本次暂不继续推进。';
+  }
+  if (type.includes('提醒')) {
+    return '张三您好，提醒您关注XX公司{{岗位}}招聘流程的下一步安排。';
+  }
+  return '张三您好，诚邀您参加XX公司{{岗位}}的面试，请按约定时间参加。';
+}
+
+function renderTemplateText(text) {
+  return String(text || '')
+    .replaceAll('{{候选人}}', '张三')
+    .replaceAll('{{candidate}}', '张三')
+    .replaceAll('{{公司}}', 'XX公司')
+    .replaceAll('{{company}}', 'XX公司')
+    .replaceAll('{{岗位}}', '高级Java工程师')
+    .replaceAll('{{position}}', '高级Java工程师')
+    .replaceAll('{{HR}}', '李HR')
+    .replaceAll('{{hr}}', '李HR')
+    .replaceAll('{{时间}}', '2026-07-23 14:00')
+    .replaceAll('{{time}}', '2026-07-23 14:00');
+}
+
+async function saveKnowledgeBase() {
+  knowledgeSaving.value = true;
+  try {
+    const r = await updateKnowledgeBase({ ...knowledgeForm });
+    if (r?.data) Object.assign(knowledgeForm, r.data);
+    toast.success('知识库已保存，AI 功能将使用新的公司上下文');
+  } catch (e) {
+    toast.error('知识库保存失败: ' + (e.message || '未知错误'));
+  } finally {
+    knowledgeSaving.value = false;
+  }
+}
+
 async function updateTplMethod(tpl, e) {
   const val = e.target.value.trim();
   if (val === tpl.method) return;
@@ -850,6 +984,13 @@ async function submitTemplate() {
   color: var(--e-muted); background: var(--e-surface-soft);
   border-bottom: 1px solid var(--e-border); font-weight: 650; white-space: nowrap; text-align: left;
 }
+.tpl-preview-meta { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 12px; }
+.tpl-preview-meta span { padding: 4px 8px; border: 1px solid var(--c-border); border-radius: 6px; font-size: 12px; color: var(--c-sub); }
+.tpl-preview-card { border: 1px solid var(--c-border); border-radius: 8px; background: var(--c-card); overflow: hidden; }
+.tpl-preview-subject { padding: 12px 14px; border-bottom: 1px solid var(--c-border); font-size: 14px; font-weight: 700; color: var(--c-text); }
+.tpl-preview-body { white-space: pre-wrap; padding: 14px; font-size: 13px; line-height: 1.8; color: var(--c-body); background: var(--c-bg); }
+.tpl-preview-vars { margin-top: 10px; font-size: 12px; color: var(--c-sub); }
+.kb-textarea { width:100%; padding:8px 10px; border:1px solid var(--c-border); border-radius:6px; font-size:13px; font-family:inherit; resize:vertical; box-sizing:border-box; }
 .config-table td { height: 40px; padding: 0 12px; color: var(--e-ink-2); border-bottom: 1px solid var(--e-border-soft); }
 .row-actions { white-space: nowrap; }
 .row-actions .btn-text, .row-actions .btn-text-danger { display: inline; padding: 0 4px; font-size: 12px; }

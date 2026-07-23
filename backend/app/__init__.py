@@ -18,18 +18,6 @@ def create_app(config_name=None):
     ma.init_app(app)
     cors.init_app(app, origins=app.config.get('CORS_ORIGINS', '*'))
 
-    # SQLite: 开启 WAL，允许读写在 Web 进程与 Celery 任务间并发
-    if app.config['SQLALCHEMY_DATABASE_URI'].startswith('sqlite'):
-        with app.app_context():
-            from sqlalchemy import event
-
-            @event.listens_for(db.engine, 'connect')
-            def _sqlite_wal(dbapi_conn, _record):
-                cur = dbapi_conn.cursor()
-                cur.execute('PRAGMA journal_mode=WAL')
-                cur.execute('PRAGMA busy_timeout=30000')
-                cur.close()
-
     # Register blueprints
     from app.api import register_blueprints
     register_blueprints(app)

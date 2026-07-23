@@ -58,6 +58,13 @@ def build_confirm_url(token):
     return f'{base}/confirm/{token}'
 
 
+def _public_url_notice():
+    base = os.environ.get('PUBLIC_BASE_URL', 'http://127.0.0.1:5000')
+    if '127.0.0.1' in base or 'localhost' in base:
+        return '<p style="color:#b45309;font-size:12px">当前系统未配置公网地址，此确认链接仅可在部署服务器本机或内网测试访问。</p>'
+    return ''
+
+
 # ===========================================================================
 # Data helpers
 # ===========================================================================
@@ -255,6 +262,7 @@ def send_interview_invite_email(book):
         <a href="{url}" style="background:#4F6EF7;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold">确认面试安排</a>
       </p>
       <p style="color:#999;font-size:12px">如按钮无法点击，请复制链接到浏览器打开：{url}</p>
+      {_public_url_notice()}
     </div>"""
 
     ok, msg = send_mail(email, f'【面试邀请】{position} - {time_str}', html,
@@ -288,6 +296,7 @@ def send_offer_email(offer):
         <a href="{url}" style="background:#22a06b;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold">查看并确认 Offer</a>
       </p>
       <p style="color:#999;font-size:12px">如按钮无法点击，请复制链接到浏览器打开：{url}</p>
+      {_public_url_notice()}
     </div>"""
 
     return send_mail(email, f'【录用通知】{position} Offer', html,

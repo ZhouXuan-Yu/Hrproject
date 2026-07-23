@@ -177,6 +177,18 @@ def batch_match_demand(demand_id: str, candidate_ids: list = None, top_n: int = 
         }
     """
     from app.services.demand_service import list_demand_candidates
+    demand_jd = ''
+    demand_pk = None
+    try:
+        from app.models.demand import RecruitDemand
+        demand = RecruitDemand.query.filter_by(demand_no=demand_id, is_deleted=0).first()
+        if not demand and str(demand_id).isdigit():
+            demand = RecruitDemand.query.filter_by(id=int(demand_id), is_deleted=0).first()
+        if demand:
+            demand_jd = demand.jd_content or ''
+            demand_pk = demand.id
+    except Exception:
+        pass
 
     if candidate_ids is None:
         # Fetch candidates already linked to this demand
@@ -206,8 +218,24 @@ def batch_match_demand(demand_id: str, candidate_ids: list = None, top_n: int = 
         profile = calc_profile_score(cand)
         profile_score = profile['score']
 
-        # 2) Match score
-        match = calc_match_score(cid, demand_id, profile_score)
+        # 2) Match score: prefer real JD/resume parsing, then deterministic fallback.
+        match = None
+        if demand_jd and cand.get('extract_json'):
+            try:
+                from app.services.ai_engine import match_job
+                m = match_job(cand.get('extract_json') or {}, demand_jd)
+                score = m.get('match_score') or 0
+                match = {
+                    'score': score,
+                    'grade': profile_grade(score),
+                    'class': match_color(score),
+                    'reason': '基于简历解析与岗位说明匹配',
+                    'detail': m.get('score_detail') or m.get('summary') or '已按 JD 与简历解析字段计算',
+                }
+            except Exception as exc:
+                log.warning("real match failed for %s/%s: %s", cid, demand_id, exc)
+        if not match:
+            match = calc_match_score(cid, demand_id, profile_score)
         match_score = match['score']
 
         # 3) Source & days ago
@@ -419,7 +447,7 @@ def filter_hard_requirements(candidates: list, demand: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 def _resolve_candidates(candidate_ids: list) -> list:
-    """Resolve candidate ids into candidate data dicts — DB first, mock fallback."""
+    """Resolve candidate ids into candidate data dicts from the database."""
     try:
         from app.models.candidate import Candidate
         from app.models.candidate import Resume
@@ -441,15 +469,22 @@ def _resolve_candidates(candidate_ids: list) -> list:
                 edu_labels = {1: '大专', 2: '本科', 3: '硕士', 4: '博士'}
                 school_labels = {1: '普通', 2: '211', 3: '985', 4: 'C9'}
                 source_label_map = {
-                    '邮箱': 'direct', 'Boss': 'direct', '猎聘': 'direct',
-                    '内推': 'internal', '内部推荐': 'internal',
+                    '邮箱': 'mail', '邮箱采集': 'mail',
+                    'Boss': 'boss', 'Boss直聘': 'boss',
+                    '猎聘': 'liepin',
+                    '内推': 'refer', '内部推荐': 'refer',
+                    '手动上传': 'upload',
                 }
                 source_label_display = {
-                    'direct': '直接投递', 'external': '人才库检索', 'pool': '人才库检索',
+                    'mail': '邮箱采集', 'boss': 'Boss直聘', 'liepin': '猎聘',
+                    'refer': '内推', 'upload': '手动上传', 'pool': '人才库',
                     'internal': '内部员工',
                 }
 
-                source_type = source_label_map.get(cand.source_channel, 'external')
+                source_type = source_label_map.get(cand.source_channel, 'pool')
+                resume = (Resume.query.filter_by(candidate_id=cand.id, is_deleted=0)
+                          .order_by(Resume.storage_time.desc()).first())
+                extract = resume.extract_json if resume else {}
                 results.append({
                     'id': cand.candidate_no or str(cand.id),
                     'name': cand.candidate_name,
@@ -469,34 +504,26 @@ def _resolve_candidates(candidate_ids: list) -> list:
                     'statusLabel': {'available': '可联系', 'locked': '面试中(锁定)', 'reserve': '储备', 'archived': '已归档'}.get(cand.status, '可联系'),
                     'isEmployee': False,
                     'years': f"{cand.work_years}年" if cand.work_years else '—',
+                    'skills': extract.get('skills', []) if isinstance(extract, dict) else [],
+                    'extract_json': extract if isinstance(extract, dict) else {},
                 })
                 continue
 
-            # Not found: fall back to mock store
-            if cid_str in _MOCK_CANDIDATE_STORE:
-                results.append(dict(_MOCK_CANDIDATE_STORE[cid_str]))
-            else:
-                results.append({'id': cid_str, 'name': cid_str, 'source': 'pool', 'ageDays': 0})
+            log.warning("Candidate %s was not found in database; skipping match resolution", cid_str)
 
         return results
     except Exception as exc:
         log.error("DB query failed in _resolve_candidates: %s", exc, exc_info=True)
 
-    # Mock fallback
-    known = _MOCK_CANDIDATE_STORE
-    results = []
-    for cid in candidate_ids:
-        cid_str = str(cid)
-        if cid_str in known:
-            results.append(known[cid_str])
-        else:
-            results.append({'id': cid_str, 'name': cid_str, 'source': 'pool', 'ageDays': 0})
-    return results
+    return []
 
 
 def _source_label(source: str) -> str:
-    return {'direct': '直接投递', 'external': '人才库检索', 'pool': '人才库检索',
-            'internal': '内部员工'}.get(source, source)
+    return {
+        'mail': '邮箱采集', 'boss': 'Boss直聘', 'liepin': '猎聘',
+        'refer': '内推', 'upload': '手动上传', 'pool': '人才库',
+        'internal': '内部员工',
+    }.get(source, source)
 
 
 def _formula_text(source: str) -> str:

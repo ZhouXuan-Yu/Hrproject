@@ -37,7 +37,8 @@
     <!-- Embedded AI capabilities table -->
     <div style="margin-top:32px">
       <div class="section-label" style="font-size:14px;margin-bottom:12px">已嵌入各业务页面的辅助能力（流程内触发，不在此页面操作）</div>
-      <div class="table-wrap">
+      <div class="table-wrap data-region">
+        <DataLoadingOverlay :visible="referenceLoading" />
         <table><thead><tr><th>辅助能力</th><th>所属页面</th><th>触发方式</th><th>Dify 工作流</th><th>状态</th></tr></thead>
           <tbody><tr v-for="(item, i) in embeddedAI" :key="i">
             <td v-html="item.ability"></td><td>{{ item.page }}</td><td>{{ item.trigger }}</td><td>{{ item.workflow }}</td>
@@ -61,11 +62,12 @@
 import { ref, reactive, computed, onBeforeUnmount, onMounted, provide } from 'vue';
 import WorkbenchLayout from '../layouts/WorkbenchLayout.vue';
 import StatusBadge from '../components/StatusBadge.vue';
-import { AI_TABS, EMBEDDED_AI, MOCK_CANDIDATES, MOCK_DEMANDS } from '../data/ai.js';
+import { AI_TABS, EMBEDDED_AI } from '../data/ai.js';
 import { fetchDemands } from '../api/demand.js';
 import { fetchTalent } from '../api/talent.js';
 import StatCardRow from '../components/StatCardRow.vue';
 import { KPI_ICONS } from '../components/kpiIcons.js';
+import DataLoadingOverlay from '../components/DataLoadingOverlay.vue';
 
 import AiTabJD from './ai/AiTabJD.vue';
 import AiTabSearch from './ai/AiTabSearch.vue';
@@ -101,11 +103,14 @@ const tabMap = {
 const activeComponent = computed(() => tabMap[activeTab.value]);
 
 // --- Shared data (provided to tab children) ---
-const candidates = ref([...MOCK_CANDIDATES]);
-const demands = ref([...MOCK_DEMANDS]);
+const candidates = ref([]);
+const demands = ref([]);
+const referenceLoading = ref(true);
+const referenceLoadError = ref('');
 
 provide('aiCandidates', candidates);
 provide('aiDemands', demands);
+provide('aiReferenceLoading', referenceLoading);
 
 // --- Toast (shared) ---
 const toast = reactive({ show: false, text: '', timer: null });
@@ -119,12 +124,14 @@ onBeforeUnmount(() => { clearTimeout(toast.timer); });
 
 // --- Load real data from backend on mount ---
 async function loadBackendData() {
+  referenceLoading.value = true;
+  referenceLoadError.value = '';
   try {
     const [demandRes, talentRes] = await Promise.all([
       fetchDemands({ page: 1, pageSize: 50 }),
       fetchTalent({ tab: 'external', page: 1, pageSize: 50 }),
     ]);
-    if (demandRes.data) {
+    if (Array.isArray(demandRes.data)) {
       const dl = demandRes.data;
       demands.value = dl.map(d => ({
         id: d.id || d.demand_id,
@@ -133,7 +140,7 @@ async function loadBackendData() {
         status: d.status || d.demand_status || '—',
       }));
     }
-    if (talentRes.ext && talentRes.ext.length) {
+    if (Array.isArray(talentRes.ext)) {
       const tl = talentRes.ext;
       candidates.value = tl.map(c => ({
         id: c.id,
@@ -146,7 +153,12 @@ async function loadBackendData() {
       }));
     }
   } catch (e) {
-    console.warn('[RecruitAI] Backend data load failed, keeping mock:', e.message);
+    referenceLoadError.value = e.message || 'AI 辅助引用数据加载失败';
+    candidates.value = [];
+    demands.value = [];
+    console.warn('[RecruitAI] Backend data load failed:', e.message);
+  } finally {
+    referenceLoading.value = false;
   }
 }
 onMounted(loadBackendData);
@@ -194,6 +206,7 @@ function focusNextTab() {
 /* ===== Shared ===== */
 .permission-bar { font-size:var(--fs-caption);color:var(--c-sub);background:var(--c-surface-elevated);padding:10px 16px;border-radius:var(--radius);border:1px solid var(--c-border);line-height:1.8;margin-bottom:var(--gap) }
 .card { background:var(--c-card);border-radius:var(--radius);padding:20px;border:1px solid var(--c-border) }
+.data-region { position: relative; min-height: 160px; }
 .card-title { font-size:15px;font-weight:700;margin-bottom:16px;color:var(--c-text);display:flex;align-items:center;gap:8px }
 .card-subtitle { font-size:11px;color:var(--c-sub);font-weight:400;margin-left:8px }
 .section-label { font-size:14px;font-weight:600;color:var(--c-text) }

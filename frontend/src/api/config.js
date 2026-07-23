@@ -19,6 +19,8 @@ export async function updateScoreRules(d)     { const r = await api.put('/config
 export async function fetchNotifyTemplates()  { const r = await api.get('/config/notify-templates'); return r.data; }
 export async function createNotifyTemplate(d) { const r = await api.post('/config/notify-templates', d); return r.data; }
 export async function updateNotifyTemplate(id,d){const r = await api.put(`/config/notify-templates/${id}`, d); return r.data; }
+export async function fetchKnowledgeBase()    { const r = await api.get('/config/knowledge-base'); return r.data; }
+export async function updateKnowledgeBase(d)  { const r = await api.put('/config/knowledge-base', d); return r.data; }
 
 export async function fetchRolePermissions()  { const r = await api.get('/config/role-permissions'); return r.data; }
 export async function fetchAuditLogs()        { const r = await api.get('/config/audit-logs'); return r.data; }

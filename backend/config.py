@@ -12,20 +12,21 @@ class Config:
     if not SECRET_KEY:
         raise ValueError("SECRET_KEY environment variable is required")
 
-    # Database — defaults to SQLite for zero-setup development
-    SQLALCHEMY_DATABASE_URI = os.getenv(
-        'DATABASE_URL',
-        'sqlite:///' + os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hr_recruit.db')
-    )
+    # Database — application runtime requires MySQL/MariaDB.
+    _database_url = os.getenv('DATABASE_URL', '').strip()
+    if not _database_url:
+        raise ValueError("DATABASE_URL environment variable is required and must point to MySQL/MariaDB")
+    if _database_url.startswith('sqlite'):
+        raise ValueError("SQLite is disabled for application runtime; set DATABASE_URL=mysql+pymysql://...")
+    if not (
+        _database_url.startswith('mysql://')
+        or _database_url.startswith('mysql+pymysql://')
+        or _database_url.startswith('mariadb://')
+        or _database_url.startswith('mariadb+pymysql://')
+    ):
+        raise ValueError("DATABASE_URL must be a MySQL/MariaDB SQLAlchemy URL")
+    SQLALCHEMY_DATABASE_URI = _database_url
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-
-    # SQLite 并发加固：Web 进程与 Celery 邮件同步任务共用同一个 sqlite 文件，
-    # 同步任务长时间写库时 Web 请求直接 500（database is locked）。
-    # busy_timeout 让写请求排队等待而不是立刻报错；WAL 允许读写并发。
-    if SQLALCHEMY_DATABASE_URI.startswith('sqlite'):
-        SQLALCHEMY_ENGINE_OPTIONS = {
-            'connect_args': {'timeout': 30},  # busy_timeout = 30s
-        }
 
     # Redis / Celery
     CELERY_BROKER_URL = os.getenv('REDIS_URL', 'redis://127.0.0.1:6379/0')

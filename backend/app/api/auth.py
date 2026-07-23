@@ -53,6 +53,7 @@ def login():
     role_user_ids = {
         'admin': 1, 'hr': 2, 'dept_head': 3, 'employee': 4,
         'interviewer': 5, 'temp_interviewer': 6, 'no_recruit': 7,
+        'executive': 8,
     }
     user_id = role_user_ids.get(role, 1)
 

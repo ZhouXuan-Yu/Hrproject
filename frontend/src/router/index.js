@@ -44,7 +44,7 @@ export const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', redirect: '/login' },
-    { path: '/login', component: LoginPage, meta: { title: '登录' } },
+    { path: '/login', component: LoginPage, meta: { title: '登录', noCache: true } },
     { path: '/recruit-dashboard', component: RecruitDashboard, meta: { title: '招聘看板' } },
     { path: '/recruit-demand', component: RecruitDemand, meta: { title: '需求管理' } },
     { path: '/recruit-demand-detail', component: RecruitDemandDetail, meta: { title: '需求详情' } },

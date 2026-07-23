@@ -1,16 +1,8 @@
 // api/ai.js — AI workflow API calls
 // All POST to /api/ai/run/<workflow>
-// Falls back to mock data on failure
+// Never returns local mock data; failures must surface to the caller.
 import { api } from './index.js';
 import { useStreaming } from '../composables/useStreaming.js';
-import {
-  MOCK_JD_RESULT,
-  MOCK_SEARCH_RESULTS,
-  MOCK_MATCH_RESULT,
-  MOCK_INTERVIEW_QUESTIONS,
-  MOCK_COMMUNICATION_DRAFT,
-  MOCK_REPORT_RESULT,
-} from '../data/ai.js';
 
 // Export SSE streaming API (to be used with useStreaming composable)
 export const STREAM_WORKFLOWS = {
@@ -22,17 +14,16 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Wrap API call with mock fallback — simulate async for realistic UX
+// Wrap API call with bounded retry.
 // Transient gateway errors (backend dev-server restart / cold start) get a few
-// long-backoff retries before falling back to mock, so a brief 502 window does
-// not silently swap real AI results for mock data.
+// long-backoff retries before surfacing the real failure.
 const AI_RETRY_DELAYS = [3000, 6000];
 
 function isTransientGatewayError(e) {
   return (e.status >= 500 && e.status < 600) || !e.status || e.code === 'NETWORK_ERROR' || e.code === 'TIMEOUT';
 }
 
-async function aiPost(workflow, params, mockData, mockDelay = 600) {
+async function aiPost(workflow, params) {
   let lastError = null;
   for (let attempt = 0; attempt <= AI_RETRY_DELAYS.length; attempt++) {
     try {
@@ -54,31 +45,30 @@ async function aiPost(workflow, params, mockData, mockDelay = 600) {
       break;
     }
   }
-  console.warn(`[AI API] ${workflow} failed, using mock data:`, lastError.message);
-  await delay(mockDelay);
-  return { ...mockData, _fallback: true, _fallback_reason: lastError.message };
+  console.warn(`[AI API] ${workflow} failed:`, lastError.message);
+  throw lastError;
 }
 
 export async function runJdGenerate(params) {
-  return aiPost('jd-generate', params, { ...MOCK_JD_RESULT, position: params.position || MOCK_JD_RESULT.position, department: params.department || MOCK_JD_RESULT.department });
+  return aiPost('jd-generate', params);
 }
 
 export async function runResumeSearch(params) {
-  return aiPost('resume-search', params, { results: MOCK_SEARCH_RESULTS });
+  return aiPost('resume-search', params);
 }
 
 export async function runMatch(params) {
-  return aiPost('match', params, MOCK_MATCH_RESULT);
+  return aiPost('match', params);
 }
 
 export async function runInterviewQuestions(params) {
-  return aiPost('interview-questions', params, MOCK_INTERVIEW_QUESTIONS);
+  return aiPost('interview-questions', params);
 }
 
 export async function runCommunicationDraft(params) {
-  return aiPost('communication-draft', params, MOCK_COMMUNICATION_DRAFT);
+  return aiPost('communication-draft', params);
 }
 
 export async function runReportAnalysis(params) {
-  return aiPost('report-analysis', params, MOCK_REPORT_RESULT);
+  return aiPost('report-analysis', params);
 }

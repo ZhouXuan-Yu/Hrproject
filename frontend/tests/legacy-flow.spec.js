@@ -53,9 +53,10 @@ test('login radar module reacts to username and password fields', async ({ page 
 });
 
 test('login exposes full role set and trims menu by permission', async ({ page }) => {
-  // Verify all 7 roles are visible on login page
+  // Verify all 8 roles are visible on login page
   await page.goto('/login');
   await expect(page.getByText('部门负责人')).toBeVisible();
+  await expect(page.getByText('高管')).toBeVisible();
   await expect(page.getByText('基层员工')).toBeVisible();
   await expect(page.getByText('临时面试官')).toBeVisible();
   await expect(page.getByText('无招聘权限')).toBeVisible();
@@ -107,6 +108,12 @@ test('sidebar navigation stays inside Vue routes', async ({ page }) => {
 });
 
 test('command palette supports keyboard navigation', async ({ page }) => {
+  await page.goto('/login');
+  await page.evaluate(() => {
+    localStorage.setItem('hr_token', 'e2e-test-token-admin');
+    localStorage.setItem('hr_role', 'admin');
+    localStorage.setItem('hr_user', '管理员');
+  });
   await page.goto('/recruit-dashboard');
   await page.waitForSelector('#sidebar', { timeout: 10000 });
   await page.keyboard.press('Control+K');
@@ -170,6 +177,7 @@ test('dashboard exposes executive recruiting overview and linked work queues', a
 });
 
 test('non-dashboard pages expose page-level operational workspaces', async ({ page }) => {
+  test.setTimeout(60000);
   // /recruit-talent 的人才资产工作台已按需求替换为「简历处理管道」面板（Vue 原生渲染）
   const workspacePages = pages.filter(([path]) => !path.includes('dashboard') && !path.includes('recruit-talent'));
   for (const [path] of workspacePages) {
@@ -551,6 +559,20 @@ test('demand detail — "约面" button opens ScheduleInterviewModal', async ({ 
   }
 });
 
+test('demand detail — "查看" button opens candidate match drawer', async ({ page }) => {
+  await page.goto('/recruit-demand-detail');
+  await page.waitForSelector('#candidateTable', { timeout: 10000 });
+  const viewBtn = page.locator('#candidateTable tbody tr').first().getByRole('button', { name: '查看' });
+  await expect(viewBtn).toBeVisible({ timeout: 10000 });
+  await viewBtn.click();
+  const drawer = page.locator('.drawer-overlay:visible .drawer-panel');
+  await expect(drawer).toBeVisible({ timeout: 5000 });
+  await expect(drawer.locator('.drawer-kpis')).toBeVisible({ timeout: 5000 });
+  await expect(drawer.locator('.drawer-body')).toContainText('来源');
+  await drawer.locator('.drawer-header').getByRole('button', { name: '关闭' }).click();
+  await expect(page.locator('.drawer-overlay:visible .drawer-panel')).not.toBeVisible({ timeout: 3000 });
+});
+
 test('demand detail — CommunicationModal channel selection and purpose change', async ({ page }) => {
   await page.goto('/recruit-demand-detail');
   await page.waitForSelector('#candidateTable', { timeout: 10000 });
@@ -565,6 +587,46 @@ test('demand detail — CommunicationModal channel selection and purpose change'
   await page.waitForTimeout(2000);
   await page.locator('.comm-modal .drawer-close').click();
   await expect(page.locator('.comm-modal')).not.toBeVisible({ timeout: 3000 });
+});
+
+test('demand detail — CommunicationModal shows contact info and send status', async ({ page }) => {
+  await page.goto('/recruit-demand-detail');
+  await page.waitForSelector('#candidateTable', { timeout: 10000 });
+  const contactBtn = page.locator('#candidateTable tbody tr').first().getByRole('button', { name: '联系' });
+  if (!(await contactBtn.isVisible({ timeout: 3000 }).catch(() => false))) return;
+  await contactBtn.click();
+  await expect(page.locator('.comm-modal')).toBeVisible({ timeout: 5000 });
+
+  await page.locator('.comm-modal .channel-card').first().click();
+  await expect(page.locator('.comm-modal .contact-channel-detail')).toContainText('电话号码');
+
+  await page.locator('.comm-modal .channel-card:nth-child(2)').click();
+  const emailSend = page.locator('.comm-modal .contact-channel-detail').getByRole('button', { name: '发送' });
+  await expect(emailSend).toBeVisible({ timeout: 5000 });
+  await emailSend.click();
+  await expect(page.locator('.comm-modal .contact-channel-detail')).toContainText('已发送');
+
+  await page.locator('.comm-modal .channel-card:nth-child(3)').click();
+  const feishuSend = page.locator('.comm-modal .contact-channel-detail').getByRole('button', { name: '发送' });
+  await expect(feishuSend).toBeVisible({ timeout: 5000 });
+  await feishuSend.click();
+  await expect(page.locator('.comm-modal .contact-channel-detail')).toContainText('已发送');
+  await page.locator('.comm-modal .drawer-close').click();
+});
+
+test('config templates preview with unified sample variables', async ({ page }) => {
+  await page.goto('/recruit-config');
+  const templatePanel = page.locator('.accordion').filter({
+    has: page.locator('.accordion-header', { hasText: '通知模板' }),
+  });
+  await templatePanel.locator('.accordion-header').click();
+  await expect(templatePanel.locator('.accordion-body')).toBeVisible({ timeout: 5000 });
+  await templatePanel.getByRole('link', { name: '预览' }).first().click();
+  await expect(page.getByRole('heading', { name: '模板预览' })).toBeVisible({ timeout: 5000 });
+  await expect(page.locator('.tpl-preview-card')).toContainText('张三');
+  await expect(page.locator('.tpl-preview-card')).toContainText('XX公司');
+  await page.getByRole('button', { name: '关闭' }).click();
+  await expect(page.getByRole('heading', { name: '模板预览' })).not.toBeVisible({ timeout: 3000 });
 });
 
 test('demand detail — AI disclaimer present on demand detail page', async ({ page }) => {

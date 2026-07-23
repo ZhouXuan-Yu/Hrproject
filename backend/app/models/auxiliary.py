@@ -3,6 +3,19 @@ from sqlalchemy import Column, BigInteger, String, Integer, Text, DateTime
 from app.models.base import BaseModel
 
 
+class AiKnowledgeBase(BaseModel):
+    """Company and recruiting context injected into AI workflows."""
+    __tablename__ = 't_hr_ai_knowledge_base'
+
+    company_name = Column(String(128), nullable=False, default='XX公司')
+    industry = Column(String(128), nullable=True)
+    website = Column(String(256), nullable=True)
+    company_profile = Column(Text, nullable=True)
+    hiring_principles = Column(Text, nullable=True)
+    ai_context = Column(Text, nullable=True)
+    status = Column(Integer, nullable=False, default=1)
+
+
 class RecruitMailAccount(BaseModel):
     __tablename__ = 't_hr_recruit_mail_account'
 

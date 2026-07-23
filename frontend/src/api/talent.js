@@ -43,6 +43,11 @@ export async function fetchCandidateContact(candidateId) {
   return r.data;
 }
 
+export async function sendTalentContact(payload) {
+  const r = await api.post('/talent/contact', payload);
+  return r.data;
+}
+
 export async function fetchIngestLog(limit = 10) {
   const r = await api.get(`/talent/ingest-log?limit=${limit}`);
   return r.data;

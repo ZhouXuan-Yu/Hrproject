@@ -79,6 +79,26 @@ def match_candidates(demand_id):
     candidate_ids = body.get('candidateIds')
     top_n = int(body.get('topN', 5))
 
+    if body.get('includeTalentPool'):
+        from app.models.candidate import Candidate
+        rows = Candidate.query.filter(
+            Candidate.is_deleted == 0,
+            Candidate.black_flag == 0,
+            Candidate.status.in_(('available', 'reserve')),
+        ).all()
+        candidate_ids = [c.candidate_no or str(c.id) for c in rows]
+        match_result = batch_match_demand(demand_id, candidate_ids, top_n)
+        from app.services.demand_service import link_candidate_to_demand
+        linked = []
+        for item in match_result.get('candidates', []):
+            try:
+                r = link_candidate_to_demand(demand_id, item.get('name') or item.get('id'))
+                linked.append({'name': item.get('name'), **r})
+            except Exception as exc:
+                linked.append({'name': item.get('name'), 'linked': False, 'reason': str(exc)})
+        match_result['linked'] = linked
+        return success(match_result)
+
     if body.get('applyHardFilter'):
         from app.services.demand_service import list_demand_candidates
         from app.services.demand_service import get_demand_detail
@@ -104,19 +124,20 @@ def match_candidates(demand_id):
 def approve_node(demand_id):
     """POST /api/demand/{id}/approve — approve the current approval node.
 
-    Expects JSON body: { "level": 1, "approveUserId": 1, "opinion": "ok" }
+    Expects JSON body: { "level": 1, "opinion": "ok" }
     """
     from app.services.approval_service import approve
     body = request.get_json(silent=True) or {}
     level = body.get('level')
-    approve_user_id = body.get('approveUserId', getattr(g, 'current_user_id', 1))
+    approve_user_id = getattr(g, 'current_user_id', 1)
+    current_role = getattr(g, 'current_role', 'employee')
     opinion = body.get('opinion', '')
 
     if not level:
         return error('BAD_REQUEST', '缺少审批层级 level', 400)
 
     numeric_id = _resolve_demand_id(demand_id)
-    result = approve(numeric_id, int(level), int(approve_user_id), opinion)
+    result = approve(numeric_id, int(level), int(approve_user_id), opinion, current_role)
     return success(result)
 
 
@@ -124,19 +145,20 @@ def approve_node(demand_id):
 def reject_node(demand_id):
     """POST /api/demand/{id}/reject — reject an approval node.
 
-    Expects JSON body: { "level": 1, "approveUserId": 1, "opinion": "不合适" }
+    Expects JSON body: { "level": 1, "opinion": "不合适" }
     """
     from app.services.approval_service import reject
     body = request.get_json(silent=True) or {}
     level = body.get('level')
-    approve_user_id = body.get('approveUserId', getattr(g, 'current_user_id', 1))
+    approve_user_id = getattr(g, 'current_user_id', 1)
+    current_role = getattr(g, 'current_role', 'employee')
     opinion = body.get('opinion', '')
 
     if not level:
         return error('BAD_REQUEST', '缺少审批层级 level', 400)
 
     numeric_id = _resolve_demand_id(demand_id)
-    result = reject(numeric_id, int(level), int(approve_user_id), opinion)
+    result = reject(numeric_id, int(level), int(approve_user_id), opinion, current_role)
     return success(result)
 
 

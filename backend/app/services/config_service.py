@@ -19,6 +19,92 @@ def _mock_enabled():
     return should_mock_fallback()
 
 
+_DEFAULT_KNOWLEDGE = {
+    'companyName': 'XX公司',
+    'industry': '企业服务 / 智能招聘',
+    'website': '',
+    'companyProfile': 'XX公司是一家重视长期主义、工程质量和业务结果的企业，招聘流程以岗位胜任力、候选人体验和合规留痕为基础。',
+    'hiringPrinciples': '岗位分析应基于真实业务目标、团队阶段、必要技能和可验证经历；沟通候选人时保持专业、克制、尊重隐私。',
+    'aiContext': '所有 AI 分析默认代表 XX公司，不夸大公司规模，不编造福利，不生成歧视性或无法验证的判断。',
+}
+
+
+def _ensure_knowledge_table():
+    try:
+        from app.extensions import db
+        from app.models.auxiliary import AiKnowledgeBase
+        AiKnowledgeBase.__table__.create(db.engine, checkfirst=True)
+    except Exception as exc:
+        log.warning("ensure knowledge table failed (non-fatal): %s", exc)
+
+
+def get_knowledge_base():
+    """Return company knowledge base used by AI workflows."""
+    try:
+        from app.models.auxiliary import AiKnowledgeBase
+        _ensure_knowledge_table()
+        row = (AiKnowledgeBase.query.filter_by(status=1, is_deleted=0)
+               .order_by(AiKnowledgeBase.id.desc()).first())
+        if not row:
+            return dict(_DEFAULT_KNOWLEDGE)
+        return {
+            'companyName': row.company_name or _DEFAULT_KNOWLEDGE['companyName'],
+            'industry': row.industry or '',
+            'website': row.website or '',
+            'companyProfile': row.company_profile or '',
+            'hiringPrinciples': row.hiring_principles or '',
+            'aiContext': row.ai_context or '',
+        }
+    except Exception as exc:
+        log.error("DB query failed in get_knowledge_base: %s", exc, exc_info=True)
+        if not _mock_enabled():
+            raise
+    return dict(_DEFAULT_KNOWLEDGE)
+
+
+def update_knowledge_base(data):
+    """Upsert company knowledge base."""
+    try:
+        from app.extensions import db
+        from app.models.auxiliary import AiKnowledgeBase
+        _ensure_knowledge_table()
+        row = (AiKnowledgeBase.query.filter_by(status=1, is_deleted=0)
+               .order_by(AiKnowledgeBase.id.desc()).first())
+        if not row:
+            row = AiKnowledgeBase(status=1)
+            db.session.add(row)
+
+        row.company_name = (data.get('companyName') or data.get('company_name') or _DEFAULT_KNOWLEDGE['companyName']).strip()
+        row.industry = (data.get('industry') or '').strip()
+        row.website = (data.get('website') or '').strip()
+        row.company_profile = (data.get('companyProfile') or data.get('company_profile') or '').strip()
+        row.hiring_principles = (data.get('hiringPrinciples') or data.get('hiring_principles') or '').strip()
+        row.ai_context = (data.get('aiContext') or data.get('ai_context') or '').strip()
+        db.session.commit()
+        return {'updated': True, 'data': get_knowledge_base()}
+    except Exception as exc:
+        log.error("DB write failed in update_knowledge_base: %s", exc, exc_info=True)
+        if not _mock_enabled():
+            raise
+    merged = dict(_DEFAULT_KNOWLEDGE)
+    merged.update({k: v for k, v in data.items() if k in merged})
+    return {'updated': True, 'data': merged, '_fallback': True}
+
+
+def get_ai_knowledge_context():
+    """Compact prompt context built from the configured knowledge base."""
+    kb = get_knowledge_base()
+    parts = [
+        f"公司名称：{kb.get('companyName') or 'XX公司'}",
+        f"行业/业务：{kb.get('industry') or '未配置'}",
+        f"官网：{kb.get('website') or '未配置'}",
+        f"公司介绍：{kb.get('companyProfile') or '未配置'}",
+        f"招聘口径：{kb.get('hiringPrinciples') or '未配置'}",
+        f"AI补充上下文：{kb.get('aiContext') or '未配置'}",
+    ]
+    return "\n".join(parts)
+
+
 def _encrypt_mail_password(raw):
     """Encrypt a mailbox password/authorization code for storage.
 

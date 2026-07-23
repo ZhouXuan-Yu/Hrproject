@@ -180,23 +180,80 @@ def get_candidate_contact_info(candidate_id):
 
 @bp.route('/contact', methods=['POST'])
 def contact_candidate():
-    """POST /api/talent/contact — record candidate contact action."""
-    from app.services.talent_service import update_note
+    """POST /api/talent/contact - record and optionally send candidate contact."""
+    from app.services.talent_service import update_note, get_candidate_contact
     body = request.get_json(silent=True) or {}
     candidate_id = body.get('candidateId') or ''
     names = body.get('names') or []
-    method = body.get('method', '系统记录')
+    method = body.get('method', 'system_record')
+    channel = (body.get('channel') or method or '').lower()
+    draft = (body.get('draft') or '').strip()
+    subject = (body.get('subject') or '').strip()
 
     if names:
-        results = []
-        for name in names:
-            note_text = f'【联系记录】HR通过{method}发起联系'
-            results.append({'name': name, 'note': note_text})
-        return success({'recorded': True, 'count': len(results), 'contacts': results})
+        contacts = [{'name': name, 'note': f'[contact] HR via {method}'} for name in names]
+        return success({'recorded': True, 'count': len(contacts), 'contacts': contacts})
 
     if candidate_id:
-        note_text = f'【联系记录】HR通过{method}发起联系'
-        update_note(candidate_id, note_text)
-        return success({'recorded': True, 'contact': {'id': candidate_id, 'note': note_text}})
+        contact = get_candidate_contact(candidate_id)
+        if contact is None:
+            raise AppError('NOT_FOUND', f'candidate not found: {candidate_id}')
 
-    raise AppError('BAD_REQUEST', '缺少 candidateId 或 names 参数')
+        send_result = {'attempted': False, 'sent': False, 'message': 'recorded only'}
+        if 'email' in channel or 'mail' in channel:
+            if not contact.get('email'):
+                send_result = {'attempted': True, 'sent': False, 'message': 'candidate email is empty'}
+            elif not draft:
+                send_result = {'attempted': True, 'sent': False, 'message': 'draft is empty'}
+            else:
+                import html
+                from app.services.mail_sender import send_mail
+                account_id = _sender_account_id_for_candidate(candidate_id)
+                title = subject or f"Recruiting follow-up - {body.get('position') or body.get('demandPosition') or ''}".strip()
+                html_body = '<div style="font-family:sans-serif;line-height:1.8">' + html.escape(draft).replace('\n', '<br>') + '</div>'
+                ok, msg = send_mail(contact['email'], title, html_body,
+                                    text_body=draft, account_id=account_id, mail_type='other')
+                send_result = {'attempted': True, 'sent': bool(ok), 'message': msg, 'recipient': contact['email']}
+        elif 'feishu' in channel or '飞书' in channel:
+            if not draft:
+                send_result = {'attempted': True, 'sent': False, 'message': 'draft is empty'}
+            else:
+                open_id = (body.get('openId') or body.get('feishu') or '').strip()
+                try:
+                    from app.services.feishu_client import search_user, send_text_message
+                    if not open_id:
+                        found = search_user(contact.get('email') or contact.get('mobile') or contact.get('name') or candidate_id)
+                        open_id = found.get('open_id') or ''
+                    if not open_id:
+                        send_result = {'attempted': True, 'sent': False, 'message': 'feishu open_id not found'}
+                    else:
+                        r = send_text_message(open_id, draft)
+                        send_result = {
+                            'attempted': True,
+                            'sent': bool(r.get('success')),
+                            'message': r.get('error') or 'sent',
+                            'messageId': r.get('message_id'),
+                            'recipient': open_id,
+                        }
+                except Exception as exc:
+                    send_result = {'attempted': True, 'sent': False, 'message': str(exc)}
+
+        note_text = f"[contact] HR via {method}; sent={send_result.get('sent')}; msg={send_result.get('message')}"
+        update_note(candidate_id, {'note': note_text})
+        return success({'recorded': True, 'sent': send_result.get('sent'),
+                        'send': send_result, 'contact': {'id': candidate_id, 'note': note_text}})
+
+    raise AppError('BAD_REQUEST', 'missing candidateId or names')
+
+
+def _sender_account_id_for_candidate(candidate_no):
+    try:
+        from app.models.candidate import Candidate, Resume
+        c = Candidate.query.filter_by(candidate_no=candidate_no, is_deleted=0).first()
+        if not c:
+            return None
+        r = (Resume.query.filter_by(candidate_id=c.id, is_deleted=0)
+             .order_by(Resume.storage_time.desc()).first())
+        return r.mail_account_id if r and r.mail_account_id else None
+    except Exception:
+        return None

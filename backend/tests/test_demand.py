@@ -3,6 +3,16 @@
 import pytest
 
 
+def _role_headers(client, role, username=None):
+    resp = client.post('/api/auth/login', json={
+        'username': username or role,
+        'role': role,
+    })
+    assert resp.status_code == 200, resp.get_json()
+    token = resp.get_json()['data']['token']
+    return {'Authorization': f'Bearer {token}'}
+
+
 @pytest.fixture
 def created_demand_no(client, auth_headers):
     """Create a demand and return its demand_no (e.g. 'DM2026070001')."""
@@ -74,7 +84,7 @@ class TestDemand:
         assert 'dept' in data
 
     def test_demand_approve(self, created_demand_no, client, auth_headers):
-        """POST /api/demand/{id}/approve with level=1 returns approved."""
+        """Admin can approve any node and the opinion records admin bypass."""
         resp = client.post(
             f'/api/demand/{created_demand_no}/approve',
             json={'level': 1, 'approveUserId': 1, 'opinion': '同意'},
@@ -84,6 +94,34 @@ class TestDemand:
         body = resp.get_json()
         assert body['data']['result'] == 'approved'
         assert body['data']['level'] == 1
+        assert body['data']['identity'] == '管理员代审批'
+
+        detail_resp = client.get(
+            f'/api/demand/{created_demand_no}',
+            headers=auth_headers,
+        )
+        node = detail_resp.get_json()['data']['approvalNodes'][0]
+        assert node['opinion'].startswith('管理员代审批：')
+
+    def test_approval_blocks_wrong_identity_and_level_jump(self, created_demand_no, client):
+        """A caller cannot approve just by posting a level value."""
+        hr_headers = _role_headers(client, 'hr', '张HR')
+
+        wrong_identity = client.post(
+            f'/api/demand/{created_demand_no}/approve',
+            json={'level': 1, 'opinion': 'HR 不能批部门负责人'},
+            headers=hr_headers,
+        )
+        assert wrong_identity.status_code == 403
+        assert wrong_identity.get_json()['error']['code'] == 'FORBIDDEN'
+
+        level_jump = client.post(
+            f'/api/demand/{created_demand_no}/approve',
+            json={'level': 2, 'opinion': '不能跳过部门负责人'},
+            headers=hr_headers,
+        )
+        assert level_jump.status_code == 400
+        assert level_jump.get_json()['error']['code'] == 'APPROVAL_ORDER_REQUIRED'
 
     def test_demand_full_approval_chain(self, created_demand_no, client, auth_headers):
         """Approving all three levels fully approves the demand.
@@ -91,11 +129,15 @@ class TestDemand:
         After level 3 is approved the demand's status is updated to
         'approved' (status code 2).
         """
+        dept_head_headers = _role_headers(client, 'dept_head', '部门负责人')
+        hr_headers = _role_headers(client, 'hr', '张HR')
+        executive_headers = _role_headers(client, 'executive', '高管')
+
         # Level 1 — department head
         r1 = client.post(
             f'/api/demand/{created_demand_no}/approve',
-            json={'level': 1, 'approveUserId': 1},
-            headers=auth_headers,
+            json={'level': 1},
+            headers=dept_head_headers,
         )
         assert r1.status_code == 200
         assert r1.get_json()['data']['result'] == 'approved'
@@ -103,17 +145,17 @@ class TestDemand:
         # Level 2 — HR
         r2 = client.post(
             f'/api/demand/{created_demand_no}/approve',
-            json={'level': 2, 'approveUserId': 2},
-            headers=auth_headers,
+            json={'level': 2},
+            headers=hr_headers,
         )
         assert r2.status_code == 200
         assert r2.get_json()['data']['result'] == 'approved'
 
-        # Level 3 — finance director → all approved → demand approved
+        # Level 3 — executive → all approved → demand approved
         r3 = client.post(
             f'/api/demand/{created_demand_no}/approve',
-            json={'level': 3, 'approveUserId': 3},
-            headers=auth_headers,
+            json={'level': 3},
+            headers=executive_headers,
         )
         assert r3.status_code == 200
         assert r3.get_json()['data']['result'] == 'approved'

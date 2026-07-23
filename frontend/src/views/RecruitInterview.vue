@@ -4,7 +4,7 @@
       <div style="position:relative">
         <button class="btn btn-ghost btn-sm" id="alertBtn" @click="showAlerts = !showAlerts" style="gap:4px">
           <svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:var(--c-warn);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          提醒 <span class="alert-badge">4</span>
+          提醒 <span class="alert-badge">{{ ALERTS_SOURCE.length }}</span>
         </button>
         <div id="alertDropdown" v-if="showAlerts" style="display:block;position:absolute;top:100%;right:0;margin-top:6px;width:380px;background:var(--c-card);border:1px solid var(--c-border);border-radius:12px;padding:16px;box-shadow:0 8px 32px rgba(0,0,0,.12);z-index:100;font-size:13px;line-height:2">
           <div style="font-weight:700;margin-bottom:10px;color:var(--c-text);font-size:14px">智能提醒</div>
@@ -53,10 +53,12 @@
 
     <!-- 全部面试 panel -->
     <div class="tab-panel" :class="{ active: activeTab === 'list' }">
-      <div class="table-wrap">
-        <table v-if="filteredList.length > 0"><thead><tr><th>候选人</th><th>岗位</th><th>轮次</th><th>面试官</th><th>时间</th><th>方式</th><th>状态</th><th>操作</th></tr></thead>
+      <div class="table-wrap data-region">
+        <DataLoadingOverlay :visible="loading" />
+        <table v-if="filteredList.length > 0"><thead><tr><th style="width:36px"><input data-testid="interview-check-all" type="checkbox" :checked="isAllVisibleSelected(filteredList)" @change="toggleVisible(filteredList, $event)"></th><th>候选人</th><th>岗位</th><th>轮次</th><th>面试官</th><th>时间</th><th>方式</th><th>状态</th><th>操作</th></tr></thead>
         <tbody>
           <tr v-for="(item, i) in filteredList" :key="'l'+i">
+            <td><input data-testid="interview-row-check" type="checkbox" :checked="!!selectedInterviews[item.id]" @change="toggleInterview(item, $event)"></td>
             <td><a href="javascript:void(0)" style="font-weight:600;color:var(--c-primary)" @click="openCandidateDrawer(item.name)">{{ item.name }}</a></td>
             <td>{{ item.position }}</td><td>{{ item.round }}</td><td>{{ item.interviewer }}</td>
             <td>{{ item.date }} {{ item.time }}</td>
@@ -76,7 +78,7 @@
           </tr>
         </tbody></table>
         <EmptyState
-          v-else
+          v-else-if="!loading"
           title="暂无面试记录"
           description="当前没有符合条件的面试安排，可新建面试"
           action-label="+ 新建面试"
@@ -88,10 +90,12 @@
 
     <!-- 我的待办 panel -->
     <div class="tab-panel" :class="{ active: activeTab === 'mine' }">
-      <div class="table-wrap">
-        <table v-if="filteredMine.length > 0"><thead><tr><th>候选人</th><th>岗位</th><th>轮次</th><th>时间</th><th>方式</th><th>状态</th><th>操作</th></tr></thead>
+      <div class="table-wrap data-region">
+        <DataLoadingOverlay :visible="loading" />
+        <table v-if="filteredMine.length > 0"><thead><tr><th style="width:36px"><input data-testid="interview-check-all-mine" type="checkbox" :checked="isAllVisibleSelected(filteredMine)" @change="toggleVisible(filteredMine, $event)"></th><th>候选人</th><th>岗位</th><th>轮次</th><th>时间</th><th>方式</th><th>状态</th><th>操作</th></tr></thead>
         <tbody>
           <tr v-for="(item, i) in filteredMine" :key="'m'+i">
+            <td><input data-testid="interview-row-check" type="checkbox" :checked="!!selectedInterviews[item.id]" @change="toggleInterview(item, $event)"></td>
             <td><a href="javascript:void(0)" style="font-weight:600;color:var(--c-primary)" @click="openCandidateDrawer(item.name)">{{ item.name }}</a></td>
             <td>{{ item.position }}</td><td>{{ item.round }}</td>
             <td>{{ item.date }} {{ item.time }}</td>
@@ -111,11 +115,21 @@
           </tr>
         </tbody></table>
         <EmptyState
-          v-else
+          v-else-if="!loading"
           title="暂无待办事项"
           description="当前没有需要你处理的面试待办"
         />
         <div class="table-count">共 {{ filteredMine.length }} 条</div>
+      </div>
+    </div>
+
+    <div data-testid="interview-batch-bar" class="batch-bar interview-batch-bar" v-if="selectedInterviewCount > 0">
+      <span>已选择 <b>{{ selectedInterviewCount }}</b> 条面试记录</span>
+      <div style="display:flex;gap:8px">
+        <button data-testid="interview-delete-selected" class="btn btn-text-danger btn-sm" :disabled="batchDeleting" @click="openBatchDeleteModal">
+          {{ batchDeleting ? '删除中...' : '删除选中' }}
+        </button>
+        <button data-testid="interview-clear-selection" class="btn btn-ghost btn-sm" @click="clearInterviewSelection">清除选择</button>
       </div>
     </div>
 
@@ -239,14 +253,76 @@
         </div>
       </div>
     </Teleport>
+
+    <!-- Interview Action Modal -->
+    <Teleport to="body">
+      <div v-if="showActionModal" data-testid="interview-action-modal" class="modal-overlay" @click.self="closeActionModal" style="display:flex">
+        <div class="modal-box interview-action-modal" role="dialog" aria-modal="true" aria-label="面试操作确认">
+          <div class="modal-head">
+            <div>
+              <h3>{{ actionModalTitle }}</h3>
+              <p>{{ actionModalDesc }}</p>
+            </div>
+            <button class="btn btn-ghost btn-sm" @click="closeActionModal">关闭</button>
+          </div>
+
+          <div v-if="actionMode === 'complete'" class="action-options" role="radiogroup" aria-label="完成面试结果">
+            <button
+              v-for="opt in completeOptions"
+              :key="opt.value"
+              data-testid="interview-action-option"
+              class="action-option"
+              :class="{ active: actionForm.arrive === opt.value }"
+              type="button"
+              role="radio"
+              :aria-checked="actionForm.arrive === opt.value ? 'true' : 'false'"
+              @click="actionForm.arrive = opt.value"
+            >
+              <b>{{ opt.label }}</b>
+              <span>{{ opt.desc }}</span>
+            </button>
+          </div>
+
+          <div v-else class="action-options" role="radiogroup" aria-label="取消或删除原因">
+            <button
+              v-for="opt in cancelReasons"
+              :key="opt.value"
+              data-testid="interview-action-option"
+              class="action-option"
+              :class="{ active: actionForm.reason === opt.value }"
+              type="button"
+              role="radio"
+              :aria-checked="actionForm.reason === opt.value ? 'true' : 'false'"
+              @click="actionForm.reason = opt.value"
+            >
+              <b>{{ opt.label }}</b>
+              <span>{{ opt.desc }}</span>
+            </button>
+          </div>
+
+          <div class="modal-actions">
+            <button class="btn btn-ghost btn-sm" @click="closeActionModal">取消</button>
+            <button
+              data-testid="interview-action-confirm"
+              class="btn btn-sm"
+              :class="actionMode === 'complete' ? 'btn-primary' : 'btn-text-danger'"
+              :disabled="actionSaving"
+              @click="submitActionModal"
+            >
+              {{ actionSaving ? '处理中...' : actionConfirmText }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </WorkbenchLayout>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import WorkbenchLayout from '../layouts/WorkbenchLayout.vue';
-import { ALL_INTERVIEWS, STATUSES, STATUS_LABELS, STATUS_TYPE_MAP, ALERTS } from '../data/interview.js';
-import { fetchInterviews, fetchInterviewAlerts, createInterview, evaluateInterview, completeInterview } from '../api/interview.js';
+import { STATUS_TYPE_MAP } from '../data/interview.js';
+import { fetchInterviews, fetchInterviewAlerts, createInterview, evaluateInterview, completeInterview, cancelInterview } from '../api/interview.js';
 import { useToast } from '../composables/useToast.js';
 import { useAppError } from '../composables/useAppError.js';
 import { KPI_ICONS } from '../components/kpiIcons.js';
@@ -254,6 +330,7 @@ import ScheduleInterviewModal from '../components/ScheduleInterviewModal.vue';
 import OfferModal from '../components/OfferModal.vue';
 import EmptyState from '../components/EmptyState.vue';
 import CandidateDrawer from '../components/CandidateDrawer.vue';
+import DataLoadingOverlay from '../components/DataLoadingOverlay.vue';
 
 const { toast } = useToast();
 const { handleError } = useAppError();
@@ -278,9 +355,19 @@ const isInterviewerRole = role === 'interviewer' || role === 'temp_interviewer';
 
 const apiInterviewData = ref(null);
 const apiAlertData = ref(null);
+const loading = ref(true);
+const loadError = ref('');
+const selectedInterviews = reactive({});
+const batchDeleting = ref(false);
+const selectedInterviewCount = computed(() => Object.keys(selectedInterviews).filter(k => selectedInterviews[k]).length);
+const showActionModal = ref(false);
+const actionMode = ref('complete');
+const actionTarget = ref({ id: '', name: '', ids: [] });
+const actionForm = reactive({ arrive: 1, reason: 'HR 手动取消' });
+const actionSaving = ref(false);
 
-const INTERVIEWS_SOURCE = computed(() => apiInterviewData.value ?? ALL_INTERVIEWS);
-const ALERTS_SOURCE = computed(() => apiAlertData.value ?? ALERTS);
+const INTERVIEWS_SOURCE = computed(() => apiInterviewData.value ?? []);
+const ALERTS_SOURCE = computed(() => apiAlertData.value ?? []);
 
 const visibleTabs = computed(() => {
   const tabs = [];
@@ -348,13 +435,65 @@ const filteredMine = computed(() => {
   });
 });
 
+function toggleInterview(item, e) {
+  if (!item?.id) return;
+  selectedInterviews[item.id] = e.target.checked;
+}
+
+function isAllVisibleSelected(list) {
+  const ids = list.map(i => i.id).filter(Boolean);
+  return ids.length > 0 && ids.every(id => selectedInterviews[id]);
+}
+
+function toggleVisible(list, e) {
+  list.forEach(item => {
+    if (item?.id) selectedInterviews[item.id] = e.target.checked;
+  });
+}
+
+function clearInterviewSelection() {
+  Object.keys(selectedInterviews).forEach(k => delete selectedInterviews[k]);
+}
+
+function openBatchDeleteModal() {
+  const ids = Object.keys(selectedInterviews).filter(k => selectedInterviews[k]);
+  if (!ids.length) return;
+  actionMode.value = 'batch-delete';
+  actionTarget.value = { id: '', name: '', ids };
+  Object.assign(actionForm, { arrive: 1, reason: 'HR 批量删除' });
+  showActionModal.value = true;
+}
+
+async function deleteSelectedInterviews(ids, reason) {
+  if (!ids.length) return;
+  batchDeleting.value = true;
+  let ok = 0;
+  let fail = 0;
+  try {
+    for (const id of ids) {
+      try {
+        await cancelInterview(id, reason || 'HR 批量删除');
+        ok++;
+      } catch (e) {
+        console.warn('[RecruitInterview] batch delete failed:', id, e);
+        fail++;
+      }
+    }
+    toast[fail ? 'warning' : 'success']('删除完成：成功 ' + ok + ' 条，失败 ' + fail + ' 条');
+    clearInterviewSelection();
+    await loadFromApi();
+  } finally {
+    batchDeleting.value = false;
+  }
+}
+
 function renderActions(item) {
   const resumeBtn = '<button class="btn btn-outline btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:open-drawer\',{detail:\'' + item.name + '\'}))">简历</button>';
   switch (item.status) {
     case 'pending':
       return resumeBtn + ' <button class="btn btn-primary btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:schedule\',{detail:\'' + item.name + '|' + item.position + '\'}))">发起面试</button>';
     case 'scheduled':
-      return resumeBtn + ' <button class="btn btn-primary btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:complete\',{detail:\'' + item.id + '|' + item.name + '\'}))">完成面试</button> <button class="btn btn-text-danger btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:cancel\',{detail:\'' + item.name + '\'}))">取消</button>';
+      return resumeBtn + ' <button class="btn btn-primary btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:complete\',{detail:\'' + item.id + '|' + item.name + '\'}))">完成面试</button> <button class="btn btn-text-danger btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:cancel\',{detail:\'' + item.id + '|' + item.name + '\'}))">取消</button>';
     case 'evaluating':
       return resumeBtn + ' <button class="btn btn-primary btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:evaluate\',{detail:\'' + item.id + '|' + item.name + '\'}))">填评价</button>';
     case 'offer':
@@ -524,15 +663,7 @@ async function handleComplete(e) {
     toast.error('该记录未同步到服务端（可能为本地演示数据），无法操作');
     return;
   }
-  if (!window.confirm('确认 ' + name + ' 的面试已完成？完成后将进入待评价状态')) return;
-  try {
-    await completeInterview(id, { is_arrive: 1 });
-    toast.success('【面试完成】' + name + ' 已进入待评价，请面试官提交评价');
-    await loadFromApi();
-  } catch (err) {
-    handleError(err, 'RecruitInterview.handleComplete');
-    toast.error('操作失败：' + (err?.response?.data?.message || err.message || '未知错误'));
-  }
+  openCompleteModal(id, name);
 }
 
 async function handleSchedule(e) {
@@ -545,21 +676,90 @@ async function handleSchedule(e) {
 }
 
 async function handleCancel(e) {
-  const name = e.detail;
-  const item = INTERVIEWS_SOURCE.value.find(i => i.name === name);
+  const parts = String(e.detail).split('|');
+  const id = parts.length > 1 ? parts[0] : '';
+  const name = parts.length > 1 ? parts[1] : parts[0];
+  const item = id
+    ? INTERVIEWS_SOURCE.value.find(i => i.id === id)
+    : INTERVIEWS_SOURCE.value.find(i => i.name === name);
   if (!item || !item.id) {
     toast.error('该记录未同步到服务端（可能为本地演示数据），无法取消');
     return;
   }
-  if (!window.confirm('确认取消 ' + name + ' 的面试？')) return;
+  openCancelModal(item.id, item.name || name);
+}
+
+function openCompleteModal(id, name) {
+  actionMode.value = 'complete';
+  actionTarget.value = { id, name, ids: [] };
+  Object.assign(actionForm, { arrive: 1, reason: 'HR 手动取消' });
+  showActionModal.value = true;
+}
+
+function openCancelModal(id, name) {
+  actionMode.value = 'cancel';
+  actionTarget.value = { id, name, ids: [] };
+  Object.assign(actionForm, { arrive: 1, reason: '候选人改期' });
+  showActionModal.value = true;
+}
+
+function closeActionModal() {
+  if (actionSaving.value) return;
+  showActionModal.value = false;
+}
+
+const completeOptions = [
+  { value: 1, label: '候选人已到场', desc: '确认面试完成，下一步进入待评价状态' },
+  { value: 0, label: '候选人未到场', desc: '记录未到场，仍进入待评价留痕' },
+];
+
+const cancelReasons = [
+  { value: '候选人改期', label: '候选人改期', desc: '候选人需要重新协调面试时间' },
+  { value: '候选人取消', label: '候选人取消', desc: '候选人主动取消本次面试' },
+  { value: 'HR 手动取消', label: 'HR 手动取消', desc: '招聘侧主动取消本次安排' },
+  { value: 'HR 批量删除', label: '批量删除', desc: '清理选中的面试记录' },
+];
+
+const actionModalTitle = computed(() => {
+  if (actionMode.value === 'complete') return '确认面试结果';
+  if (actionMode.value === 'batch-delete') return '删除选中的面试记录';
+  return '取消面试安排';
+});
+
+const actionModalDesc = computed(() => {
+  if (actionMode.value === 'complete') return `${actionTarget.value.name} 的面试将按所选结果更新。`;
+  if (actionMode.value === 'batch-delete') return `将删除 ${actionTarget.value.ids.length} 条已选面试记录，请选择删除原因。`;
+  return `${actionTarget.value.name} 的面试将被取消，请选择原因。`;
+});
+
+const actionConfirmText = computed(() => {
+  if (actionMode.value === 'complete') return '确认完成';
+  if (actionMode.value === 'batch-delete') return '确认删除';
+  return '确认取消面试';
+});
+
+async function submitActionModal() {
+  actionSaving.value = true;
   try {
-    const { cancelInterview } = await import('../api/interview.js');
-    await cancelInterview(item.id, 'HR 手动取消');
-    toast.success('已取消 ' + name + ' 的面试');
-    await loadFromApi();
+    if (actionMode.value === 'complete') {
+      await completeInterview(actionTarget.value.id, { is_arrive: actionForm.arrive });
+      const suffix = actionForm.arrive ? '已进入待评价，请面试官提交评价' : '已记录未到场，请继续补充评价说明';
+      toast.success('【面试完成】' + actionTarget.value.name + ' ' + suffix);
+      await loadFromApi();
+    } else if (actionMode.value === 'batch-delete') {
+      await deleteSelectedInterviews(actionTarget.value.ids, actionForm.reason);
+    } else {
+      await cancelInterview(actionTarget.value.id, actionForm.reason);
+      toast.success('已取消 ' + actionTarget.value.name + ' 的面试');
+      await loadFromApi();
+    }
+    showActionModal.value = false;
   } catch (err) {
-    console.warn('[RecruitInterview] cancel failed:', err);
-    toast.error('取消失败：' + (err.message || '未知错误'));
+    const source = actionMode.value === 'complete' ? 'RecruitInterview.handleComplete' : 'RecruitInterview.handleCancel';
+    handleError(err, source);
+    toast.error('操作失败：' + (err?.response?.data?.message || err.message || '未知错误'));
+  } finally {
+    actionSaving.value = false;
   }
 }
 
@@ -584,14 +784,23 @@ function handleOpenDrawer(e) {
 }
 
 async function loadFromApi() {
+  loading.value = true;
+  loadError.value = '';
   try {
     const [listRes, alertRes] = await Promise.all([
       fetchInterviews({ tab: activeTab.value }),
       fetchInterviewAlerts()
     ]);
-    if (listRes) apiInterviewData.value = listRes.data ?? listRes ?? null;
-    if (alertRes) apiAlertData.value = alertRes ?? null;
-  } catch (e) { console.warn('[Interview] API fallback:', e.message); }
+    apiInterviewData.value = Array.isArray(listRes?.data) ? listRes.data : (Array.isArray(listRes) ? listRes : []);
+    apiAlertData.value = Array.isArray(alertRes) ? alertRes : [];
+  } catch (e) {
+    loadError.value = e.message || '面试数据加载失败';
+    apiInterviewData.value = [];
+    apiAlertData.value = [];
+    console.warn('[Interview] API fetch failed:', e.message);
+  } finally {
+    loading.value = false;
+  }
 }
 
 const calendarDaysWithItems = computed(() => calendarDays.value.filter(d => d.count > 0));
@@ -656,6 +865,7 @@ function onOfferSuccess(result) {
 </script>
 
 <style scoped>
+.data-region { position: relative; min-height: 220px; }
 .alert-badge {
   position: absolute; top: -4px; right: -4px; width: 16px; height: 16px;
   border-radius: 50%; background: var(--c-reject); color: #fff;
@@ -699,6 +909,75 @@ function onOfferSuccess(result) {
 }
 .meeting-link:hover { text-decoration: underline; }
 .meeting-link-icon { width: 12px; height: 12px; flex-shrink: 0; }
+.interview-batch-bar {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:10px 16px;
+  margin-top:12px;
+  border:1px solid rgba(79,110,247,.18);
+  border-radius:8px;
+  background:var(--c-primary-subtle);
+  font-size:13px;
+}
+.interview-batch-bar b { color:var(--c-primary); font-variant-numeric:tabular-nums; }
+
+.interview-action-modal {
+  width: 520px;
+  max-width: 92vw;
+}
+.modal-head {
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:16px;
+  margin-bottom:14px;
+}
+.modal-head h3 {
+  margin:0 0 4px;
+  font-size:18px;
+}
+.modal-head p {
+  margin:0;
+  color:var(--c-sub);
+  font-size:13px;
+  line-height:1.6;
+}
+.action-options {
+  display:grid;
+  gap:8px;
+  margin-bottom:16px;
+}
+.action-option {
+  width:100%;
+  text-align:left;
+  padding:12px 14px;
+  border:1px solid var(--c-border);
+  border-radius:8px;
+  background:var(--c-card);
+  color:var(--c-text);
+  cursor:pointer;
+  font-family:inherit;
+}
+.action-option:hover {
+  border-color:var(--c-primary);
+}
+.action-option.active {
+  border-color:var(--c-primary);
+  background:var(--c-primary-subtle);
+  box-shadow:0 0 0 3px rgba(79,110,247,.12);
+}
+.action-option b {
+  display:block;
+  font-size:14px;
+  margin-bottom:4px;
+}
+.action-option span {
+  display:block;
+  color:var(--c-sub);
+  font-size:12px;
+  line-height:1.5;
+}
 
 @media (max-width: 1200px) { .iv-stat-row { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 720px) { .iv-stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

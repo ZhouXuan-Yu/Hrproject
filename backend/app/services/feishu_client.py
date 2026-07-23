@@ -246,9 +246,12 @@ def search_user(name: str) -> Dict[str, Any]:
         }
 
     try:
+        key = (name or "").strip()
+        emails = [key] if "@" in key else []
+        mobiles = [key] if key.isdigit() else []
         body = _feishu_post(
             "/contact/v3/users/batch_get_id",
-            {"include_resigned": False, "mobiles": [], "emails": []},
+            {"include_resigned": False, "mobiles": mobiles, "emails": emails},
             params={"user_id_type": "open_id"},
         )
         code = body.get("code", -1)

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Read-only adversarial verification against real hr_recruit.db via test_client."""
+"""Read-only adversarial verification against the configured MySQL database via test_client."""
 import json, sys, io
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 

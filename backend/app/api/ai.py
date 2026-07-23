@@ -155,7 +155,7 @@ def run_workflow(workflow):
 # Workflow: jd-generate
 # ===========================================================================
 
-JD_GENERATE_SYSTEM = """你是资深 HR 招聘专家，擅长撰写清晰、完整、有吸引力的岗位描述（JD）。
+JD_GENERATE_SYSTEM = """你是企业招聘流程中的岗位说明分析助手，擅长把内部招聘需求整理成清晰、可审批、可发布的岗位说明。
 
 根据用户提供的岗位基本信息，生成结构化的 JD。
 
@@ -185,7 +185,10 @@ JSON 结构（严格遵守字段名和嵌套结构）：
 }
 
 内容要求：
-- jd_text 使用专业、规范的招聘语言
+- jd_text 使用专业、规范、克制的企业内部招聘语言
+- 这是内部审批文档和后续招聘发布的基础材料，不要写成营销广告
+- 禁止“平台广阔、氛围年轻、福利优厚、与优秀的人共事”等空泛套话
+- 每条职责和要求尽量一句话，避免堆砌概念
 - 职责以行动动词开头（负责...、参与...、主导...）
 - 技能使用行业通用名称，required_skills 的 weight 只能是 "必须" 或 "优先"
 - required_skills 和 plus_skills 必须是对象数组，不能是字符串数组
@@ -199,8 +202,11 @@ def _run_jd_generate(body: dict) -> dict:
     level = body.get("level", "")
     requirements = body.get("requirements", "")
     style = body.get("style", "standard")
+    from app.services.config_service import get_ai_knowledge_context
+    knowledge_context = get_ai_knowledge_context()
 
     user_input = json.dumps({
+        "knowledge_base": knowledge_context,
         "position": position,
         "department": department,
         "level": level,
@@ -290,7 +296,7 @@ def _run_resume_search(body: dict) -> dict:
     parsed = _safe_deepseek_json(RESUME_SEARCH_SYSTEM, user_input, parsed_fallback,
                                   temperature=0.2, max_tokens=1000)
 
-    # Step 2: Search candidate store / mock data
+    # Step 2: Search candidate store
     results = _search_candidates(parsed, limit)
 
     return {
@@ -302,30 +308,16 @@ def _run_resume_search(body: dict) -> dict:
 
 
 def _search_candidates(parsed: dict, limit: int) -> list:
-    """Search mock candidate store with structured query terms."""
-    # Try DB first, fall back to mock
+    """Search candidate store with structured query terms."""
     try:
         from app.services.demand_service import list_all_candidates
         candidates = list_all_candidates({})
         if candidates:
             return _rank_candidates(candidates, parsed, limit)
     except Exception as exc:
-        log.warning("DB search failed, using mock: %s", exc)
+        log.warning("DB search failed; returning empty candidate results: %s", exc)
 
-    # Mock fallback
-    mock = [
-        {"id": "C2026070012", "name": "张三", "skills": ["Java", "Spring Boot", "MySQL", "Redis", "微服务"],
-         "edu": "本科", "school": "211", "workYears": 5, "company": "阿里巴巴"},
-        {"id": "C2026070011", "name": "李四", "skills": ["Python", "TensorFlow", "PyTorch", "Docker"],
-         "edu": "硕士", "school": "985", "workYears": 3, "company": "腾讯"},
-        {"id": "C2026070007", "name": "王五", "skills": ["Go", "Kubernetes", "Docker", "微服务", "Redis"],
-         "edu": "硕士", "school": "普通", "workYears": 3, "company": "字节跳动"},
-        {"id": "C2026070010", "name": "郑一", "skills": ["React", "TypeScript", "Node.js", "Vue"],
-         "edu": "本科", "school": "985", "workYears": 4, "company": "美团"},
-        {"id": "C2026070009", "name": "孙九", "skills": ["Java", "Spring Cloud", "Kafka", "Elasticsearch", "Linux"],
-         "edu": "本科", "school": "211", "workYears": 6, "company": "百度"},
-    ]
-    return _rank_candidates(mock, parsed, limit)
+    return []
 
 
 def _rank_candidates(candidates: list, parsed: dict, limit: int) -> list:
@@ -463,26 +455,7 @@ def _resolve_candidate(candidate_id: str) -> dict:
     except Exception as exc:
         log.warning("DB lookup for candidate %s failed: %s", candidate_id, exc)
 
-    # Mock fallback
-    mock_store = {
-        "C2026070012": {"name": "张三", "edu": "本科", "school": "211",
-                        "workYears": 5, "bigCompany": 1, "company": "阿里巴巴",
-                        "skills": ["Java", "Spring Boot", "MySQL", "Redis", "微服务"]},
-        "C2026070011": {"name": "李四", "edu": "硕士", "school": "985",
-                        "workYears": 3, "bigCompany": 1, "company": "腾讯",
-                        "skills": ["Python", "TensorFlow", "PyTorch"]},
-        "C2026070007": {"name": "王五", "edu": "硕士", "school": "普通",
-                        "workYears": 3, "bigCompany": 0, "company": "字节跳动",
-                        "skills": ["Go", "K8s", "Docker", "Redis"]},
-        "C2026070010": {"name": "郑一", "edu": "本科", "school": "985",
-                        "workYears": 4, "bigCompany": 1, "company": "美团",
-                        "skills": ["React", "TypeScript", "Node.js"]},
-        "C2026070009": {"name": "孙九", "edu": "本科", "school": "211",
-                        "workYears": 6, "bigCompany": 1, "company": "百度",
-                        "skills": ["Java", "Spring Cloud", "Kafka", "ES"]},
-    }
-    return mock_store.get(candidate_id, {"name": candidate_id, "skills": [],
-                                          "edu": "本科", "workYears": 3})
+    return {"name": candidate_id, "skills": []}
 
 
 def _resolve_demand(demand_id: str) -> dict:
@@ -672,8 +645,11 @@ def _run_communication_draft(body: dict) -> dict:
     channel = body.get("channel", "email")
     purpose = body.get("purpose", "contact")
     context = body.get("context", {})
+    from app.services.config_service import get_ai_knowledge_context
+    knowledge_context = get_ai_knowledge_context()
 
     user_input = json.dumps({
+        "knowledge_base": knowledge_context,
         "candidate_name": candidate_name,
         "channel": channel,
         "purpose": purpose,

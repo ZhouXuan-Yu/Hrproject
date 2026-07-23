@@ -36,6 +36,26 @@
                 <span class="channel-label">{{ ch.label }}</span>
               </label>
             </div>
+            <div class="contact-channel-detail">
+              <div v-if="channel === 'phone'">
+                <span class="contact-label">电话号码</span>
+                <b>{{ contactInfo.mobile || '未填写' }}</b>
+              </div>
+              <div v-else-if="channel === 'email'">
+                <span class="contact-label">邮箱</span>
+                <b>{{ contactInfo.email || '未填写' }}</b>
+                <button class="btn btn-outline btn-sm" :disabled="!contactInfo.email || draftLoading || sending" @click="sendCurrentChannel">
+                  {{ sending && channel === 'email' ? '发送中...' : (sent.email ? '已发送' : '发送') }}
+                </button>
+              </div>
+              <div v-else>
+                <span class="contact-label">飞书</span>
+                <b>{{ contactInfo.feishu || contactInfo.mobile || '未绑定飞书' }}</b>
+                <button class="btn btn-outline btn-sm" :disabled="draftLoading || sending" @click="sendCurrentChannel">
+                  {{ sending && channel === 'feishu' ? '发送中...' : (sent.feishu ? '已发送' : '发送') }}
+                </button>
+              </div>
+            </div>
           </div>
 
           <!-- Context -->
@@ -101,6 +121,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
 import { runCommunicationDraft } from '../api/ai.js';
+import { fetchCandidateContact, sendTalentContact } from '../api/talent.js';
 import { useToast } from '../composables/useToast.js';
 
 const props = defineProps({
@@ -117,6 +138,9 @@ const draftText = ref('');
 const draftLoading = ref(false);
 const draftError = ref('');
 const copied = ref(false);
+const contactInfo = ref({ mobile: '', email: '', feishu: '' });
+const sent = ref({ email: false, feishu: false });
+const sending = ref(false);
 let draftSeq = 0;
 const { toast } = useToast();
 
@@ -164,6 +188,55 @@ async function generateDraft() {
   }
 }
 
+async function loadContactInfo() {
+  const id = props.candidate?.id || '';
+  contactInfo.value = { mobile: '', email: '', feishu: '' };
+  if (!id) return;
+  try {
+    const info = await fetchCandidateContact(id);
+    contactInfo.value = {
+      mobile: info?.mobile || '',
+      email: info?.email || '',
+      feishu: info?.feishu || '',
+    };
+  } catch (e) {
+    console.warn('[CommunicationModal] contact info failed:', e);
+  }
+}
+
+async function sendCurrentChannel() {
+  if (!draftText.value) await generateDraft();
+  if (!props.candidate?.id) {
+    toast.error('候选人未关联真实档案，无法发送');
+    return;
+  }
+  sending.value = true;
+  try {
+    const result = await sendTalentContact({
+      candidateId: props.candidate.id,
+      channel: channel.value,
+      method: channelLabels[channel.value] || channel.value,
+      draft: draftText.value,
+      subject: `${props.demand?.position || '招聘岗位'} 沟通`,
+      position: props.demand?.position || '',
+      demandId: props.demand?.id || '',
+      feishu: contactInfo.value.feishu || '',
+    });
+    const ok = !!(result?.sent || result?.send?.sent);
+    const message = result?.send?.message || result?.message || '';
+    if (channel.value === 'email') sent.value.email = ok;
+    if (channel.value === 'feishu') sent.value.feishu = ok;
+    if (ok) {
+      toast.success((channelLabels[channel.value] || '消息') + '已真实发送');
+    } else {
+      toast.error('发送失败：' + (message || '请检查邮箱/飞书配置'));
+    }
+  } catch (e) {
+    toast.error('发送失败：' + (e.message || '未知错误'));
+  } finally {
+    sending.value = false;
+  }
+}
 async function copyDraft() {
   if (!draftText.value) return;
   try {
@@ -198,6 +271,8 @@ function resetForm() {
   draftText.value = '';
   draftError.value = '';
   copied.value = false;
+  sent.value = { email: false, feishu: false };
+  sending.value = false;
 }
 
 watch(
@@ -205,6 +280,7 @@ watch(
   async (v) => {
     if (v) {
       resetForm();
+      await loadContactInfo();
       // Auto-generate draft on open
       await generateDraft();
     }
@@ -352,6 +428,13 @@ watch(
 .channel-card.active .channel-icon { color: var(--e-primary, #4F6EF7); }
 .channel-label { font-size: 13px; font-weight: 600; color: var(--e-text, #172033); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+.contact-channel-detail {
+  margin-top: 10px; padding: 10px 12px; border: 1px solid var(--e-border-soft, #EFF3F8);
+  border-radius: 8px; background: var(--e-surface-soft, #F9FAFC); font-size: 13px;
+}
+.contact-channel-detail > div { display: flex; align-items: center; gap: 10px; }
+.contact-label { color: var(--e-muted, #5B6475); font-weight: 600; }
+.contact-channel-detail b { color: var(--e-text, #172033); margin-right: auto; }
 
 /* ===== Form elements ===== */
 .form-select { height: 36px; padding: 0 10px; border: 1px solid var(--e-border, #E1E6EF); border-radius: 6px; font-size: 13px; font-family: inherit; background: var(--e-surface, #fff); color: var(--e-text, #172033); }

@@ -14,6 +14,7 @@ export const ROLE_MENUS = {
   no_recruit:       [],
   employee:         ['recruit-dashboard','recruit-demand'],
   dept_head:        ['recruit-dashboard','recruit-demand'],
+  executive:        ['recruit-dashboard','recruit-demand'],
   interviewer:      ['recruit-dashboard','recruit-interview'],
   temp_interviewer: ['recruit-dashboard','recruit-interview'],
   hr:               ['recruit-dashboard','recruit-demand','recruit-talent','recruit-interview'],
@@ -21,13 +22,13 @@ export const ROLE_MENUS = {
 };
 
 export const ROLE_LABELS = {
-  no_recruit:'无权限员工', employee:'基层员工', dept_head:'部门负责人',
+  no_recruit:'无权限员工', employee:'基层员工', dept_head:'部门负责人', executive:'高管',
   interviewer:'面试官', temp_interviewer:'临时面试官', hr:'HR 专员', admin:'管理员'
 };
 
 export const ROLE_CLASS = {
   admin:'role-admin', hr:'role-hr', interviewer:'role-interviewer',
-  temp_interviewer:'role-interviewer', employee:'role-hr', dept_head:'role-admin'
+  temp_interviewer:'role-interviewer', employee:'role-hr', dept_head:'role-admin', executive:'role-admin'
 };
 
 export function getRole(){

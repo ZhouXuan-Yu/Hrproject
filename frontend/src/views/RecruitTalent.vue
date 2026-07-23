@@ -90,7 +90,7 @@
     </section>
 
     <!-- 系统邮件看板：哪个邮箱发了哪些邮件到哪些邮箱 -->
-    <section class="pipeline-panel pp-half" aria-label="系统邮件看板">
+    <section data-testid="system-mail-board" class="pipeline-panel pp-half mail-panel" aria-label="系统邮件看板">
       <div class="pp-header">
         <div>
           <div class="pp-title">系统邮件看板</div>
@@ -161,7 +161,8 @@
         <span>已勾选 <b style="color:var(--c-primary)" id="checkedCount">{{ checkedExtCount }}</b> 人</span>
       </div>
 
-      <div class="table-wrap">
+      <div class="table-wrap data-region">
+        <DataLoadingOverlay :visible="talentLoading" />
         <table v-if="extFiltered.length > 0"><thead><tr>
           <th style="width:34px"><input type="checkbox" id="checkAllExt" @change="toggleAllExt"></th>
           <th>编号</th><th>姓名</th><th>画像</th><th>学历</th><th>年限</th><th>核心技能</th><th>最近公司</th><th>应聘岗位/匹配</th><th>来源</th><th>入库</th><th>状态</th><th>备注</th><th>操作</th>
@@ -213,7 +214,7 @@
           </tr>
         </tbody></table>
         <EmptyState
-          v-else
+          v-else-if="!talentLoading"
           title="暂无外部候选人"
           description="人才库暂无符合条件的候选人数据，可通过上传简历或从招聘渠道导入"
           action-label="+ 上传简历"
@@ -241,7 +242,8 @@
         <select v-model="intFilters.sort"><option value="default">综合评估排序</option><option value="years">工龄排序</option><option value="perf">绩效排序</option><option value="match">最近匹配分排序</option></select>
         <button class="btn btn-primary btn-sm" @click="showMatchModal = true">内部匹配</button>
       </div>
-      <div class="table-wrap">
+      <div class="table-wrap data-region">
+        <DataLoadingOverlay :visible="talentLoading" />
         <table v-if="INT_DATA_SOURCE.length > 0"><thead><tr><th style="width:34px"><input type="checkbox" id="checkAllInt" @change="toggleAllInt"></th><th>工号</th><th>姓名</th><th>综合评估</th><th>部门</th><th>岗位</th><th>工龄</th><th>绩效</th><th>最近匹配</th><th>技能标签</th><th>可调岗</th><th>备注</th><th>操作</th></tr></thead><tbody>
           <tr v-for="e in INT_DATA_SOURCE" :key="e.id">
             <td><input type="checkbox" class="int-check" v-model="checkedInt[e.id]" @change="onCheckInt"></td>
@@ -266,7 +268,7 @@
           </tr>
         </tbody></table>
         <EmptyState
-          v-else
+          v-else-if="!talentLoading"
           title="暂无内部员工数据"
           description="内部员工库暂无数据"
         />
@@ -289,7 +291,8 @@
         <select><option>全部原因</option><option>简历造假</option><option>面试严重违纪</option><option>Offer 拒后恶意行为</option></select>
         <button class="btn btn-outline btn-sm">+ 手动加入黑名单</button>
       </div>
-      <div class="table-wrap">
+      <div class="table-wrap data-region">
+        <DataLoadingOverlay :visible="talentLoading" />
         <table v-if="BLACKLIST_DATA_SOURCE.length > 0"><thead><tr><th>候选人</th><th>手机</th><th>加入时间</th><th>原因</th><th>操作人</th><th>到期</th><th>操作</th></tr></thead><tbody>
           <tr v-for="(b, i) in BLACKLIST_DATA_SOURCE" :key="i">
             <td style="color:var(--c-reject);font-weight:600">{{ b.name }}</td>
@@ -298,7 +301,7 @@
           </tr>
         </tbody></table>
         <EmptyState
-          v-else
+          v-else-if="!talentLoading"
           title="暂无黑名单数据"
           description="黑名单列表为空"
         />
@@ -435,7 +438,6 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import WorkbenchLayout from '../layouts/WorkbenchLayout.vue';
-import { EXT_DATA, INT_DATA, BLACKLIST_DATA } from '../data/talent.js';
 import { fetchTalent, updateTalentNote, fetchMatchResults, uploadResumeFile, fetchIngestLog, fetchMailLog } from '../api/talent.js';
 import { fetchDemands, linkCandidateToDemand } from '../api/demand.js';
 import { syncAllEmailAccounts } from '../api/config.js';
@@ -446,6 +448,7 @@ import CandidateDrawer from '../components/CandidateDrawer.vue';
 import EmployeeDrawer from '../components/EmployeeDrawer.vue';
 import ContactModal from '../components/ContactModal.vue';
 import EmptyState from '../components/EmptyState.vue';
+import DataLoadingOverlay from '../components/DataLoadingOverlay.vue';
 import { KPI_ICONS } from '../components/kpiIcons.js';
 
 const { toast } = useToast();
@@ -467,6 +470,8 @@ const matchSummary = ref('');
 const apiExtData = ref(null);
 const apiIntData = ref(null);
 const apiBlacklistData = ref(null);
+const talentLoading = ref(true);
+const talentLoadError = ref('');
 
 // 「加入需求」弹窗：需求列表来自真实 API；按候选人投递岗位优先排序
 const demandOptions = ref([]);
@@ -533,9 +538,9 @@ async function loadDemandOptions() {
   }
 }
 
-const EXT_DATA_SOURCE = computed(() => apiExtData.value ?? EXT_DATA);
-const INT_DATA_SOURCE = computed(() => apiIntData.value ?? INT_DATA);
-const BLACKLIST_DATA_SOURCE = computed(() => apiBlacklistData.value ?? BLACKLIST_DATA);
+const EXT_DATA_SOURCE = computed(() => apiExtData.value ?? []);
+const INT_DATA_SOURCE = computed(() => apiIntData.value ?? []);
+const BLACKLIST_DATA_SOURCE = computed(() => apiBlacklistData.value ?? []);
 
 // Top stat cards
 const statCards = computed(() => [
@@ -554,6 +559,8 @@ function onStatSelect(c) {
 const intFilters = reactive({ search: '', dept: 'all', sort: 'default' });
 
 async function loadFromApi() {
+  talentLoading.value = true;
+  talentLoadError.value = '';
   try {
     const talentData = await fetchTalent();
     if (talentData) {
@@ -565,11 +572,17 @@ async function loadFromApi() {
         skillsHtml: c.skillsHtml
           || (Array.isArray(c.skills) ? c.skills.map(s => `<span class="tag-item tag-hit">${s}</span>`).join('') : (c.skills || '')),
       })) : null;
-      apiIntData.value = talentData.int ?? talentData.internal ?? null;
-      apiBlacklistData.value = talentData.blacklist ?? null;
+      apiIntData.value = Array.isArray(talentData.int ?? talentData.internal) ? (talentData.int ?? talentData.internal) : [];
+      apiBlacklistData.value = Array.isArray(talentData.blacklist) ? talentData.blacklist : [];
     }
   } catch (e) {
-    console.warn('Failed to load talent data from API, using mock fallback:', e);
+    talentLoadError.value = e.message || '人才库数据加载失败';
+    apiExtData.value = [];
+    apiIntData.value = [];
+    apiBlacklistData.value = [];
+    console.warn('Failed to load talent data from API:', e);
+  } finally {
+    talentLoading.value = false;
   }
 }
 
@@ -810,11 +823,13 @@ async function addToDemand(demandId, demandName) {
   // 逐个调用真实 link 接口，按返回的 linked 判定成败，汇总提示
   const okNames = [];
   const failReasons = [];
+  let latestLinkedCount = null;
   for (const name of names) {
     try {
       const r = await linkCandidateToDemand(demandId, name);
       if (r && r.linked) {
         okNames.push(name);
+        if (typeof r.linkedCount === 'number') latestLinkedCount = r.linkedCount;
       } else {
         failReasons.push(name + '：' + ((r && r.reason) || '加入失败'));
       }
@@ -825,10 +840,17 @@ async function addToDemand(demandId, demandName) {
   }
 
   if (okNames.length) {
+    demandOptions.value = demandOptions.value.map(d =>
+      d.id === demandId
+        ? { ...d, linkedCount: latestLinkedCount ?? ((d.linkedCount || 0) + okNames.length) }
+        : d
+    );
     const key = 'demand_' + demandId + '_linked';
     const linked = (() => { try { return JSON.parse(localStorage.getItem(key)) || []; } catch(e) { return []; } })();
     okNames.forEach(n => { if (linked.indexOf(n) < 0) linked.push(n); });
     localStorage.setItem(key, JSON.stringify(linked));
+    demandOptionsLoaded.value = false;
+    await loadDemandOptions();
   }
 
   showDemandModal.value = false;
@@ -932,6 +954,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
   border: 1px solid rgba(79,110,247,0.18); border-radius: 8px; font-size: 13px; margin-top: 12px;
 }
 .batch-bar .count { font-weight: 700; color: var(--c-primary); }
+.data-region { position: relative; min-height: 220px; }
 /* ── 加入需求弹窗 ── */
 .dm-cand-chip { display: inline-block; padding: 2px 8px; margin: 2px 4px 2px 0; background: var(--c-primary-subtle); border-radius: 10px; font-size: 12px; color: var(--c-text); }
 .dm-list { max-height: 320px; overflow-y: auto; border: 1px solid var(--c-border); border-radius: 8px; }
@@ -996,6 +1019,9 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
 .pp-row { display: flex; gap: 14px; align-items: stretch; }
 .pp-half { flex: 1 1 50%; min-width: 0; display: flex; flex-direction: column; }
 .pp-scroll { overflow-y: auto; max-height: 260px; }
+.mail-panel { min-height: 360px; }
+.mail-panel .ml-body { min-height: 280px; }
+.mail-panel .pp-scroll { flex: 1; min-height: 260px; max-height: none; }
 .pp-scroll::-webkit-scrollbar { width: 4px; }
 .pp-scroll::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 2px; }
 @media (max-width: 1100px) { .pp-row { flex-direction: column; } }

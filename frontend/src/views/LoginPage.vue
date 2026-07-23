@@ -92,6 +92,7 @@ const roles = [
   { key: 'admin', icon: 'A', name: '管理员', note: '全部功能与系统配置' },
   { key: 'hr', icon: 'HR', name: 'HR 专员', note: '招聘全流程操作' },
   { key: 'dept_head', icon: 'D', name: '部门负责人', note: '本部门需求审批' },
+  { key: 'executive', icon: 'G', name: '高管', note: '终审与需求查看' },
   { key: 'employee', icon: 'E', name: '基层员工', note: '提交与查看本人需求' },
   { key: 'interviewer', icon: 'I', name: '面试官', note: '面试评价与查看' },
   { key: 'temp_interviewer', icon: 'T', name: '临时面试官', note: '仅本次分配场次' },

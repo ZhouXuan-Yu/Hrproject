@@ -138,6 +138,7 @@ ROLES = {
     'interviewer': '面试官',
     'temp_interviewer': '临时面试官',
     'dept_head': '部门负责人',
+    'executive': '高管',
     'employee': '基层员工',
     'no_recruit': '无权限员工',
 }
@@ -150,6 +151,7 @@ ROLE_MENUS = {
     'interviewer': ['recruit-dashboard', 'recruit-interview'],
     'temp_interviewer': ['recruit-dashboard', 'recruit-interview'],
     'dept_head': ['recruit-dashboard', 'recruit-demand'],
+    'executive': ['recruit-dashboard', 'recruit-demand'],
     'employee': ['recruit-dashboard', 'recruit-demand'],
     'no_recruit': [],
 }

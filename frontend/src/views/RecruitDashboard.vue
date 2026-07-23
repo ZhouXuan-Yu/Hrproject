@@ -25,7 +25,8 @@
     </template>
 
     <!-- KPI row -->
-    <div class="metric-row dashboard-kpi-row" style="margin-bottom:20px">
+    <div class="metric-row dashboard-kpi-row data-region" style="margin-bottom:20px">
+      <DataLoadingOverlay :visible="loading" />
       <div v-for="(kpi, i) in kpis" :key="i" class="metric-card dashboard-kpi-card"
         :style="{ '--kpi-accent': kpiAccent(i) }"
         @mousemove="onKpiHover(i, $event)" @mouseleave="onKpiLeave(i)">
@@ -39,7 +40,8 @@
     <FunnelHero />
 
     <!-- Department progress (collapsible) -->
-    <div class="card" style="margin-bottom:12px">
+    <div class="card data-region" style="margin-bottom:12px">
+      <DataLoadingOverlay :visible="loading" />
       <div class="collapse-toggle" :class="{ open: deptOpen }" role="button" tabindex="0" :aria-expanded="deptOpen ? 'true' : 'false'" aria-controls="bodyDept" data-collapse-enhanced="true" @click="deptOpen = !deptOpen" @keydown.enter.space.prevent="deptOpen = !deptOpen">
         <svg viewBox="0 0 24 24" style="width:16px;height:16px;fill:none;stroke:var(--c-body);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;transition:transform .2s;flex-shrink:0"><polyline points="9 18 15 12 9 6"/></svg>
         <span class="card-title" style="margin-bottom:0">部门招聘进度</span>
@@ -58,7 +60,8 @@
     </div>
 
     <!-- Channel effectiveness (collapsible) -->
-    <div class="card">
+    <div class="card data-region">
+      <DataLoadingOverlay :visible="loading" />
       <div class="collapse-toggle" :class="{ open: channelOpen }" role="button" tabindex="0" :aria-expanded="channelOpen ? 'true' : 'false'" aria-controls="bodyChannel" data-collapse-enhanced="true" @click="channelOpen = !channelOpen" @keydown.enter.space.prevent="channelOpen = !channelOpen">
         <svg viewBox="0 0 24 24" style="width:16px;height:16px;fill:none;stroke:var(--c-body);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;transition:transform .2s;flex-shrink:0"><polyline points="9 18 15 12 9 6"/></svg>
         <span class="card-title" style="margin-bottom:0">渠道效果统计</span>
@@ -86,9 +89,9 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import WorkbenchLayout from '../layouts/WorkbenchLayout.vue';
 import FunnelHero from '../components/FunnelHero.vue';
-import { KPI_SETS, DEPT_PROGRESS, CHANNEL_DATA, RISK_ALERTS } from '../data/dashboard.js';
 import { fetchKpi, fetchFunnel, fetchDeptProgress, fetchChannel, fetchRiskAlerts } from '../api/dashboard.js';
 import { resolveKpiIcon } from '../components/kpiIcons.js';
+import DataLoadingOverlay from '../components/DataLoadingOverlay.vue';
 
 const router = useRouter();
 const timeRange = ref('month');
@@ -103,18 +106,18 @@ const loadError = ref('');
 const role = localStorage.getItem('hr_role') || 'hr';
 const isInterviewerRole = role === 'interviewer' || role === 'temp_interviewer';
 
-// Reactive data from API (with mock fallback)
+// Reactive data from API
 const apiKpis = ref(null);
 const apiFunnel = ref(null);
 const apiDeptProgress = ref(null);
 const apiChannelData = ref(null);
 const apiRiskAlerts = ref(null);
 
-const kpis = computed(() => apiKpis.value || (role === 'admin' ? KPI_SETS.admin : role === 'interviewer' || role === 'temp_interviewer' ? KPI_SETS.interviewer : KPI_SETS.hr));
+const kpis = computed(() => apiKpis.value || []);
 
-const DEPT_PROGRESS_ = computed(() => apiDeptProgress.value || DEPT_PROGRESS);
-const CHANNEL_DATA_ = computed(() => apiChannelData.value || CHANNEL_DATA);
-const RISK_ALERTS_ = computed(() => apiRiskAlerts.value || RISK_ALERTS);
+const DEPT_PROGRESS_ = computed(() => apiDeptProgress.value || []);
+const CHANNEL_DATA_ = computed(() => apiChannelData.value || []);
+const RISK_ALERTS_ = computed(() => apiRiskAlerts.value || []);
 
 const deptSummary = computed(() => DEPT_PROGRESS_.value.map(d => d.dept + ' ' + d.hired + '/' + d.total).join(' · '));
 const channelSummary = computed(() => CHANNEL_DATA_.value.map(c => c.channel + ' ' + c.resume).join(' · '));
@@ -155,14 +158,18 @@ async function loadFromApi() {
     const [kpiData, funnelData, deptData, channelData, alertData] = await Promise.all([
       fetchKpi(), fetchFunnel(), fetchDeptProgress(), fetchChannel(), fetchRiskAlerts()
     ]);
-    if (kpiData && kpiData.length) apiKpis.value = kpiData;
+    apiKpis.value = Array.isArray(kpiData) ? kpiData : [];
     if (funnelData && funnelData.stages) apiFunnel.value = funnelData;
-    if (deptData && deptData.length) apiDeptProgress.value = deptData;
-    if (channelData && channelData.length) apiChannelData.value = channelData;
-    if (alertData && alertData.length) apiRiskAlerts.value = alertData;
+    apiDeptProgress.value = Array.isArray(deptData) ? deptData : [];
+    apiChannelData.value = Array.isArray(channelData) ? channelData : [];
+    apiRiskAlerts.value = Array.isArray(alertData) ? alertData : [];
   } catch (e) {
     loadError.value = e.message;
-    console.warn('API fetch fallback to mock:', e.message);
+    apiKpis.value = [];
+    apiDeptProgress.value = [];
+    apiChannelData.value = [];
+    apiRiskAlerts.value = [];
+    console.warn('Dashboard API fetch failed:', e.message);
   } finally {
     loading.value = false;
   }
@@ -193,6 +200,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
   display: flex; align-items: center; justify-content: center; transition: all .2s;
 }
 .bell-btn:hover { background: #FFF5F5; border-color: var(--c-warn); }
+.data-region { position: relative; min-height: 120px; }
 .bell-btn .badge {
   position: absolute; top: -5px; right: -5px; min-width: 18px; height: 18px;
   border-radius: 9px; background: var(--c-reject); color: #fff;

@@ -9,7 +9,7 @@ export const DEMANDS = [
     approvalNodes: [
       { label: '部门负责人', state: 'current' },
       { label: 'HR', state: 'pending' },
-      { label: '财务总监', state: 'pending' },
+      { label: '高管', state: 'pending' },
     ],
     linkedCount: 0,
   },
@@ -20,7 +20,7 @@ export const DEMANDS = [
     approvalNodes: [
       { label: '部门负责人', state: 'done' },
       { label: 'HR', state: 'current' },
-      { label: '财务总监', state: 'pending' },
+      { label: '高管', state: 'pending' },
     ],
     linkedCount: 0,
   },
@@ -31,7 +31,7 @@ export const DEMANDS = [
     approvalNodes: [
       { label: '部门负责人', state: 'done' },
       { label: 'HR', state: 'done' },
-      { label: '财务总监', state: 'done' },
+      { label: '高管', state: 'done' },
     ],
     directApply: 4, systemRecommend: 5, internalMatch: 2,
     internalNames: ['王工·92', '赵工·42'],
@@ -45,7 +45,7 @@ export const DEMANDS = [
     approvalNodes: [
       { label: '部门负责人', state: 'done' },
       { label: 'HR', state: 'done' },
-      { label: '财务总监', state: 'done' },
+      { label: '高管', state: 'done' },
     ],
     directApply: 1, systemRecommend: 0, internalMatch: 0,
     internalNames: [],
@@ -59,7 +59,7 @@ export const DEMANDS = [
     approvalNodes: [
       { label: '部门负责人', state: 'done' },
       { label: 'HR', state: 'done' },
-      { label: '财务总监', state: 'done' },
+      { label: '高管', state: 'done' },
     ],
     linkedCount: 0,
   },

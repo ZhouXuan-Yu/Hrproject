@@ -96,7 +96,10 @@ def calc_profile_score(edu_level=0, school_level=0, work_years=0, big_company=0,
     score += 20 if big_company else 0
     # Certificates (max 10)
     score += min(cert_count * 3, 10)
-    return min(score, 100)
+    raw = min(score, 100)
+    # 画像分是候选人基础画像，不作为一票否决硬规则。
+    # 输出压到 50-99：50-69 保底、70-85 中等、86-99 优秀。
+    return min(99, max(50, round(50 + raw * 0.49)))
 
 
 def calc_recommend_score(profile_score, match_score, storage_time, now=None):

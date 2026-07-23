@@ -19,7 +19,7 @@ export const DEMAND_INFO = {
   approvalNodes: [
     { actor: '刘博', role: '部门负责人', status: '已通过', date: '2026-07-12 14:30' },
     { actor: '张HR', role: 'HR', status: '已通过', date: '2026-07-13 09:15' },
-    { actor: '陈总', role: '财务总监', status: '已通过', date: '2026-07-13 16:00' }
+    { actor: '高管', role: '高管', status: '已通过', date: '2026-07-13 16:00' }
   ]
 };
 
