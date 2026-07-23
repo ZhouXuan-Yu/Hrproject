@@ -31,18 +31,13 @@
       </div>
       <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--c-border)">
         <div style="font-size:13px;font-weight:700;margin-bottom:6px;color:var(--c-text)">岗位描述 <span style="font-weight:400;font-size:11px;color:var(--c-sub)">— 解析辅助</span></div>
-        <div v-if="jdMermaidDefinition" class="jd-mermaid-panel">
-          <div v-if="jdMermaidSvg" class="jd-mermaid-graph" v-html="jdMermaidSvg"></div>
-          <pre v-else class="jd-mermaid-source">{{ jdMermaidDefinition }}</pre>
-          <details class="jd-mermaid-detail">
-            <summary>Mermaid 源码</summary>
-            <pre>{{ jdMermaidDefinition }}</pre>
-          </details>
+        <div v-if="jdMarkdownContent" class="jd-markdown-panel">
+          <AiMarkdown :content="jdMarkdownContent" />
         </div>
         <EmptyState
           v-else
           title="暂无岗位描述"
-          description="该需求尚未保存岗位描述，无法生成解析图"
+          description="该需求尚未保存岗位描述，无法生成 Markdown 解析内容"
         />
       </div>
       <div style="margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:12px">
@@ -197,13 +192,26 @@
             <div><span>匹配分</span><b>{{ drawerData.matchScore || '--' }}</b></div>
             <div><span>综合分</span><b>{{ drawerData.comprehensiveScore || '--' }}</b></div>
           </div>
-          <div v-if="drawerData.matchReason"><span>匹配理由</span><p>{{ drawerData.matchReason }}</p></div>
-          <div v-if="drawerData.matchDetail"><span>详细分析</span><p>{{ drawerData.matchDetail }}</p></div>
-          <div v-if="drawerData.breakdown?.profile?.components" class="analysis-block">
+          <div v-if="drawerData.matchReason" class="analysis-block">
+            <span>匹配理由</span>
+            <p>{{ formatAnalysisText(drawerData.matchReason) }}</p>
+          </div>
+          <div v-if="drawerData.matchDetail" class="analysis-block">
+            <span>详细分析</span>
+            <p>{{ formatAnalysisText(drawerData.matchDetail) }}</p>
+          </div>
+          <div v-if="profileComponentCards.length" class="analysis-block">
             <span>画像构成</span>
-            <div class="analysis-grid">
-              <div v-for="(v, k) in drawerData.breakdown.profile.components" :key="k">
-                <em>{{ k }}</em><b>{{ v }}</b>
+            <div class="profile-component-grid">
+              <div v-for="item in profileComponentCards" :key="item.key" class="profile-component-card">
+                <div class="profile-component-head">
+                  <em>{{ item.label }}</em>
+                  <b>{{ item.scoreText }}</b>
+                </div>
+                <div class="profile-component-bar">
+                  <span :style="{ width: item.percent + '%' }"></span>
+                </div>
+                <p>{{ item.detail }}</p>
               </div>
             </div>
           </div>
@@ -218,10 +226,13 @@
           </div>
           <div v-if="drawerData.breakdown?.comprehensive" class="analysis-block">
             <span>综合推荐</span>
-            <p>{{ drawerData.breakdown.comprehensive.formula }}</p>
-            <p v-if="drawerData.breakdown.comprehensive.decayApplied">
-              已应用入库时效衰减，衰减系数 {{ drawerData.breakdown.comprehensive.decayRate }}
-            </p>
+            <div class="recommend-card">
+              <div><em>推荐公式</em><b>{{ drawerData.breakdown.comprehensive.formula }}</b></div>
+              <div><em>综合分</em><b>{{ drawerData.breakdown.comprehensive.score ?? drawerData.comprehensiveScore ?? '--' }}</b></div>
+              <div v-if="drawerData.breakdown.comprehensive.decayApplied">
+                <em>时效衰减</em><b>已应用，系数 {{ drawerData.breakdown.comprehensive.decayRate }}</b>
+              </div>
+            </div>
           </div>
           <div v-if="drawerData.hardFilter" class="analysis-block">
             <span>硬性条件</span>
@@ -239,12 +250,13 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import { useRoute } from 'vue-router';
 import WorkbenchLayout from '../layouts/WorkbenchLayout.vue';
 import ScheduleInterviewModal from '../components/ScheduleInterviewModal.vue';
 import CommunicationModal from '../components/CommunicationModal.vue';
 import AiSkeleton from '../components/ai/AiSkeleton.vue';
+import AiMarkdown from '../components/ai/AiMarkdown.vue';
 import { fetchDemandDetail, fetchDemandCandidates, linkCandidateToDemand } from '../api/demand.js';
 import { useToast } from '../composables/useToast.js';
 import { useAppError } from '../composables/useAppError.js';
@@ -277,9 +289,6 @@ const candidates = ref([]);
 const loading = ref(true);
 const candidatesLoading = ref(true);
 const loadError = ref('');
-const jdMermaidSvg = ref('');
-const jdMermaidError = ref('');
-let mermaidRenderer = null;
 
 const checkedSet = reactive({});
 const checkedCount = computed(() => Object.keys(checkedSet).filter(k => checkedSet[k]).length);
@@ -287,6 +296,10 @@ const checkedCount = computed(() => Object.keys(checkedSet).filter(k => checkedS
 const drawerCandidate = ref(null);
 const drawerLoading = ref(false);
 const drawerData = ref(null);
+const profileComponentCards = computed(() => {
+  const components = drawerData.value?.breakdown?.profile?.components || {};
+  return Object.entries(components).map(([key, value]) => buildProfileComponentCard(key, value));
+});
 
 const showScheduleModal = ref(false);
 const showCommModal = ref(false);
@@ -300,87 +313,96 @@ const filters = reactive({
   age: 'all', edu: 'all', years: 'all', profile: '0', keyword: ''
 });
 
-const jdMermaidDefinition = computed(() => buildJdMermaid(info.value));
+const PROFILE_COMPONENT_LABELS = {
+  education: '学历背景',
+  schoolTier: '院校层级',
+  workYears: '工作年限',
+  bigCompany: '大厂经历',
+  certificates: '证书资质',
+};
 
-function cleanMermaidLabel(value, max = 30) {
-  const text = String(value || '')
-    .replace(/[<>{}[\]"'`|]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return text.length > max ? text.slice(0, max - 1) + '...' : text;
+function formatAnalysisText(value) {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }
+
+function clampPercent(score, max) {
+  const s = Number(score) || 0;
+  const m = Number(max) || 0;
+  if (!m) return 0;
+  return Math.max(0, Math.min(100, Math.round((s / m) * 100)));
+}
+
+function profileComponentDetail(key, value = {}) {
+  if (key === 'education') return value.label ? `学历：${value.label}` : '未识别到学历信息';
+  if (key === 'schoolTier') return value.label && value.label !== '—' ? `院校层级：${value.label}` : '未识别到重点院校标签';
+  if (key === 'workYears') return `工作年限：${value.years ?? 0} 年`;
+  if (key === 'bigCompany') return value.hasBigCompany ? '有大厂/知名企业经历' : '未识别到大厂经历';
+  if (key === 'certificates') return `证书数量：${value.count ?? 0} 项`;
+  return formatAnalysisText(value);
+}
+
+function buildProfileComponentCard(key, value) {
+  const item = value && typeof value === 'object' ? value : { score: value, max: 0 };
+  const score = Number(item.score) || 0;
+  const max = Number(item.max) || 0;
+  return {
+    key,
+    label: PROFILE_COMPONENT_LABELS[key] || key,
+    scoreText: max ? `${score}/${max}` : String(score || '--'),
+    percent: clampPercent(score, max),
+    detail: profileComponentDetail(key, item),
+  };
+}
+
+const jdMarkdownContent = computed(() => buildJdMarkdown(info.value));
 
 function splitDescription(text) {
   return String(text || '')
     .split(/[。；;\n]/)
     .map(item => item.trim())
-    .filter(Boolean)
-    .slice(0, 4);
+    .filter(Boolean);
 }
 
-function buildJdMermaid(data) {
-  const descriptionItems = splitDescription(data.description);
-  const required = (data.requiredSkills || []).filter(Boolean).slice(0, 6);
-  const plus = (data.plusSkills || []).filter(Boolean).slice(0, 4);
-  if (!descriptionItems.length && !required.length && !plus.length) return '';
+function looksLikeMarkdown(text) {
+  return /(^|\n)\s{0,3}(#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```|\|.+\|)/.test(text || '');
+}
+
+function buildJdMarkdown(data) {
+  const raw = String(data.description || '').trim();
+  const required = (data.requiredSkills || []).filter(Boolean);
+  const plus = (data.plusSkills || []).filter(Boolean);
+  if (!raw && !required.length && !plus.length) return '';
+  if (raw && looksLikeMarkdown(raw)) return raw;
 
   const lines = [
-    'flowchart LR',
-    `  JD["${cleanMermaidLabel(data.position || data.id || '岗位需求')}"]`,
-    '  JD --> DUTY["职责解析"]',
-    '  JD --> REQ["必备能力"]',
-    '  JD --> PLUS["加分能力"]',
+    `## ${data.position && data.position !== '--' ? data.position : '岗位描述'}`,
+    '',
   ];
+  if (data.dept && data.dept !== '--') lines.push(`- **部门**：${data.dept}`);
+  if (data.hc) lines.push(`- **招聘人数**：${data.hc} 人`);
+  if (data.salary && data.salary !== '--') lines.push(`- **薪资范围**：${data.salary}`);
+  if (data.date && data.date !== '--') lines.push(`- **期望到岗**：${data.date}`);
 
-  descriptionItems.forEach((item, index) => {
-    lines.push(`  DUTY --> D${index + 1}["${cleanMermaidLabel(item, 36)}"]`);
-  });
-  required.forEach((item, index) => {
-    lines.push(`  REQ --> R${index + 1}["${cleanMermaidLabel(item, 24)}"]`);
-  });
-  plus.forEach((item, index) => {
-    lines.push(`  PLUS --> P${index + 1}["${cleanMermaidLabel(item, 24)}"]`);
-  });
-
-  lines.push('  classDef root fill:#eef2ff,stroke:#4f6ef7,color:#172033,stroke-width:1px');
-  lines.push('  classDef branch fill:#f8fafc,stroke:#cbd5e1,color:#172033');
-  lines.push('  classDef leaf fill:#ffffff,stroke:#e1e6ef,color:#334155');
-  lines.push('  class JD root');
-  lines.push('  class DUTY,REQ,PLUS branch');
+  if (raw) {
+    lines.push('', '### 职责解析');
+    splitDescription(raw).forEach(item => lines.push(`- ${item}`));
+  }
+  if (required.length) {
+    lines.push('', '### 必备技能');
+    required.forEach(item => lines.push(`- ${item}`));
+  }
+  if (plus.length) {
+    lines.push('', '### 加分项');
+    plus.forEach(item => lines.push(`- ${item}`));
+  }
   return lines.join('\n');
 }
-
-async function renderJdMermaid() {
-  const definition = jdMermaidDefinition.value;
-  jdMermaidSvg.value = '';
-  jdMermaidError.value = '';
-  if (!definition) return;
-  try {
-    if (!mermaidRenderer) {
-      mermaidRenderer = (await import('mermaid')).default;
-      mermaidRenderer.initialize({
-        startOnLoad: false,
-        securityLevel: 'strict',
-        theme: 'base',
-        themeVariables: {
-          fontFamily: 'Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-          primaryColor: '#eef2ff',
-          primaryBorderColor: '#4f6ef7',
-          lineColor: '#94a3b8',
-          textColor: '#172033',
-        },
-      });
-    }
-    const renderId = `jd-mermaid-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const { svg } = await mermaidRenderer.render(renderId, definition);
-    jdMermaidSvg.value = svg;
-  } catch (e) {
-    jdMermaidError.value = e?.message || 'Mermaid 渲染失败';
-    console.warn('[RecruitDemandDetail] Mermaid render failed:', e);
-  }
-}
-
-watch(jdMermaidDefinition, renderJdMermaid, { immediate: true });
 
 const filteredCandidates = computed(() => {
   let list = candidates.value.filter(c => {
@@ -716,13 +738,8 @@ onUnmounted(() => {
 <style scoped>
 .candidate-filter { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 16px; background: var(--c-surface-elevated); border-radius: 8px; border: 1px solid var(--c-border); margin-bottom: 12px; }
 .data-region { position: relative; min-height: 160px; }
-.jd-mermaid-panel { padding: 12px 14px; border: 1px dashed var(--c-border); border-radius: 8px; background: var(--c-bg); }
-.jd-mermaid-graph { overflow-x: auto; display: flex; justify-content: center; padding: 8px; }
-.jd-mermaid-graph :deep(svg) { max-width: 100%; height: auto; min-height: 180px; }
-.jd-mermaid-source { margin: 0; overflow-x: auto; white-space: pre; font-size: 12px; line-height: 1.6; color: var(--c-body); }
-.jd-mermaid-detail { margin-top: 10px; font-size: 12px; color: var(--c-sub); }
-.jd-mermaid-detail summary { cursor: pointer; font-weight: 600; }
-.jd-mermaid-detail pre { margin: 8px 0 0; padding: 10px; border-radius: 6px; background: var(--c-card); border: 1px solid var(--c-border-light); color: var(--c-body); overflow-x: auto; }
+.jd-markdown-panel { padding: 12px 14px; border: 1px dashed var(--c-border); border-radius: 8px; background: var(--c-bg); }
+.jd-markdown-panel :deep([data-slot="ai-markdown"]) { font-size: 13px; line-height: 1.8; }
 .candidate-filter select, .candidate-filter input { height: 34px; padding: 0 10px; border: 1px solid var(--c-border); border-radius: 6px; font-size: 13px; font-family: inherit; background: var(--c-card); color: var(--c-body); }
 .candidate-filter .filter-label { font-size: 12px; color: var(--c-sub); font-weight: 600; white-space: nowrap; }
 .candidate-filter .spacer { flex: 1; }
@@ -748,5 +765,19 @@ onUnmounted(() => {
 .analysis-grid > div { padding:10px; border:1px solid var(--c-border); border-radius:8px; background:var(--c-bg); }
 .analysis-grid em { display:block; font-style:normal; font-size:11px; color:var(--c-sub); margin-bottom:4px; }
 .analysis-grid b { font-size:14px; color:var(--c-text); font-variant-numeric:tabular-nums; }
-@media (max-width: 720px) { .analysis-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.profile-component-grid { display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:10px; }
+.profile-component-card { padding:12px; border:1px solid var(--c-border); border-radius:8px; background:var(--c-bg); }
+.profile-component-head { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.profile-component-head em { font-style:normal; font-size:12px; font-weight:700; color:var(--c-text); }
+.profile-component-head b { font-size:13px; color:var(--c-primary); font-variant-numeric:tabular-nums; }
+.profile-component-bar { height:6px; margin:8px 0; border-radius:99px; overflow:hidden; background:var(--c-border-light); }
+.profile-component-bar span { display:block; height:100%; border-radius:inherit; background:var(--c-primary); }
+.profile-component-card p { margin:0; font-size:12px; color:var(--c-sub); line-height:1.6; }
+.recommend-card { display:grid; grid-template-columns: 1.5fr .7fr 1fr; gap:8px; }
+.recommend-card > div { padding:10px; border:1px solid var(--c-border); border-radius:8px; background:var(--c-bg); }
+.recommend-card em { display:block; font-style:normal; font-size:11px; color:var(--c-sub); margin-bottom:4px; }
+.recommend-card b { display:block; font-size:13px; color:var(--c-text); line-height:1.5; }
+@media (max-width: 720px) {
+  .analysis-grid, .profile-component-grid, .recommend-card { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 </style>

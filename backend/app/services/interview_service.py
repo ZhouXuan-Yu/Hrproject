@@ -201,6 +201,7 @@ def _db_to_dict(book):
     if record:
         eval_result = {1: 'pass', 2: 'reject', 3: 'hold'}.get(record.interview_result)
 
+    invite = book.invite_json or {}
     round_num = getattr(book, 'interview_round', 1) or 1
     return {
         'id': f'INT{book.id:04d}',
@@ -210,7 +211,7 @@ def _db_to_dict(book):
         'demandId': book.demand_id or 0,
         'position': demand_pos or f'岗位#{book.demand_id}',
         'round': f"{'初试' if round_num == 1 else '复试'}({round_num}轮)",
-        'interviewer': '待分配',
+        'interviewer': invite.get('interviewer') or invite.get('interviewer_name') or '待分配',
         'date': book.book_time.strftime('%m-%d') if book.book_time else '待定',
         'time': book.book_time.strftime('%H:%M') if book.book_time else '待定',
         'method': {1: '飞书视频', 2: '腾讯会议', 3: '其他线上', 4: '线下'}.get(book.interview_type, '待定'),
@@ -221,8 +222,8 @@ def _db_to_dict(book):
         'statusLabel': display_label,
         'offerStatus': offer_status,
         'offerNo': offer_no,
-        'candidateConfirm': (book.invite_json or {}).get('candidate_confirm'),
-        'emailSent': (book.invite_json or {}).get('email_sent', bool((book.invite_json or {}).get('email_log'))),
+        'candidateConfirm': invite.get('candidate_confirm'),
+        'emailSent': invite.get('email_sent', bool(invite.get('email_log'))),
         'createdBy': '系统',
         'isMine': False,
         'score': (record.score_json or {}).get('total') if record else None,
@@ -490,6 +491,10 @@ def _notify_interview_invite(book, data, book_time):
     from app.services import feishu_client
     snapshot = {
         'meeting_url': book.meeting_url or '',
+        'interviewer': data.get('interviewer') or '',
+        'interviewer_id': data.get('interviewer_id') or '',
+        'position': data.get('position') or f'岗位#{book.demand_id}',
+        'round': data.get('round') or ('复试' if book.interview_round == 2 else '初试'),
         'notified': False,
         'notified_at': None,
         'channel': 'feishu',
@@ -867,12 +872,18 @@ def get_interview(book_id):
     return _db_to_dict(book)
 
 
-def get_calendar(week_start=None):
-    """Return calendar view for interviews in a given week."""
+def get_calendar(week_start=None, month=None):
+    """Return calendar view for interviews in a given month or week."""
     from app.models.interview import InterviewBook
     from app.extensions import db
 
-    if week_start:
+    is_month_view = bool(month)
+    if month:
+        try:
+            start = datetime.strptime(month, '%Y-%m')
+        except (ValueError, TypeError):
+            start = datetime.now().replace(day=1)
+    elif week_start:
         try:
             start = datetime.strptime(week_start, '%Y-%m-%d')
         except (ValueError, TypeError):
@@ -880,16 +891,20 @@ def get_calendar(week_start=None):
     else:
         start = datetime.now()
 
-    # Calculate week range
-    monday = start - timedelta(days=start.weekday())
-    sunday = monday + timedelta(days=6)
-    monday = monday.replace(hour=0, minute=0, second=0, microsecond=0)
-    sunday = sunday.replace(hour=23, minute=59, second=59, microsecond=0)
+    if is_month_view:
+        range_start = start.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        next_month = (range_start.replace(day=28) + timedelta(days=4)).replace(day=1)
+        range_end = next_month - timedelta(seconds=1)
+    else:
+        range_start = start - timedelta(days=start.weekday())
+        range_end = range_start + timedelta(days=6)
+        range_start = range_start.replace(hour=0, minute=0, second=0, microsecond=0)
+        range_end = range_end.replace(hour=23, minute=59, second=59, microsecond=0)
 
     books = InterviewBook.query.filter(
         InterviewBook.is_deleted == 0,
-        InterviewBook.book_time >= monday,
-        InterviewBook.book_time <= sunday,
+        InterviewBook.book_time >= range_start,
+        InterviewBook.book_time <= range_end,
     ).order_by(InterviewBook.book_time.asc()).all()
 
     events = []
@@ -898,20 +913,27 @@ def get_calendar(week_start=None):
         events.append({
             'id': d['id'],
             'title': d['name'],
+            'position': d.get('position', ''),
             'start': book.book_time.strftime('%Y-%m-%d %H:%M') if book.book_time else '',
             'end': (book.book_time + timedelta(hours=1)).strftime('%Y-%m-%d %H:%M') if book.book_time else '',
             'status': d['status'],
+            'statusLabel': d.get('statusLabel', ''),
             'round': d['round'],
             'interviewer': d['interviewer'],
             'method': d['method'],
             'meetingUrl': d['meetingUrl'],
             'meetingCode': d['meetingCode'],
             'meetingPwd': d['meetingPwd'],
+            'candidateConfirm': d.get('candidateConfirm', ''),
+            'emailSent': d.get('emailSent', False),
         })
 
     return {
-        'weekStart': monday.strftime('%Y-%m-%d'),
-        'weekEnd': sunday.strftime('%Y-%m-%d'),
+        'month': range_start.strftime('%Y-%m'),
+        'monthStart': range_start.strftime('%Y-%m-%d'),
+        'monthEnd': range_end.strftime('%Y-%m-%d'),
+        'weekStart': range_start.strftime('%Y-%m-%d'),
+        'weekEnd': range_end.strftime('%Y-%m-%d'),
         'events': events,
     }
 

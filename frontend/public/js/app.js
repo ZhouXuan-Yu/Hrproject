@@ -1394,6 +1394,7 @@ function openInternalContactModal(name, manager){
     if(route === 'recruit-dashboard' || route === 'login') return;
     var body = document.querySelector('.content-body');
     if(!body || body.querySelector('.hero-page-workspace')) return;
+    if(body.querySelector('.interview-workbench-grid')) return;
     var configs = {
       'recruit-demand': {
         overline:'Demand Control',

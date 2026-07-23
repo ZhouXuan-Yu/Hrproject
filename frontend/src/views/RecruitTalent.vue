@@ -27,7 +27,7 @@
     <!-- 简历处理管道 + 系统邮件看板：左右各占一半 -->
     <div class="pp-row">
     <!-- 简历处理管道：邮箱收取 → 附件识别 → AI 解析 → 入库 全过程可视 -->
-    <section class="pipeline-panel pp-half" aria-label="简历处理管道">
+    <section ref="pipelinePanelRef" class="pipeline-panel pp-half" aria-label="简历处理管道">
       <div class="pp-header">
         <div>
           <div class="pp-title">简历处理管道</div>
@@ -90,7 +90,7 @@
     </section>
 
     <!-- 系统邮件看板：哪个邮箱发了哪些邮件到哪些邮箱 -->
-    <section data-testid="system-mail-board" class="pipeline-panel pp-half mail-panel" aria-label="系统邮件看板">
+    <section data-testid="system-mail-board" class="pipeline-panel pp-half mail-panel" :style="mailPanelHeightStyle" aria-label="系统邮件看板">
       <div class="pp-header">
         <div>
           <div class="pp-title">系统邮件看板</div>
@@ -436,7 +436,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import WorkbenchLayout from '../layouts/WorkbenchLayout.vue';
 import { fetchTalent, updateTalentNote, fetchMatchResults, uploadResumeFile, fetchIngestLog, fetchMailLog } from '../api/talent.js';
 import { fetchDemands, linkCandidateToDemand } from '../api/demand.js';
@@ -593,6 +593,28 @@ const lastSyncText = ref('');
 const ingestLog = ref([]);       // 最近入库记录（DB）
 const mailLog = ref([]);         // 系统外发邮件看板（DB）
 const mailCollapsed = ref(false); // 邮件看板折叠态
+const pipelinePanelRef = ref(null);
+const pipelinePanelHeight = ref(0);
+let pipelineResizeObserver = null;
+const mailPanelHeightStyle = computed(() => (
+  pipelinePanelHeight.value > 0 ? { height: `${pipelinePanelHeight.value}px` } : {}
+));
+
+function syncMailPanelHeight() {
+  nextTick(() => {
+    if (typeof window === 'undefined' || window.innerWidth <= 1100) {
+      pipelinePanelHeight.value = 0;
+      return;
+    }
+    pipelinePanelHeight.value = Math.ceil(pipelinePanelRef.value?.getBoundingClientRect().height || 0);
+  });
+}
+
+function onPipelineLayoutResize() {
+  syncMailPanelHeight();
+}
+
+watch([syncProcess, ingestLog], syncMailPanelHeight, { deep: true });
 
 async function loadMailLog() {
   try {
@@ -939,12 +961,25 @@ function onDocClick(e) {
 
 onMounted(() => {
   document.addEventListener('click', onDocClick);
+  if (typeof ResizeObserver !== 'undefined' && pipelinePanelRef.value) {
+    pipelineResizeObserver = new ResizeObserver(syncMailPanelHeight);
+    pipelineResizeObserver.observe(pipelinePanelRef.value);
+  }
+  window.addEventListener('resize', onPipelineLayoutResize);
   loadFromApi();
   loadDemandOptions();
   loadIngestLog();
   loadMailLog();
+  syncMailPanelHeight();
 });
-onUnmounted(() => document.removeEventListener('click', onDocClick));
+onUnmounted(() => {
+  document.removeEventListener('click', onDocClick);
+  window.removeEventListener('resize', onPipelineLayoutResize);
+  if (pipelineResizeObserver) {
+    pipelineResizeObserver.disconnect();
+    pipelineResizeObserver = null;
+  }
+});
 </script>
 
 <style scoped>
@@ -982,6 +1017,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
   border-radius: 10px;
   background: var(--c-card);
   padding: 14px 18px;
+  box-sizing: border-box;
 }
 .pp-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .pp-title { font-size: 14px; font-weight: 700; color: var(--c-text); }
@@ -1016,15 +1052,18 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
 .pp-engine { font-size: 11px; font-weight: 600; color: var(--c-primary); background: var(--c-primary-subtle); padding: 1px 7px; border-radius: 99px; }
 
 /* ── 管道 + 邮件看板 半宽并排 ── */
-.pp-row { display: flex; gap: 14px; align-items: stretch; }
+.pp-row { display: flex; gap: 14px; align-items: flex-start; }
 .pp-half { flex: 1 1 50%; min-width: 0; display: flex; flex-direction: column; }
 .pp-scroll { overflow-y: auto; max-height: 260px; }
-.mail-panel { min-height: 360px; }
-.mail-panel .ml-body { min-height: 280px; }
-.mail-panel .pp-scroll { flex: 1; min-height: 260px; max-height: none; }
+.mail-panel { min-height: 0; overflow: hidden; }
+.mail-panel .ml-body { min-height: 0; }
+.mail-panel .pp-scroll { flex: 1; min-height: 0; max-height: none; }
 .pp-scroll::-webkit-scrollbar { width: 4px; }
 .pp-scroll::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 2px; }
-@media (max-width: 1100px) { .pp-row { flex-direction: column; } }
+@media (max-width: 1100px) {
+  .pp-row { flex-direction: column; }
+  .mail-panel { height: auto !important; overflow: visible; }
+}
 
 /* ── 系统邮件看板 ── */
 .mail-collapse-btn {

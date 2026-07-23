@@ -23,8 +23,11 @@ defineProps({
   align-items: center;
   justify-content: center;
   min-height: 120px;
-  background: rgba(246, 248, 251, 0.78);
-  backdrop-filter: blur(2px);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.72), rgba(246, 248, 251, 0.58)),
+    rgba(246, 248, 251, 0.66);
+  backdrop-filter: blur(10px) saturate(1.25);
+  -webkit-backdrop-filter: blur(10px) saturate(1.25);
 }
 
 .data-loading-card {
@@ -32,14 +35,18 @@ defineProps({
   align-items: center;
   gap: 10px;
   min-height: 38px;
-  padding: 9px 14px;
-  border: 1px solid var(--c-border);
+  padding: 10px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: 8px;
-  background: var(--c-card);
+  background: rgba(255, 255, 255, 0.74);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
   color: var(--c-text);
   font-size: 13px;
   font-weight: 600;
-  box-shadow: 0 12px 34px rgba(23, 32, 51, 0.12);
+  box-shadow:
+    0 18px 50px rgba(23, 32, 51, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
 }
 
 .data-loading-spinner {

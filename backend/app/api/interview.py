@@ -90,8 +90,9 @@ def confirm_onboard(book_id):
 
 @bp.route('/calendar')
 def get_calendar():
-    """GET /api/interview/calendar — calendar view with week_start query param."""
+    """GET /api/interview/calendar — calendar view with month or week_start query param."""
     from app.services.interview_service import get_calendar
     week_start = request.args.get('week_start')
-    data = get_calendar(week_start)
+    month = request.args.get('month')
+    data = get_calendar(week_start=week_start, month=month)
     return success(data)

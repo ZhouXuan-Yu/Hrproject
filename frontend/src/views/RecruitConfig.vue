@@ -277,6 +277,12 @@
 
     <!-- 操作日志 -->
     <BaseAccordion title="操作日志">
+      <div class="audit-export-bar">
+        <span class="audit-export-title">日志导出</span>
+        <label>开始日期 <input type="date" v-model="auditExportRange.start"></label>
+        <label>结束日期 <input type="date" v-model="auditExportRange.end"></label>
+        <button class="btn btn-outline btn-sm" @click="exportAuditLogsTxt">导出 TXT</button>
+      </div>
       <table class="config-table">
         <thead><tr><th>时间</th><th>操作人</th><th>模块</th><th>动作</th><th>详情</th></tr></thead>
         <tbody>
@@ -434,6 +440,7 @@ const knowledgeForm = reactive({
 const knowledgeSaving = ref(false);
 const rolePermissions = ref([]);
 const auditLogs = ref([]);
+const auditExportRange = reactive({ start: '', end: '' });
 const secretKeys = ref([]);
 const tencentKeys = ref({});
 const tencentStatus = ref({ configured: false });
@@ -587,6 +594,75 @@ async function loadAll() {
       notifyTemplates.value = DEFAULT_NOTIFY_TEMPLATES.map(t => ({ ...t }));
     }
   }
+}
+
+function parseAuditLogTime(value) {
+  if (!value) return null;
+  const normalized = String(value).replace(/\//g, '-');
+  const parsed = new Date(normalized);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function auditDateBoundary(value, endOfDay = false) {
+  if (!value) return null;
+  const date = new Date(`${value}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function getAuditLogsForExport() {
+  const start = auditDateBoundary(auditExportRange.start);
+  const end = auditDateBoundary(auditExportRange.end, true);
+  if (start && end && start > end) {
+    toast.warning('开始日期不能晚于结束日期');
+    return null;
+  }
+  return auditLogs.value.filter(log => {
+    const time = parseAuditLogTime(log.time);
+    if (!time) return !start && !end;
+    if (start && time < start) return false;
+    if (end && time > end) return false;
+    return true;
+  });
+}
+
+function exportAuditLogsTxt() {
+  const logs = getAuditLogsForExport();
+  if (!logs) return;
+  if (!logs.length) {
+    toast.warning('所选日期范围内没有操作日志');
+    return;
+  }
+
+  const rangeText = auditExportRange.start || auditExportRange.end
+    ? `${auditExportRange.start || '最早'} 至 ${auditExportRange.end || '最新'}`
+    : '全部日期';
+  const lines = [
+    '招聘基础配置 - 操作日志导出',
+    `导出时间：${new Date().toLocaleString('zh-CN', { hour12: false })}`,
+    `日期范围：${rangeText}`,
+    `记录数量：${logs.length}`,
+    '',
+    ...logs.flatMap((log, index) => [
+      `#${index + 1}`,
+      `时间：${log.time || '-'}`,
+      `操作人：${log.user || '-'}`,
+      `模块：${log.module || '-'}`,
+      `动作：${log.action || '-'}`,
+      `详情：${log.detail || '-'}`,
+      '',
+    ]),
+  ];
+  const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  const safeRange = `${auditExportRange.start || 'all'}_${auditExportRange.end || 'latest'}`;
+  link.href = url;
+  link.download = `操作日志_${safeRange}.txt`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+  toast.success(`已导出 ${logs.length} 条操作日志`);
 }
 
 onMounted(() => { loadAll(); });
@@ -979,6 +1055,27 @@ async function submitTemplate() {
 .admin-only { font-size: 11px; color: var(--c-sub); }
 .accordion-desc { font-size: 12px; color: var(--c-sub); margin-bottom: 12px; line-height: 1.8; }
 .config-table { font-size: 13px; margin-bottom: 12px; min-width: 100%; }
+.audit-export-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--c-sub);
+}
+.audit-export-title { margin-right: auto; font-weight: 700; color: var(--c-text); }
+.audit-export-bar label { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.audit-export-bar input {
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--c-border);
+  border-radius: 6px;
+  background: var(--c-card);
+  color: var(--c-body);
+  font: inherit;
+}
 .config-table th {
   position: sticky; top: 0; height: 36px; padding: 0 12px;
   color: var(--e-muted); background: var(--e-surface-soft);

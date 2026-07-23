@@ -20,7 +20,7 @@
         <option value="created">我发起的</option>
       </select>
       <button v-if="!isInterviewerRole" class="btn btn-primary btn-sm" @click="openGlobalScheduleModal('','','')" style="margin-left:8px">+ 新建面试</button>
-      <button class="btn btn-outline btn-sm" @click="showCalendar = true" style="margin-left:4px" title="查看本周面试日程">
+      <button data-testid="open-interview-calendar" class="btn btn-outline btn-sm" @click="focusCalendarCard" style="margin-left:4px" title="查看本周面试日程">
         <svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> 日程
       </button>
     </template>
@@ -41,6 +41,113 @@
       </article>
     </div>
     <section class="hero-page-summary" style="display:none" aria-hidden="true"></section>
+
+    <section class="interview-workbench-grid" aria-label="面试任务流工作台">
+      <article
+        ref="calendarCardRef"
+        data-testid="interview-calendar-card"
+        class="interview-workbench-card interview-calendar-card"
+        :class="{ 'is-pulsing': calendarPulse }"
+      >
+        <div class="iw-card-head">
+          <div>
+            <h3>{{ calendarTitle }}</h3>
+            <p>按真实面试时间一一对应，展开本周全部面试明细</p>
+          </div>
+          <div class="calendar-nav">
+            <label class="calendar-select-group">
+              <span>月份</span>
+              <select data-testid="calendar-month-select" v-model="calendarMonthKey" @change="onCalendarMonthChange">
+                <option v-for="item in calendarMonthOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+              </select>
+            </label>
+            <label class="calendar-select-group">
+              <span>周期</span>
+              <select data-testid="calendar-week-select" v-model="selectedCalendarWeekStart" @change="onCalendarWeekChange">
+                <option v-for="item in calendarWeekOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+              </select>
+            </label>
+            <button data-testid="calendar-current-month" class="btn btn-outline btn-sm" type="button" @click="resetCalendarMonth">本月</button>
+          </div>
+        </div>
+        <div class="calendar-range">{{ calendarRangeLabel }}</div>
+        <div class="inline-calendar data-region">
+          <DataLoadingOverlay :visible="calendarLoading" />
+          <div class="inline-calendar-days" role="list">
+            <button
+              v-for="day in calendarDays"
+              :key="day.key"
+              type="button"
+              class="inline-calendar-day"
+              :class="{ active: selectedCalendarDate === day.key, today: day.today, outside: day.outsideMonth }"
+              :data-testid="'calendar-day-' + day.key"
+              @click="selectedCalendarDate = day.key"
+            >
+              <span>周{{ day.day }}</span>
+              <b>{{ day.dateStr }}</b>
+              <em v-if="day.count">{{ day.count }}场</em>
+              <em v-else>—</em>
+            </button>
+          </div>
+          <div class="calendar-detail-list" data-testid="calendar-agenda">
+            <div
+              v-for="day in calendarDaySections"
+              :key="'detail-' + day.key"
+              class="calendar-day-section"
+              :class="{ active: selectedCalendarDate === day.key }"
+            >
+              <div class="calendar-section-title">{{ day.monthLabel }}</div>
+              <div class="calendar-table-wrap">
+                <table class="calendar-detail-table">
+                  <thead>
+                    <tr>
+                      <th>候选人</th>
+                      <th>岗位</th>
+                      <th>轮次</th>
+                      <th>时间</th>
+                      <th>面试官</th>
+                      <th>方式</th>
+                      <th>状态</th>
+                      <th>会议信息</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="event in day.items" :key="event.id">
+                      <td>
+                        <a href="javascript:void(0)" @click="openCandidateDrawer(event.title)">{{ event.title }}</a>
+                      </td>
+                      <td>{{ event.position || '岗位待定' }}</td>
+                      <td>{{ event.round || '轮次待定' }}</td>
+                      <td>{{ event.time }}<span v-if="event.endTime"> - {{ event.endTime }}</span></td>
+                      <td>{{ event.interviewer || '面试官待定' }}</td>
+                      <td>
+                        <a v-if="event.meetingUrl" :href="event.meetingUrl" target="_blank" rel="noopener" class="meeting-link">
+                          {{ event.method || '线上会议' }}
+                          <svg viewBox="0 0 24 24" class="meeting-link-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                        </a>
+                        <template v-else>{{ event.method || '方式待定' }}</template>
+                      </td>
+                      <td><StatusBadge :type="STATUS_TYPE_MAP[event.status]">{{ event.statusLabel || event.status }}</StatusBadge></td>
+                      <td>
+                        <span v-if="event.meetingCode || event.meetingPwd">
+                          <span v-if="event.meetingCode">会议号 {{ event.meetingCode }}</span>
+                          <span v-if="event.meetingPwd"> / 密码 {{ event.meetingPwd }}</span>
+                        </span>
+                        <span v-else-if="event.meetingUrl">已生成链接</span>
+                        <span v-else>—</span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div v-if="!calendarDaySections.length" class="workbench-empty">
+              {{ calendarLoading ? '日程加载中' : selectedCalendarEmptyText }}
+            </div>
+          </div>
+        </div>
+      </article>
+    </section>
 
     <!-- Tabs -->
     <div class="tabs" role="tablist">
@@ -132,60 +239,6 @@
         <button data-testid="interview-clear-selection" class="btn btn-ghost btn-sm" @click="clearInterviewSelection">清除选择</button>
       </div>
     </div>
-
-    <!-- Calendar Modal -->
-    <Teleport to="body">
-      <div id="calendarViewModal" class="modal-overlay" v-if="showCalendar" @click.self="showCalendar = false" style="display:flex">
-        <div class="modal-box" style="width:720px;max-height:85vh;overflow-y:auto">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-            <h3 style="margin:0">面试日程 &middot; {{ calendarMonthLabel }} 第{{ calendarWeekNum }}周</h3>
-            <div style="display:flex;gap:6px">
-              <button class="btn btn-outline btn-sm" @click="toast.info('切换月份（demo）')">本月</button>
-              <button class="btn btn-ghost btn-sm" @click="showCalendar = false">关闭</button>
-            </div>
-          </div>
-          <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-bottom:16px">
-            <div v-for="wd in calendarDays" :key="wd.key"
-              :style="{ textAlign:'center', padding:'10px 4px', background: wd.today ? 'var(--c-primary-subtle)' : 'var(--c-bg)', border: wd.today ? '2px solid var(--c-primary)' : '1px solid var(--c-border)', borderRadius:'8px' }">
-              <div style="font-size:11px;color:var(--c-sub)">周{{ wd.day }}</div>
-              <div style="font-size:20px;font-weight:700;color:var(--c-text);font-variant-numeric:tabular-nums">{{ wd.dateStr }}</div>
-              <div v-if="wd.count > 0" style="margin-top:4px;display:inline-block;padding:1px 8px;border-radius:10px;background:var(--c-primary);color:#fff;font-size:11px;font-weight:700">{{ wd.count }}场</div>
-              <div v-else style="margin-top:4px;font-size:11px;color:var(--c-sub)">&mdash;</div>
-            </div>
-          </div>
-          <div v-if="calendarDaysWithItems.length > 0">
-            <div v-for="wd in calendarDaysWithItems" :key="'cal-'+wd.key" style="margin-bottom:12px">
-              <b style="font-size:13px">{{ wd.monthLabel }} &middot; {{ wd.count }}场</b>
-              <table style="margin-top:4px;font-size:12px"><thead><tr><th>候选人</th><th>岗位</th><th>轮次</th><th>时间</th><th>方式</th><th>状态</th></tr></thead>
-              <tbody>
-                <tr v-for="(item, i) in wd.items" :key="i">
-                  <td><a href="javascript:void(0)" style="font-weight:600;color:var(--c-primary)">{{ item.name }}</a></td>
-                  <td>{{ item.position }}</td><td>{{ item.round }}</td><td>{{ item.time }}</td>
-                  <td>
-                    <a v-if="item.meetingUrl" :href="item.meetingUrl" target="_blank" rel="noopener" class="meeting-link">
-                      {{ item.method }}
-                      <svg viewBox="0 0 24 24" class="meeting-link-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                    </a>
-                    <template v-else>{{ item.method }}</template>
-                  </td>
-                  <td><StatusBadge :type="STATUS_TYPE_MAP[item.status]">{{ item.statusLabel }}</StatusBadge>
-              <div v-if="item.candidateConfirm === 'accept'" style="font-size:11px;color:#22a06b;margin-top:2px">✔ 候选人已确认</div>
-              <div v-else-if="item.candidateConfirm === 'reject'" style="font-size:11px;color:var(--c-reject);margin-top:2px">✘ 候选人已婉拒</div>
-              <div v-else-if="item.emailSent" style="font-size:11px;color:var(--c-sub);margin-top:2px">⏳ 待候选人确认</div>
-            </td>
-                </tr>
-              </tbody></table>
-            </div>
-          </div>
-          <div v-else style="text-align:center;padding:24px 0;color:var(--c-sub);font-size:13px">
-            本周暂无面试安排
-          </div>
-          <div class="modal-actions" style="margin-top:12px">
-            <button class="btn btn-ghost btn-sm" @click="showCalendar = false">关闭</button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
 
     <!-- Schedule Interview Modal -->
     <ScheduleInterviewModal
@@ -322,7 +375,7 @@
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import WorkbenchLayout from '../layouts/WorkbenchLayout.vue';
 import { STATUS_TYPE_MAP } from '../data/interview.js';
-import { fetchInterviews, fetchInterviewAlerts, createInterview, evaluateInterview, completeInterview, cancelInterview } from '../api/interview.js';
+import { fetchInterviews, fetchInterviewAlerts, createInterview, evaluateInterview, completeInterview, cancelInterview, fetchInterviewCalendar } from '../api/interview.js';
 import { useToast } from '../composables/useToast.js';
 import { useAppError } from '../composables/useAppError.js';
 import { KPI_ICONS } from '../components/kpiIcons.js';
@@ -336,7 +389,6 @@ const { toast } = useToast();
 const { handleError } = useAppError();
 
 const showAlerts = ref(false);
-const showCalendar = ref(false);
 const showScheduleModal = ref(false);
 const showOfferModal = ref(false);
 const scheduleCandidate = ref({ name: '', id: '' });
@@ -365,6 +417,13 @@ const actionMode = ref('complete');
 const actionTarget = ref({ id: '', name: '', ids: [] });
 const actionForm = reactive({ arrive: 1, reason: 'HR 手动取消' });
 const actionSaving = ref(false);
+const calendarCardRef = ref(null);
+const calendarPulse = ref(false);
+const calendarLoading = ref(false);
+const calendarData = ref({ month: '', monthStart: '', monthEnd: '', events: [] });
+const calendarMonthKey = ref(formatMonthKey(new Date()));
+const selectedCalendarWeekStart = ref(getWeekStartKey(new Date()));
+const selectedCalendarDate = ref(formatDateKey(new Date()));
 
 const INTERVIEWS_SOURCE = computed(() => apiInterviewData.value ?? []);
 const ALERTS_SOURCE = computed(() => apiAlertData.value ?? []);
@@ -377,12 +436,6 @@ const visibleTabs = computed(() => {
 });
 
 if (isInterviewerRole) activeTab.value = 'mine';
-
-function countBy(st, mineOnly = false) {
-  const pool = mineOnly ? INTERVIEWS_SOURCE.value.filter(i => i.isMine) : INTERVIEWS_SOURCE.value;
-  if (st === 'all') return pool.length;
-  return pool.filter(i => i.status === st).length;
-}
 
 const kpis = computed(() => {
   const source = INTERVIEWS_SOURCE.value;
@@ -785,39 +838,221 @@ function handleOpenDrawer(e) {
 
 async function loadFromApi() {
   loading.value = true;
+  calendarLoading.value = true;
   loadError.value = '';
   try {
-    const [listRes, alertRes] = await Promise.all([
+    const [listRes, alertRes, calendarRes] = await Promise.all([
       fetchInterviews({ tab: activeTab.value }),
-      fetchInterviewAlerts()
+      fetchInterviewAlerts(),
+      fetchInterviewCalendar({ month: calendarMonthKey.value })
     ]);
     apiInterviewData.value = Array.isArray(listRes?.data) ? listRes.data : (Array.isArray(listRes) ? listRes : []);
     apiAlertData.value = Array.isArray(alertRes) ? alertRes : [];
+    applyCalendarData(calendarRes);
   } catch (e) {
     loadError.value = e.message || '面试数据加载失败';
     apiInterviewData.value = [];
     apiAlertData.value = [];
+    calendarData.value = {
+      month: calendarMonthKey.value,
+      monthStart: getMonthStartKey(calendarMonthKey.value),
+      monthEnd: getMonthEndKey(calendarMonthKey.value),
+      events: [],
+    };
     console.warn('[Interview] API fetch failed:', e.message);
   } finally {
     loading.value = false;
+    calendarLoading.value = false;
   }
 }
 
-const calendarDaysWithItems = computed(() => calendarDays.value.filter(d => d.count > 0));
+function formatDateKey(date) {
+  return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
+}
+
+function formatMonthKey(date) {
+  return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0');
+}
+
+function parseDateKey(key) {
+  const [year, month, day] = String(key || '').split('-').map(Number);
+  if (!year || !month || !day) return new Date();
+  return new Date(year, month - 1, day);
+}
+
+function parseMonthKey(key) {
+  const [year, month] = String(key || '').split('-').map(Number);
+  if (!year || !month) return new Date();
+  return new Date(year, month - 1, 1);
+}
+
+function getWeekStartKey(date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return formatDateKey(d);
+}
+
+function addDateDays(dateKey, days) {
+  const d = parseDateKey(dateKey);
+  d.setDate(d.getDate() + days);
+  return formatDateKey(d);
+}
+
+function getMonthStartKey(monthKey) {
+  return `${monthKey}-01`;
+}
+
+function getMonthEndKey(monthKey) {
+  const d = parseMonthKey(monthKey);
+  d.setMonth(d.getMonth() + 1);
+  d.setDate(0);
+  return formatDateKey(d);
+}
+
+function formatMonthDay(key) {
+  const d = parseDateKey(key);
+  return `${d.getMonth() + 1}/${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function getDefaultWeekStartForMonth(monthKey) {
+  const todayKey = formatDateKey(new Date());
+  const monthStart = getMonthStartKey(monthKey);
+  const monthEnd = getMonthEndKey(monthKey);
+  if (todayKey >= monthStart && todayKey <= monthEnd) return getWeekStartKey(parseDateKey(todayKey));
+  return getWeekStartKey(parseDateKey(monthStart));
+}
+
+function getDefaultDateForWeek(weekStart, monthKey) {
+  const monthStart = getMonthStartKey(monthKey);
+  const monthEnd = getMonthEndKey(monthKey);
+  for (let i = 0; i < 7; i++) {
+    const key = addDateDays(weekStart, i);
+    if (key >= monthStart && key <= monthEnd) return key;
+  }
+  return weekStart;
+}
+
+function normalizeCalendarEvent(event) {
+  const start = event?.start || '';
+  const end = event?.end || '';
+  return {
+    ...event,
+    title: event?.title || event?.name || '候选人待定',
+    dateKey: start.slice(0, 10),
+    time: start.slice(11, 16) || '待定',
+    endTime: end.slice(11, 16),
+    statusLabel: event?.statusLabel || '',
+  };
+}
+
+function applyCalendarData(res) {
+  const data = (res?.monthStart || res?.weekStart) ? res : (res?.data || {});
+  const month = data.month || formatMonthKey(parseDateKey(data.monthStart || data.weekStart || getMonthStartKey(calendarMonthKey.value)));
+  const monthStart = data.monthStart || data.weekStart || getMonthStartKey(month);
+  const monthEnd = data.monthEnd || data.weekEnd || getMonthEndKey(month);
+  calendarMonthKey.value = month;
+  calendarData.value = {
+    month,
+    monthStart,
+    monthEnd,
+    events: Array.isArray(data.events) ? data.events : [],
+  };
+  const validDays = new Set(calendarDays.value.map(d => d.key));
+  if (!validDays.has(selectedCalendarDate.value)) {
+    selectedCalendarDate.value = getDefaultDateForWeek(selectedCalendarWeekStart.value, month);
+  }
+}
+
+async function loadCalendar(month = calendarMonthKey.value) {
+  calendarLoading.value = true;
+  try {
+    const res = await fetchInterviewCalendar({ month });
+    applyCalendarData(res);
+  } catch (e) {
+    calendarData.value = {
+      month,
+      monthStart: getMonthStartKey(month),
+      monthEnd: getMonthEndKey(month),
+      events: [],
+    };
+    toast.error('日程加载失败：' + (e?.message || '未知错误'));
+  } finally {
+    calendarLoading.value = false;
+  }
+}
+
+function onCalendarMonthChange() {
+  selectedCalendarWeekStart.value = getDefaultWeekStartForMonth(calendarMonthKey.value);
+  selectedCalendarDate.value = getDefaultDateForWeek(selectedCalendarWeekStart.value, calendarMonthKey.value);
+  loadCalendar(calendarMonthKey.value);
+}
+
+function onCalendarWeekChange() {
+  selectedCalendarDate.value = getDefaultDateForWeek(selectedCalendarWeekStart.value, calendarMonthKey.value);
+}
+
+function resetCalendarMonth() {
+  const current = formatMonthKey(new Date());
+  calendarMonthKey.value = current;
+  selectedCalendarWeekStart.value = getWeekStartKey(new Date());
+  selectedCalendarDate.value = formatDateKey(new Date());
+  loadCalendar(current);
+}
+
+function focusCalendarCard() {
+  calendarCardRef.value?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  calendarPulse.value = true;
+  window.setTimeout(() => { calendarPulse.value = false; }, 900);
+}
+
+const calendarMonthOptions = computed(() => {
+  const year = new Date().getFullYear();
+  return Array.from({ length: 12 }, (_, index) => {
+    const month = index + 1;
+    return {
+      value: `${year}-${String(month).padStart(2, '0')}`,
+      label: `${year}年${month}月`,
+    };
+  });
+});
+
+const calendarWeekOptions = computed(() => {
+  const monthStart = getMonthStartKey(calendarMonthKey.value);
+  const monthEnd = getMonthEndKey(calendarMonthKey.value);
+  let cursor = getWeekStartKey(parseDateKey(monthStart));
+  const options = [];
+  let index = 1;
+  while (cursor <= monthEnd) {
+    const end = addDateDays(cursor, 6);
+    options.push({
+      value: cursor,
+      label: `第${index}周（${formatMonthDay(cursor)} - ${formatMonthDay(end)}）`,
+    });
+    cursor = addDateDays(cursor, 7);
+    index++;
+  }
+  return options;
+});
+
+const calendarEvents = computed(() => {
+  return (calendarData.value.events || [])
+    .map(normalizeCalendarEvent)
+    .filter(event => event.dateKey)
+    .sort((a, b) => (a.start || '').localeCompare(b.start || ''));
+});
 
 const calendarDays = computed(() => {
-  const now = new Date();
-  const weekStart = new Date(now);
-  weekStart.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+  const monthStartKey = calendarData.value.monthStart || getMonthStartKey(calendarMonthKey.value);
+  const monthEndKey = calendarData.value.monthEnd || getMonthEndKey(calendarMonthKey.value);
+  const weekStart = parseDateKey(selectedCalendarWeekStart.value || getDefaultWeekStartForMonth(calendarMonthKey.value));
   const days = ['一','二','三','四','五','六','日'];
-  const todayKey = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+  const todayKey = formatDateKey(new Date());
   const calData = {};
-  INTERVIEWS_SOURCE.value.forEach(item => {
-    if (['scheduled','evaluating','onboard','done'].includes(item.status) && item.date !== '待定') {
-      const k = '2026-' + item.date;
-      if (!calData[k]) calData[k] = [];
-      calData[k].push(item);
-    }
+  calendarEvents.value.forEach(item => {
+    const k = item.dateKey;
+    if (!calData[k]) calData[k] = [];
+    calData[k].push(item);
   });
   const result = [];
   for (let i = 0; i < 7; i++) {
@@ -825,24 +1060,41 @@ const calendarDays = computed(() => {
     d.setDate(weekStart.getDate() + i);
     const key = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
     const items = calData[key] || [];
+    const dayIndex = (d.getDay() + 6) % 7;
     result.push({
       key, items, count: items.length, today: key === todayKey,
-      day: days[i], dateStr: String(d.getDate()).padStart(2,'0'),
-      monthLabel: (d.getMonth()+1) + '/' + String(d.getDate()).padStart(2,'0') + ' 周' + days[i] + ' · ' + items.length + '场'
+      outsideMonth: key < monthStartKey || key > monthEndKey,
+      day: days[dayIndex], dateStr: String(d.getDate()).padStart(2,'0'),
+      monthLabel: (d.getMonth()+1) + '/' + String(d.getDate()).padStart(2,'0') + ' 周' + days[dayIndex] + ' · ' + items.length + '场'
     });
   }
   return result;
 });
 
-const calendarMonthLabel = computed(() => {
-  const now = new Date();
-  return (now.getMonth() + 1) + '月';
+const selectedCalendarDay = computed(() => {
+  return calendarDays.value.find(day => day.key === selectedCalendarDate.value) || calendarDays.value[0] || null;
 });
-const calendarWeekNum = computed(() => {
-  const now = new Date();
-  const weekStart = new Date(now);
-  weekStart.setDate(now.getDate() - ((now.getDay() + 6) % 7));
-  return Math.ceil(weekStart.getDate() / 7);
+
+const calendarDaySections = computed(() => {
+  const day = selectedCalendarDay.value;
+  return day && day.count > 0 ? [day] : [];
+});
+
+const selectedCalendarEmptyText = computed(() => {
+  const day = selectedCalendarDay.value;
+  return day ? `${day.monthLabel.replace(/ · 0场$/, '')} 暂无面试安排` : '本周暂无面试安排';
+});
+
+const calendarRangeLabel = computed(() => {
+  const start = calendarDays.value[0]?.key || (calendarData.value.monthStart || getMonthStartKey(calendarMonthKey.value));
+  const end = calendarDays.value[6]?.key || start;
+  const weekCount = calendarDays.value.reduce((sum, day) => sum + day.count, 0);
+  return `${formatMonthDay(start)} - ${formatMonthDay(end)} · 本周 ${weekCount} 场 / 本月 ${calendarEvents.value.length} 场`;
+});
+
+const calendarTitle = computed(() => {
+  const start = parseMonthKey(calendarData.value.month || calendarMonthKey.value);
+  return `面试日程 · ${start.getFullYear()}年${start.getMonth() + 1}月`;
 });
 
 function onScheduleSuccess(result) {
@@ -898,6 +1150,212 @@ function onOfferSuccess(result) {
 }
 .iv-stat-icon::after { display: none; }
 .iv-stat-icon svg { width: 18px; height: 18px; }
+
+.interview-workbench-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  margin-bottom: 16px;
+}
+.interview-workbench-card {
+  min-height: 360px;
+  padding: 18px 20px;
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  background: var(--c-card);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .03);
+}
+.iw-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.iw-card-head h3 {
+  margin: 0;
+  color: var(--c-text);
+  font-size: 16px;
+  line-height: 1.35;
+}
+.iw-card-head p {
+  margin: 4px 0 0;
+  color: var(--c-sub);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.interview-calendar-card {
+  scroll-margin-top: 80px;
+  transition: border-color .18s, box-shadow .18s;
+}
+.interview-calendar-card.is-pulsing {
+  border-color: var(--c-primary);
+  box-shadow: 0 0 0 4px rgba(79, 110, 247, .14);
+}
+.calendar-nav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+.calendar-select-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--c-sub);
+  font-size: 12px;
+  font-weight: 700;
+}
+.calendar-select-group select {
+  height: 30px;
+  min-width: 112px;
+  padding: 0 26px 0 10px;
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  background: var(--c-card);
+  color: var(--c-text);
+  font: inherit;
+  font-weight: 700;
+  outline: none;
+}
+.calendar-select-group select:focus {
+  border-color: var(--c-primary);
+  box-shadow: 0 0 0 3px rgba(79, 110, 247, .12);
+}
+.calendar-range {
+  margin: -4px 0 10px;
+  color: var(--c-text);
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.inline-calendar {
+  min-height: 260px;
+}
+.inline-calendar-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.inline-calendar-day {
+  min-width: 0;
+  min-height: 72px;
+  padding: 9px 6px;
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  background: var(--c-bg);
+  color: var(--c-text);
+  cursor: pointer;
+  font-family: inherit;
+  text-align: center;
+}
+.inline-calendar-day:hover,
+.inline-calendar-day.active {
+  border-color: var(--c-primary);
+  background: var(--c-primary-subtle);
+}
+.inline-calendar-day.today {
+  box-shadow: inset 0 0 0 1px var(--c-primary);
+}
+.inline-calendar-day.outside {
+  opacity: .56;
+}
+.inline-calendar-day span,
+.inline-calendar-day em {
+  display: block;
+  overflow: hidden;
+  color: var(--c-sub);
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inline-calendar-day b {
+  display: block;
+  margin: 3px 0;
+  font-size: 20px;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.inline-calendar-day.active em {
+  color: var(--c-primary);
+  font-weight: 700;
+}
+.calendar-detail-list {
+  display: grid;
+  gap: 16px;
+}
+.calendar-day-section {
+  border: 1px solid transparent;
+  border-radius: 8px;
+  transition: border-color .15s, background .15s;
+}
+.calendar-day-section.active {
+  border-color: rgba(79, 110, 247, .28);
+  background: rgba(79, 110, 247, .03);
+}
+.calendar-section-title {
+  padding: 0 2px 8px;
+  color: var(--c-text);
+  font-size: 14px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.calendar-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+}
+.calendar-detail-table {
+  width: 100%;
+  min-width: 980px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.calendar-detail-table th,
+.calendar-detail-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--c-border);
+  color: var(--c-text);
+  text-align: left;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.calendar-detail-table th {
+  background: var(--c-bg);
+  color: var(--c-sub);
+  font-size: 11px;
+  font-weight: 700;
+}
+.calendar-detail-table th::after {
+  content: "↕";
+  margin-left: 4px;
+  color: var(--c-muted);
+  font-size: 10px;
+}
+.calendar-detail-table tr:last-child td {
+  border-bottom: 0;
+}
+.calendar-detail-table a {
+  color: var(--c-primary);
+  font-weight: 700;
+  text-decoration: none;
+}
+.calendar-detail-table a:hover {
+  text-decoration: underline;
+}
+.calendar-detail-table td span {
+  color: var(--c-sub);
+}
+.workbench-empty {
+  display: grid;
+  min-height: 120px;
+  place-items: center;
+  color: var(--c-sub);
+  font-size: 13px;
+}
 
 .meeting-link {
   display: inline-flex;
@@ -979,6 +1437,13 @@ function onOfferSuccess(result) {
   line-height:1.5;
 }
 
-@media (max-width: 1200px) { .iv-stat-row { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-@media (max-width: 720px) { .iv-stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 1200px) {
+  .iv-stat-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .interview-workbench-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 720px) {
+  .iv-stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .interview-workbench-card { padding: 14px; }
+  .inline-calendar-days { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
 </style>

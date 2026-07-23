@@ -52,8 +52,11 @@ export async function fetchInterviewDetail(bookId) {
   return r.data;
 }
 
-export async function fetchInterviewCalendar(weekStart) {
-  const qs = weekStart ? `?week_start=${weekStart}` : '';
-  const r = await api.get(`/interview/calendar${qs}`);
+export async function fetchInterviewCalendar(params = {}) {
+  const query = typeof params === 'string'
+    ? { week_start: params }
+    : (params || {});
+  const qs = new URLSearchParams(query).toString();
+  const r = await api.get(`/interview/calendar${qs ? '?' + qs : ''}`);
   return r.data;
 }
