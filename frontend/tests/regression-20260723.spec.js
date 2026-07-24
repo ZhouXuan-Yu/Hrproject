@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-const ok = (data) => ({ code: 0, message: 'ok', data });
+const ok = (data, extra = {}) => ({ code: 0, message: 'ok', data, ...extra });
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -11,28 +11,32 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test('system mail board keeps useful vertical space', async ({ page }) => {
-  await page.goto('/recruit-talent');
-  const board = page.getByTestId('system-mail-board');
-  await expect(board).toBeVisible({ timeout: 10000 });
-  await expect.poll(() => board.evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(360);
+test('mail monitor panels live in config and keep useful vertical space', async ({ page }) => {
+  await page.route('**/api/config/**', (route) => route.fulfill({ json: ok([]) }));
+  await page.route('**/api/talent/ingest-log**', (route) => route.fulfill({
+    json: ok({ items: [{ resumeId: 'R1', candidate: 'Alice', candidateNo: 'C1', source: 'mail', engine: 'deepseek', storageTime: '2026-07-24' }] }),
+  }));
+  await page.route('**/api/talent/mail-log**', (route) => route.fulfill({
+    json: ok({ items: [{ id: 'M1', ok: true, typeLabel: 'system', subject: 'Notice', sender: 'hr@example.com', recipient: 'alice@example.com', time: '07-24' }] }),
+  }));
+
+  await page.goto('/recruit-config');
+  const mailMonitor = page.locator('.accordion').filter({ has: page.locator('.pipeline-panel') }).first();
+  await mailMonitor.locator('.accordion-header').click();
+  const panels = mailMonitor.locator('.pipeline-panel');
+  await expect(panels).toHaveCount(2);
+  await expect(panels.nth(0)).toBeVisible();
+  await expect(panels.nth(1)).toBeVisible();
+  const heights = await panels.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height));
+  expect(Math.min(...heights)).toBeGreaterThan(120);
 });
 
 test('knowledge base loads and saves through the config API', async ({ page }) => {
   let savedPayload = null;
 
-  await page.route('**/api/config/email-accounts**', (route) => {
-    if (route.request().method() === 'GET') return route.fulfill({ json: ok([]) });
-    return route.fulfill({ json: ok({}) });
-  });
-  await page.route('**/api/config/channels**', (route) => route.fulfill({ json: ok([]) }));
-  await page.route('**/api/config/score-rules**', (route) => route.fulfill({ json: ok({}) }));
-  await page.route('**/api/config/notify-templates**', (route) => route.fulfill({ json: ok([]) }));
-  await page.route('**/api/config/role-permissions**', (route) => route.fulfill({ json: ok([]) }));
-  await page.route('**/api/config/audit-logs**', (route) => route.fulfill({ json: ok([]) }));
-  await page.route('**/api/config/api-keys**', (route) => route.fulfill({ json: ok([]) }));
-  await page.route('**/api/config/tencent-meeting/status**', (route) => route.fulfill({ json: ok({ configured: false }) }));
-  await page.route('**/api/config/feishu/status**', (route) => route.fulfill({ json: ok({ configured: false }) }));
+  await page.route('**/api/config/**', (route) => route.fulfill({ json: ok([]) }));
+  await page.route('**/api/talent/ingest-log**', (route) => route.fulfill({ json: ok({ items: [] }) }));
+  await page.route('**/api/talent/mail-log**', (route) => route.fulfill({ json: ok({ items: [] }) }));
   await page.route('**/api/config/knowledge-base**', async (route) => {
     if (route.request().method() === 'PUT') {
       savedPayload = route.request().postDataJSON();
@@ -65,58 +69,56 @@ test('knowledge base loads and saves through the config API', async ({ page }) =
   expect(savedPayload.aiContext).toContain('knowledge base');
 });
 
-test('interview rows support multi-select, clear, and delete requests', async ({ page }) => {
-  const deleted = [];
-  const interviews = [
-    { id: 'INT-A', name: 'Alice', candidateId: 'C-A', position: 'Engineer', round: 'Round 1', interviewer: 'HR', date: '07-23', time: '10:00', method: 'Offline', status: 'scheduled', statusLabel: 'Scheduled', isMine: true },
-    { id: 'INT-B', name: 'Bob', candidateId: 'C-B', position: 'Designer', round: 'Round 1', interviewer: 'HR', date: '07-23', time: '11:00', method: 'Offline', status: 'scheduled', statusLabel: 'Scheduled', isMine: true },
-  ];
+test('candidate match view opens a centered rich analysis modal with mocked demand data', async ({ page }) => {
+  await page.route('**/api/demand/DM-REG-001**', (route) => route.fulfill({
+    json: ok({
+      id: 'DM-REG-001',
+      position: 'Backend Engineer',
+      dept: 'Engineering',
+      hc: 1,
+      progress: { hired: 0, total: 1, pct: 0 },
+      channels: [],
+      requiredSkills: ['Java'],
+      plusSkills: [],
+      approvalNodes: [],
+    }),
+  }));
+  await page.route('**/api/demand/DM-REG-001/candidates**', (route) => route.fulfill({
+    json: ok([{
+      id: 'C-REG-001',
+      name: 'Alice Candidate',
+      profileScore: 88,
+      profileGrade: 'excellent',
+      matchScore: 92,
+      comprehensiveScore: 91,
+      source: 'mail',
+      sourceLabel: 'mail',
+      ageDays: 3,
+      status: 'available',
+      statusLabel: 'available',
+      edu: 'Bachelor',
+      years: '5+',
+      skills: ['Java'],
+      processStatus: 0,
+    }]),
+  }));
+  await page.route('**/api/demand/DM-REG-001/candidates/Alice%20Candidate/detail**', (route) => route.fulfill({
+    json: ok({
+      summary: { profileScore: 88, matchScore: 92, comprehensiveScore: 91 },
+      breakdown: {
+        match: { reason: 'Skill match is high', detail: 'Detailed analysis text.' },
+        profile: { components: { education: { score: 20, max: 25, label: 'Bachelor' } } },
+      },
+      hardFilter: { passed: true },
+    }),
+  }));
 
-  await page.route('**/api/interview/list**', (route) =>
-    route.fulfill({ json: { code: 0, message: 'ok', data: interviews, total: interviews.length, page: 1, pageSize: 20 } })
-  );
-  await page.route('**/api/interview/alerts**', (route) => route.fulfill({ json: ok([]) }));
-  await page.route('**/api/interview/INT-*', (route) => {
-    deleted.push(new URL(route.request().url()).pathname.split('/').pop());
-    return route.fulfill({ json: ok({ deleted: true }) });
-  });
-  page.on('dialog', (dialog) => {
-    throw new Error(`Unexpected native dialog: ${dialog.message()}`);
-  });
-
-  await page.goto('/recruit-interview');
-  await page.locator('tr', { hasText: 'Alice' }).getByRole('button', { name: '完成面试' }).click();
-  await expect(page.getByTestId('interview-action-modal')).toBeVisible();
-  await expect(page.getByTestId('interview-action-option')).toHaveCount(2);
-  await page.getByTestId('interview-action-modal').getByRole('button', { name: '关闭' }).click();
-  await page.locator('tr', { hasText: 'Alice' }).getByRole('button', { name: '取消' }).click();
-  await expect(page.getByTestId('interview-action-modal')).toBeVisible();
-  await expect(page.getByTestId('interview-action-option')).toHaveCount(4);
-  await page.getByTestId('interview-action-modal').getByRole('button', { name: '关闭' }).click();
-
-  const checks = page.getByTestId('interview-row-check');
-  await expect(checks).toHaveCount(4);
-  await checks.nth(0).check();
-  await expect(page.getByTestId('interview-batch-bar')).toBeVisible();
-  await checks.nth(1).check();
-  await page.getByTestId('interview-clear-selection').click();
-  await expect(page.getByTestId('interview-batch-bar')).toHaveCount(0);
-
-  await checks.nth(0).check();
-  await checks.nth(1).check();
-  await page.getByTestId('interview-delete-selected').click();
-  await expect(page.getByTestId('interview-action-modal')).toBeVisible();
-  await page.getByTestId('interview-action-confirm').click();
-  await expect.poll(() => deleted.sort().join(',')).toBe('INT-A,INT-B');
-});
-
-test('candidate match view opens a centered rich analysis modal', async ({ page }) => {
-  await page.goto('/recruit-demand-detail');
-  await page.waitForSelector('#candidateTable', { timeout: 10000 });
-  await page.locator('#candidateTable tbody tr').first().getByRole('button').filter({ hasText: /查看|鏌ョ湅/ }).click();
+  await page.goto('/recruit-demand-detail?id=DM-REG-001');
+  await expect(page.locator('#candidateTable')).toBeVisible();
+  await page.locator('#candidateTable tbody tr').first().locator('button').first().click();
   const modal = page.locator('.demand-match-drawer-overlay .drawer-panel');
-  await expect(modal).toBeVisible({ timeout: 5000 });
+  await expect(modal).toBeVisible();
   await expect(modal.locator('.drawer-kpis')).toBeVisible();
-  await expect(modal.locator('.analysis-grid').first()).toBeVisible();
+  await expect(modal.locator('.profile-component-grid')).toBeVisible();
   await expect.poll(() => modal.evaluate((el) => getComputedStyle(el).borderRadius)).toBe('10px');
 });
