@@ -4,10 +4,49 @@
 
 ## 当前状态
 
-- 日期：2026-07-20
-- 项目阶段：两个 Bug 修复完成 + 需求详情全链路打通 + 对抗性审查完成
-- 测试基线：**45/45** 连续 3 轮稳定通过（无 flaky）
-- 构建：**~420ms**，后端实时运行
+- 日期：2026-07-24
+- 项目阶段：新环境部署完成 + MySQL RDS 连接 + 审批权限体系验证
+- 后端：Flask + MySQL RDS（hr_recruitment_db）+ Redis + Windows环境
+- 数据库：阿里云 RDS，34 张表，4 个 IAM 用户
+
+## 2026-07-24 新环境部署与验证
+
+### 已完成
+
+1. **环境配置**
+   - MySQL RDS：`rm-8vb7m858r8wt3b10hjo.mysql.zhangbei.rds.aliyuncs.com:3306`
+   - 数据库：`hr_recruitment_db`，用户 `hr_recruitment`
+   - SSL 未启用，明文传输
+   - 新建 `uploads/` 目录解决简历文件存储
+
+2. **审批权限体系验证**
+   - 三级审批：部门负责人(dept_head) → HR(hr) → 高管(executive)
+   - 身份校验生效：`_assert_can_approve()` 检查 role_code 匹配
+   - 审批身份均未绑定具体用户（user_id=None），同角色任何人都能批
+   - admin 可代批所有级别
+   - dept_head 只能批 level 1，"编辑"按钮在审批中状态正确禁用
+
+3. **通知模板调研**
+   - `t_hr_notify_template` 表有 5 条模板（面试/Offer/拒信/提醒/通用）
+   - 发邮件未读 DB 模板，走 `confirm_service.py` 硬编码 HTML
+   - 模板引擎已实现后撤回（用户要求保持原始代码）
+
+4. **创建的 JD / AI 功能**（上游已有）
+   - 创建需求表单内嵌「AI 生成岗位说明」→ 调 `POST /api/ai/run/jd-generate`
+   - 需求详情页候选人抽屉调 `GET /api/demand/{id}/candidates/{name}/detail` 获取匹配详情
+   - `calc_match_score` 仍为 MD5 哈希假匹配
+
+### 已知问题
+
+1. **简历原件无法预览**：MySQL 存的是旧机器磁盘路径，新机器无对应文件。需同步旧 `uploads/` 或通过刷新邮箱重新下载
+2. **邮件通知模板未接入**：模板引擎代码已撤回，发邮件仍用硬编码
+3. **招聘需求→人才库全池匹配**：新需求无已关联候选人时，「重新匹配」返回空
+
+### 下次继续点
+
+1. 简历原件问题 — 拷旧机器 uploads/ 或接受不可预览
+2. 匹配算法替换为真实 AI 语义匹配
+3. 候选人确认 H5 页面（/confirm/:token 路由）
 - 后端：Flask + SQLite，6 端点全部通过真实 JWT + curl 验证
 - API 契约：`success_list()` → `{data:[...], total:N, page:N, pageSize:N}`（前端可直接遍历 data）
 

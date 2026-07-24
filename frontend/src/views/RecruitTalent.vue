@@ -21,106 +21,6 @@
       <input ref="resumeFileInput" type="file" accept=".pdf,.docx,.txt,.md,.html" style="display:none" @change="onResumeFilePicked">
     </template>
 
-    <!-- 资产统计卡 -->
-    <StatCardRow :cards="statCards" :active-key="statActiveKey" clickable @select="onStatSelect" />
-
-    <!-- 简历处理管道 + 系统邮件看板：左右各占一半 -->
-    <div class="pp-row">
-    <!-- 简历处理管道：邮箱收取 → 附件识别 → AI 解析 → 入库 全过程可视 -->
-    <section ref="pipelinePanelRef" class="pipeline-panel pp-half" aria-label="简历处理管道">
-      <div class="pp-header">
-        <div>
-          <div class="pp-title">简历处理管道</div>
-          <div class="pp-sub">邮箱收取 → 附件识别 → AI 解析 → 入库，每封简历的处理过程可追踪</div>
-        </div>
-        <div class="pp-meta" v-if="lastSyncText">上次同步：{{ lastSyncText }}</div>
-      </div>
-
-      <!-- 本次同步处理过程 -->
-      <div v-if="syncProcess" class="pp-sync">
-        <div v-for="acct in syncProcess" :key="acct.email" class="pp-account">
-          <div class="pp-account-head">
-            <span class="pp-account-name">{{ acct.email }}</span>
-            <span class="pp-account-stat">新邮件 {{ acct.new_emails || 0 }} · 入库 {{ acct.resumes_ingested || 0 }}</span>
-            <span class="pp-badge" :class="acct.status === 'error' ? 'fail' : 'ok'">{{ acct.status === 'error' ? '同步失败' : '完成' }}</span>
-          </div>
-          <div v-if="acct.error" class="pp-mail-note">{{ acct.error }}</div>
-          <div v-for="(d, i) in (acct.details || [])" :key="i" class="pp-mail">
-            <div class="pp-mail-head">
-              <span class="pp-mail-subject">{{ d.subject || '(无主题)' }}</span>
-              <span class="pp-mail-from">{{ d.from }}</span>
-            </div>
-            <div class="pp-steps">
-              <span class="pp-step ok">收取</span>
-              <span class="pp-arrow">→</span>
-              <span class="pp-step" :class="d.file ? 'ok' : 'skip'">附件识别</span>
-              <span class="pp-arrow">→</span>
-              <span class="pp-step" :class="d.engine ? 'ok' : 'skip'">AI 解析<template v-if="d.engine"> · {{ d.engine }}</template></span>
-              <span class="pp-arrow">→</span>
-              <span class="pp-step" :class="d.ingested ? 'ok' : 'skip'">{{ d.ingested ? '入库' : '未入库' }}</span>
-              <span v-if="d.ingested" class="pp-mail-cand">{{ d.candidate }}（{{ d.candidate_no }}）</span>
-            </div>
-            <div v-if="d.note" class="pp-mail-note">{{ d.note }}</div>
-          </div>
-          <div v-if="!(acct.details || []).length && acct.status !== 'error'" class="pp-empty-line">该邮箱无新简历邮件</div>
-        </div>
-      </div>
-
-      <!-- 最近入库记录 -->
-      <div class="pp-log">
-        <div class="pp-log-title">最近入库</div>
-        <div class="pp-scroll">
-          <table v-if="ingestLog.length" class="pp-table">
-            <thead>
-              <tr><th>候选人</th><th>编号</th><th>来源</th><th>解析引擎</th><th>入库时间</th></tr>
-            </thead>
-            <tbody>
-              <tr v-for="item in ingestLog" :key="item.resumeId">
-                <td style="font-weight:600">{{ item.candidate }}</td>
-                <td>{{ item.candidateNo }}</td>
-                <td>{{ item.source }}</td>
-                <td><span class="pp-engine">{{ item.engine }}</span></td>
-                <td>{{ item.storageTime }}</td>
-              </tr>
-            </tbody>
-          </table>
-          <div v-else class="pp-empty-line">暂无入库记录，点击右侧「刷新邮箱简历」或上方「上传简历」开始</div>
-        </div>
-      </div>
-    </section>
-
-    <!-- 系统邮件看板：哪个邮箱发了哪些邮件到哪些邮箱 -->
-    <section data-testid="system-mail-board" class="pipeline-panel pp-half mail-panel" :style="mailPanelHeightStyle" aria-label="系统邮件看板">
-      <div class="pp-header">
-        <div>
-          <div class="pp-title">系统邮件看板</div>
-          <div class="pp-sub">面试邀请 / 录用通知 / 入职指引，发件箱 → 收件箱全记录</div>
-        </div>
-        <button class="mail-collapse-btn" @click="mailCollapsed = !mailCollapsed" :aria-expanded="!mailCollapsed">
-          {{ mailCollapsed ? '展开 ▾' : '折叠 ▴' }}
-        </button>
-      </div>
-      <div v-show="!mailCollapsed" class="ml-body">
-        <div v-if="mailLog.length" class="pp-scroll">
-          <div v-for="m in mailLog" :key="m.id" class="ml-item">
-            <div class="ml-line1">
-              <span class="ml-type" :class="{ fail: !m.ok }">{{ m.ok ? m.typeLabel : '发送失败' }}</span>
-              <span class="ml-subject" :title="m.subject">{{ m.subject }}</span>
-              <span class="ml-time">{{ m.time }}</span>
-            </div>
-            <div class="ml-line2">
-              <span class="ml-addr">{{ m.sender }}</span>
-              <span class="ml-arrow">→</span>
-              <span class="ml-addr">{{ m.recipient }}</span>
-            </div>
-            <div v-if="m.error" class="ml-error" :title="m.error">{{ m.error }}</div>
-          </div>
-        </div>
-        <div v-else class="pp-empty-line">暂无系统外发邮件记录，约面 / 发 Offer 后自动记录在这里</div>
-      </div>
-    </section>
-    </div>
-
     <!-- 3 Tabs -->
     <div class="tabs" role="tablist">
       <button v-for="tab in tabs" :key="tab.id"
@@ -232,6 +132,13 @@
           <button class="btn btn-ghost btn-sm" @click="clearSelectionExt">清除选择</button>
         </div>
       </div>
+
+      <BasePagination
+        v-model:current-page="extPage"
+        v-model:page-size="extPageSize"
+        :total-pages="extTotalPages"
+        :total="extTotal"
+      />
     </div>
 
     <!-- ===== Tab 2: 内部员工库 ===== -->
@@ -438,18 +345,16 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import WorkbenchLayout from '../layouts/WorkbenchLayout.vue';
-import { fetchTalent, updateTalentNote, fetchMatchResults, uploadResumeFile, fetchIngestLog, fetchMailLog } from '../api/talent.js';
+import { fetchTalent, updateTalentNote, fetchMatchResults, uploadResumeFile } from '../api/talent.js';
 import { fetchDemands, linkCandidateToDemand } from '../api/demand.js';
-import { syncAllEmailAccounts } from '../api/config.js';
 import { useToast } from '../composables/useToast.js';
 import { useAppError } from '../composables/useAppError.js';
-import StatCardRow from '../components/StatCardRow.vue';
 import CandidateDrawer from '../components/CandidateDrawer.vue';
 import EmployeeDrawer from '../components/EmployeeDrawer.vue';
 import ContactModal from '../components/ContactModal.vue';
 import EmptyState from '../components/EmptyState.vue';
 import DataLoadingOverlay from '../components/DataLoadingOverlay.vue';
-import { KPI_ICONS } from '../components/kpiIcons.js';
+import BasePagination from '../components/BasePagination.vue';
 
 const { toast } = useToast();
 const { handleError } = useAppError();
@@ -542,18 +447,11 @@ const EXT_DATA_SOURCE = computed(() => apiExtData.value ?? []);
 const INT_DATA_SOURCE = computed(() => apiIntData.value ?? []);
 const BLACKLIST_DATA_SOURCE = computed(() => apiBlacklistData.value ?? []);
 
-// Top stat cards
-const statCards = computed(() => [
-  { key: 'external', label: '外部候选人', value: EXT_DATA_SOURCE.value.length, hint: '可筛选入库', icon: KPI_ICONS.users },
-  { key: 'internal', label: '内部人才', value: INT_DATA_SOURCE.value.length, hint: '可调岗评估', icon: KPI_ICONS.userCheck },
-  { key: 'blacklist', label: '黑名单', value: BLACKLIST_DATA_SOURCE.value.length, hint: '风险隔离', icon: KPI_ICONS.ban },
-  { key: 'contact', label: '待联系', value: EXT_DATA_SOURCE.value.filter(c => c.status === 'available').length, hint: '人工确认', icon: KPI_ICONS.mail },
-]);
-const statActiveKey = computed(() => (activeTab.value === 'external' && extFilters.status === 'available' ? 'contact' : activeTab.value));
-function onStatSelect(c) {
-  if (c.key === 'contact') { activeTab.value = 'external'; extFilters.status = 'available'; }
-  else { activeTab.value = c.key; extFilters.status = 'all'; }
-}
+// Pagination
+const extPage = ref(1);
+const extPageSize = ref(20);
+const extTotal = ref(0);
+const extTotalPages = computed(() => Math.max(1, Math.ceil(extTotal.value / extPageSize.value)));
 
 // Internal tab reactive filters
 const intFilters = reactive({ search: '', dept: 'all', sort: 'default' });
@@ -562,11 +460,9 @@ async function loadFromApi() {
   talentLoading.value = true;
   talentLoadError.value = '';
   try {
-    const talentData = await fetchTalent();
+    const talentData = await fetchTalent({ page: extPage.value, pageSize: extPageSize.value });
     if (talentData) {
       const ext = talentData.ext ?? talentData.external ?? null;
-      // 后端列表返回 skills 数组而非 skillsHtml（mock 用 HTML 字符串）；
-      // 统一补齐 skillsHtml，避免模板渲染 "undefined" 及搜索/技能筛选 TypeError 崩溃
       apiExtData.value = Array.isArray(ext) ? ext.map(c => ({
         ...c,
         skillsHtml: c.skillsHtml
@@ -574,6 +470,7 @@ async function loadFromApi() {
       })) : null;
       apiIntData.value = Array.isArray(talentData.int ?? talentData.internal) ? (talentData.int ?? talentData.internal) : [];
       apiBlacklistData.value = Array.isArray(talentData.blacklist) ? talentData.blacklist : [];
+      extTotal.value = talentData.total ?? 0;
     }
   } catch (e) {
     talentLoadError.value = e.message || '人才库数据加载失败';
@@ -586,83 +483,28 @@ async function loadFromApi() {
   }
 }
 
-// 手动刷新邮箱简历（定时任务之外的即时收取）
+// 手动刷新邮箱简历
 const mailSyncing = ref(false);
-const syncProcess = ref(null);   // 本次同步的逐账号/逐邮件处理明细
-const lastSyncText = ref('');
-const ingestLog = ref([]);       // 最近入库记录（DB）
-const mailLog = ref([]);         // 系统外发邮件看板（DB）
-const mailCollapsed = ref(false); // 邮件看板折叠态
-const pipelinePanelRef = ref(null);
-const pipelinePanelHeight = ref(0);
-let pipelineResizeObserver = null;
-const mailPanelHeightStyle = computed(() => (
-  pipelinePanelHeight.value > 0 ? { height: `${pipelinePanelHeight.value}px` } : {}
-));
-
-function syncMailPanelHeight() {
-  nextTick(() => {
-    if (typeof window === 'undefined' || window.innerWidth <= 1100) {
-      pipelinePanelHeight.value = 0;
-      return;
-    }
-    pipelinePanelHeight.value = Math.ceil(pipelinePanelRef.value?.getBoundingClientRect().height || 0);
-  });
-}
-
-function onPipelineLayoutResize() {
-  syncMailPanelHeight();
-}
-
-watch([syncProcess, ingestLog], syncMailPanelHeight, { deep: true });
-
-async function loadMailLog() {
-  try {
-    const res = await fetchMailLog(50);
-    const r = (res && res.data) ? res.data : res;
-    mailLog.value = (r && r.items) || [];
-  } catch (e) {
-    console.warn('Failed to load mail log:', e);
-    mailLog.value = [];
-  }
-}
-
-async function loadIngestLog() {
-  try {
-    const res = await fetchIngestLog(8);
-    const r = (res && res.data) ? res.data : res;
-    ingestLog.value = (r && r.items) || [];
-  } catch (e) {
-    console.warn('Failed to load ingest log:', e);
-    ingestLog.value = [];
-  }
-}
-
 async function manualMailSync() {
   if (mailSyncing.value) return;
   mailSyncing.value = true;
   try {
+    const { syncAllEmailAccounts } = await import('../api/config.js');
     const res = await syncAllEmailAccounts();
     const r = (res && res.data) ? res.data : res;
-    lastSyncText.value = new Date().toLocaleString('zh-CN', { hour12: false });
     if (r && r.accepted) {
-      // 异步模式：后台同步已开始，稍后刷新查看结果
       toast.success(r.message || '同步已开始，请稍后刷新查看结果');
-      syncProcess.value = [];
-      setTimeout(() => { Promise.all([loadFromApi(), loadIngestLog(), loadMailLog()]).catch(() => {}); }, 8000);
+      setTimeout(() => { loadFromApi(); }, 8000);
+    } else if (r && r.accounts_checked === 0) {
+      toast.warning('没有已启用的收简历邮箱，请先在「基础配置」中添加');
+    } else if (r && (r.new_emails > 0 || r.resumes_ingested > 0)) {
+      toast.success(`收取完成：新邮件 ${r.new_emails} 封，新入库简历 ${r.resumes_ingested} 份`);
+      await loadFromApi();
+    } else if (r && r.status === 'partial') {
+      toast.warning('部分邮箱同步失败，请检查邮箱配置');
+      await loadFromApi();
     } else {
-      // 兼容旧的同步返回契约
-      syncProcess.value = (r && r.details) || [];
-      if (r && r.accounts_checked === 0) {
-        toast.warning('没有已启用的收简历邮箱，请先在「基础配置」中添加');
-      } else if (r && (r.new_emails > 0 || r.resumes_ingested > 0)) {
-        toast.success(`收取完成：新邮件 ${r.new_emails} 封，新入库简历 ${r.resumes_ingested} 份`);
-      } else if (r && r.status === 'partial') {
-        toast.warning('部分邮箱同步失败，请检查邮箱配置');
-      } else {
-        toast.success('收取完成：暂无新简历邮件');
-      }
-      await Promise.all([loadFromApi(), loadIngestLog(), loadMailLog()]);
+      toast.success('收取完成：暂无新简历邮件');
     }
   } catch (e) {
     toast.error('邮箱刷新失败: ' + e.message);
@@ -670,6 +512,10 @@ async function manualMailSync() {
     mailSyncing.value = false;
   }
 }
+
+// 分页变化时重新加载
+function onExtPageChange() { loadFromApi(); }
+watch([extPage, extPageSize], onExtPageChange);
 
 const tabs = [
   { id: 'external', label: '简历储备库（外部）' },
@@ -930,7 +776,7 @@ async function onResumeFilePicked(e) {
     const r = await uploadResumeFile(file);
     const engine = r.parse_engine === 'deepseek' ? 'DeepSeek' : '本地解析';
     toast.success(`简历已入库：${r.candidate_name}（${r.candidate_no} · ${engine}）`);
-    await Promise.all([loadFromApi(), loadIngestLog()]);
+    await loadFromApi();
   } catch (err) {
     handleError(err, 'RecruitTalent.uploadResume');
     toast.error('简历解析入库失败：' + (err?.response?.data?.message || err.message || '未知错误'));
@@ -961,24 +807,11 @@ function onDocClick(e) {
 
 onMounted(() => {
   document.addEventListener('click', onDocClick);
-  if (typeof ResizeObserver !== 'undefined' && pipelinePanelRef.value) {
-    pipelineResizeObserver = new ResizeObserver(syncMailPanelHeight);
-    pipelineResizeObserver.observe(pipelinePanelRef.value);
-  }
-  window.addEventListener('resize', onPipelineLayoutResize);
   loadFromApi();
   loadDemandOptions();
-  loadIngestLog();
-  loadMailLog();
-  syncMailPanelHeight();
 });
 onUnmounted(() => {
   document.removeEventListener('click', onDocClick);
-  window.removeEventListener('resize', onPipelineLayoutResize);
-  if (pipelineResizeObserver) {
-    pipelineResizeObserver.disconnect();
-    pipelineResizeObserver = null;
-  }
 });
 </script>
 
@@ -1010,78 +843,4 @@ onUnmounted(() => {
   .mail-sync-icon.spinning { animation: none; }
 }
 
-/* ── 简历处理管道 ── */
-.pipeline-panel {
-  margin-top: 14px;
-  border: 1px solid var(--c-border);
-  border-radius: 10px;
-  background: var(--c-card);
-  padding: 14px 18px;
-  box-sizing: border-box;
-}
-.pp-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.pp-title { font-size: 14px; font-weight: 700; color: var(--c-text); }
-.pp-sub { font-size: 12px; color: var(--c-sub); margin-top: 2px; }
-.pp-meta { font-size: 12px; color: var(--c-sub); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.pp-sync { margin-top: 12px; border-top: 1px dashed var(--c-border); padding-top: 12px; display: flex; flex-direction: column; gap: 12px; }
-.pp-account { border: 1px solid var(--c-border); border-radius: 8px; padding: 10px 14px; background: var(--c-bg); }
-.pp-account-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.pp-account-name { font-size: 13px; font-weight: 700; color: var(--c-text); }
-.pp-account-stat { font-size: 12px; color: var(--c-sub); font-variant-numeric: tabular-nums; }
-.pp-badge { margin-left: auto; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 99px; }
-.pp-badge.ok { color: var(--c-done); background: rgba(34,197,94,0.1); }
-.pp-badge.fail { color: var(--c-warn); background: rgba(245,158,11,0.1); }
-.pp-mail { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--c-border); }
-.pp-mail-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
-.pp-mail-subject { font-size: 13px; font-weight: 600; color: var(--c-text); }
-.pp-mail-from { font-size: 12px; color: var(--c-sub); }
-.pp-steps { display: flex; align-items: center; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
-.pp-step { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px; }
-.pp-step.ok { color: var(--c-done); background: rgba(34,197,94,0.1); }
-.pp-step.skip { color: var(--c-sub); background: var(--c-border); }
-.pp-arrow { font-size: 11px; color: var(--c-sub); }
-.pp-mail-cand { font-size: 12px; font-weight: 700; color: var(--c-primary); margin-left: 4px; }
-.pp-mail-note { margin-top: 6px; font-size: 12px; color: var(--c-warn); }
-.pp-empty-line { font-size: 12px; color: var(--c-sub); margin-top: 8px; }
-.pp-log { margin-top: 12px; border-top: 1px dashed var(--c-border); padding-top: 12px; }
-.pp-log-title { font-size: 12px; font-weight: 700; color: var(--c-sub); margin-bottom: 8px; }
-.pp-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.pp-table th { text-align: left; color: var(--c-sub); font-weight: 600; padding: 6px 10px; border-bottom: 1px solid var(--c-border); }
-.pp-table td { padding: 6px 10px; border-bottom: 1px solid var(--c-border); color: var(--c-body); font-variant-numeric: tabular-nums; }
-.pp-table tr:last-child td { border-bottom: none; }
-.pp-engine { font-size: 11px; font-weight: 600; color: var(--c-primary); background: var(--c-primary-subtle); padding: 1px 7px; border-radius: 99px; }
-
-/* ── 管道 + 邮件看板 半宽并排 ── */
-.pp-row { display: flex; gap: 14px; align-items: flex-start; }
-.pp-half { flex: 1 1 50%; min-width: 0; display: flex; flex-direction: column; }
-.pp-scroll { overflow-y: auto; max-height: 260px; }
-.mail-panel { min-height: 0; overflow: hidden; }
-.mail-panel .ml-body { min-height: 0; }
-.mail-panel .pp-scroll { flex: 1; min-height: 0; max-height: none; }
-.pp-scroll::-webkit-scrollbar { width: 4px; }
-.pp-scroll::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 2px; }
-@media (max-width: 1100px) {
-  .pp-row { flex-direction: column; }
-  .mail-panel { height: auto !important; overflow: visible; }
-}
-
-/* ── 系统邮件看板 ── */
-.mail-collapse-btn {
-  border: 1px solid var(--c-border); background: var(--c-bg); color: var(--c-sub);
-  font-size: 12px; font-weight: 600; padding: 3px 12px; border-radius: 99px; cursor: pointer;
-  white-space: nowrap; transition: all .15s;
-}
-.mail-collapse-btn:hover { color: var(--c-text); border-color: var(--c-sub); }
-.ml-body { margin-top: 12px; border-top: 1px dashed var(--c-border); padding-top: 10px; flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.ml-item { padding: 8px 4px; border-bottom: 1px solid var(--c-border); }
-.ml-item:last-child { border-bottom: none; }
-.ml-line1 { display: flex; align-items: center; gap: 8px; }
-.ml-type { font-size: 11px; font-weight: 700; color: var(--c-primary); background: var(--c-primary-subtle); padding: 1px 8px; border-radius: 99px; white-space: nowrap; }
-.ml-type.fail { color: var(--c-warn); background: rgba(245,158,11,0.12); }
-.ml-subject { font-size: 13px; font-weight: 600; color: var(--c-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
-.ml-time { font-size: 11px; color: var(--c-sub); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.ml-line2 { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
-.ml-addr { font-size: 12px; color: var(--c-sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ml-arrow { font-size: 11px; color: var(--c-primary); font-weight: 700; }
-.ml-error { margin-top: 3px; font-size: 11px; color: var(--c-warn); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

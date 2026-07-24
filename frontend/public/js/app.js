@@ -3,24 +3,25 @@
 
 // ========== 菜单定义 ==========
 var MENU_ROUTES = [
-  { id:'recruit-dashboard', label:'招聘看板', href:'/recruit-dashboard' },
+  { id:'home',              label:'首页',       href:'/home' },
+  { id:'recruit-dashboard', label:'招聘看板',   href:'/recruit-dashboard' },
   { id:'recruit-demand',    label:'需求管理',   href:'/recruit-demand' },
   { id:'recruit-talent',    label:'人才库',     href:'/recruit-talent' },
   { id:'recruit-interview', label:'面试计划',   href:'/recruit-interview' },
   { id:'recruit-ai',        label:'招聘辅助中心', href:'/recruit-ai' },
-  { id:'recruit-config',    label:'招聘基础配置',      href:'/recruit-config' },
+  { id:'recruit-config',    label:'招聘基础配置', href:'/recruit-config' },
 ];
 
 // ========== 6 角色权限矩阵 ==========
 // 角色 key → 可见菜单 ID 列表
 var ROLE_MENUS = {
   'no_recruit':      [],                                                      // 无招聘业务员工：侧边栏完全隐藏
-  'employee':        ['recruit-dashboard','recruit-demand'],                 // 普通员工：只看自己的需求
-  'dept_head':       ['recruit-dashboard','recruit-demand'],                 // 部门负责人：本部门数据
-  'interviewer':     ['recruit-dashboard','recruit-interview'],              // 常规面试官：看板+面试计划（仅我的面试）
-  'temp_interviewer':['recruit-dashboard','recruit-interview'],              // 临时面试官：看板+面试计划（评价完回收菜单）
-  'hr':              ['recruit-dashboard','recruit-demand','recruit-talent','recruit-interview'], // HR 专员
-  'admin':           ['recruit-dashboard','recruit-demand','recruit-talent','recruit-interview','recruit-ai','recruit-config'], // 管理员：全量可见
+  'employee':        ['home','recruit-dashboard','recruit-demand'],                 // 普通员工：只看自己的需求
+  'dept_head':       ['home','recruit-dashboard','recruit-demand'],                 // 部门负责人：本部门数据
+  'interviewer':     ['home','recruit-dashboard','recruit-interview'],              // 常规面试官：看板+面试计划（仅我的面试）
+  'temp_interviewer':['home','recruit-dashboard','recruit-interview'],              // 临时面试官：看板+面试计划（评价完回收菜单）
+  'hr':              ['home','recruit-dashboard','recruit-demand','recruit-talent','recruit-interview'], // HR 专员
+  'admin':           ['home','recruit-dashboard','recruit-demand','recruit-talent','recruit-interview','recruit-ai','recruit-config'], // 管理员：全量可见
 };
 
 // ========== 评分系统：衰减系数 & 综合推荐分 ==========
@@ -747,7 +748,8 @@ function openInternalContactModal(name, manager){
 (function(){
   if(location.pathname.indexOf('/login') !== -1) return;
   var commands = [
-    {id:'recruit-dashboard', label:'招聘看板', hint:'查看漏斗、KPI 与风险提醒', href:'/recruit-dashboard'},
+    {id:'home', label:'首页', hint:'在招岗位、待面试、面试通过、待入职概览', href:'/home'},
+    {id:'recruit-dashboard', label:'招聘看板', hint:'年度趋势、部门招聘统计与多维图表', href:'/recruit-dashboard'},
     {id:'recruit-demand', label:'需求管理', hint:'筛选、创建和审批招聘需求', href:'/recruit-demand'},
     {id:'recruit-demand-detail', label:'需求详情', hint:'查看岗位候选人、批量操作与匹配记录', href:'/recruit-demand-detail', parent:'recruit-demand'},
     {id:'recruit-talent', label:'人才库', hint:'检索候选人、联系记录与人才标签', href:'/recruit-talent'},
@@ -1389,9 +1391,9 @@ function openInternalContactModal(name, manager){
     if(channelCard) channelCard.classList.add('hero-channel-detail');
   }
 
-  function ensureHeroOperationalWorkspace(){
+  function ensureHeroOperationalWorkspace(){ return; /* 旧注入已禁用 */
     var route = currentRouteId();
-    if(route === 'recruit-dashboard' || route === 'login') return;
+    if(route === 'recruit-dashboard' || route === 'login' || route === 'home') return;
     var body = document.querySelector('.content-body');
     if(!body || body.querySelector('.hero-page-workspace')) return;
     if(body.querySelector('.interview-workbench-grid')) return;
@@ -1582,9 +1584,9 @@ function openInternalContactModal(name, manager){
     });
   }
 
-  function ensureHeroPageSummary(){
+  function ensureHeroPageSummary(){ return; /* 旧注入已禁用 */
     var route = currentRouteId();
-    if(route === 'recruit-dashboard' || route === 'login') return;
+    if(route === 'recruit-dashboard' || route === 'login' || route === 'home') return;
     var body = document.querySelector('.content-body');
     if(!body || body.querySelector('.hero-page-summary')) return;
     var presets = {
@@ -1708,7 +1710,7 @@ function openInternalContactModal(name, manager){
   function enhanceCoreComponents(){
     document.body.classList.add('hero-pro-workbench');
     document.body.classList.add('core-components-ready');
-    ensureHeroModuleTabs();
+    // ensureHeroModuleTabs();  // 已移除：顶部模块导航与左侧侧边栏重复
     ensureHeroPageSummary();
     ensureHeroOperationalWorkspace();
     enhanceMobileShell();
@@ -1720,8 +1722,8 @@ function openInternalContactModal(name, manager){
     enhanceDialogs();
     enhanceEmptyStates();
     enhanceVisualizationCards();
-    ensureHeroDashboardAnalytics();
-    ensureHeroDashboardMaterial();
+    // ensureHeroDashboardAnalytics();  // 已移除：旧仪表盘注入与 Vue 趋势分析页冲突
+    // ensureHeroDashboardMaterial();   // 已移除：旧仪表盘注入与 Vue 趋势分析页冲突
     enhanceCollapses();
     enhanceKineticTypography();
     enhanceScrollReveal();
@@ -1745,6 +1747,7 @@ function openInternalContactModal(name, manager){
 
     var route = currentRouteId();
     var navItems = [
+      {label:'首页', href:'/home', id:'home'},
       {label:'看板', href:'/recruit-dashboard', id:'recruit-dashboard'},
       {label:'需求', href:'/recruit-demand', id:'recruit-demand'},
       {label:'人才', href:'/recruit-talent', id:'recruit-talent'},

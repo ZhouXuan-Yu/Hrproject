@@ -2,9 +2,9 @@
 import { api } from './index.js';
 
 export async function fetchTalent(params = {}) {
-  const qs = new URLSearchParams({ pageSize: 100, ...params }).toString();
+  const qs = new URLSearchParams({ pageSize: 20, ...params }).toString();
   const r = await api.get(`/talent/list${qs ? '?' + qs : ''}`);
-  // success_list 契约：r.data 即候选人数组（external tab），r.total 总数
+  // success_list 契约：r.data 即候选人数组，r.total 总数
   return { ext: Array.isArray(r.data) ? r.data : [], total: r.total ?? 0 };
 }
 
