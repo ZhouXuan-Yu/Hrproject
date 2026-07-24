@@ -6,6 +6,7 @@ import RecruitInterview from '../views/RecruitInterview.vue';
 import RecruitTalent from '../views/RecruitTalent.vue';
 import RecruitDemandDetail from '../views/RecruitDemandDetail.vue';
 import RecruitDashboard from '../views/RecruitDashboard.vue';
+import HomePage from '../views/HomePage.vue';
 import LoginPage from '../views/LoginPage.vue';
 
 // ── Auth guard ──────────────────────────────────────────────────────────
@@ -43,8 +44,9 @@ function checkAuth(to) {
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', redirect: '/login' },
+    { path: '/', redirect: '/home' },
     { path: '/login', component: LoginPage, meta: { title: '登录', noCache: true } },
+    { path: '/home', component: HomePage, meta: { title: '首页' } },
     { path: '/recruit-dashboard', component: RecruitDashboard, meta: { title: '招聘看板' } },
     { path: '/recruit-demand', component: RecruitDemand, meta: { title: '需求管理' } },
     { path: '/recruit-demand-detail', component: RecruitDemandDetail, meta: { title: '需求详情' } },

@@ -2,7 +2,8 @@
 // 角色 & 用户信息读取，不依赖 Vue，纯函数
 
 export const MENU_ROUTES = [
-  { id:'recruit-dashboard', label:'招聘看板', href:'/recruit-dashboard' },
+  { id:'home',              label:'首页',       href:'/home' },
+  { id:'recruit-dashboard', label:'招聘看板',   href:'/recruit-dashboard' },
   { id:'recruit-demand',    label:'需求管理',   href:'/recruit-demand' },
   { id:'recruit-talent',    label:'人才库',     href:'/recruit-talent' },
   { id:'recruit-interview', label:'面试计划',   href:'/recruit-interview' },
@@ -12,13 +13,13 @@ export const MENU_ROUTES = [
 
 export const ROLE_MENUS = {
   no_recruit:       [],
-  employee:         ['recruit-dashboard','recruit-demand'],
-  dept_head:        ['recruit-dashboard','recruit-demand'],
-  executive:        ['recruit-dashboard','recruit-demand'],
-  interviewer:      ['recruit-dashboard','recruit-interview'],
-  temp_interviewer: ['recruit-dashboard','recruit-interview'],
-  hr:               ['recruit-dashboard','recruit-demand','recruit-talent','recruit-interview'],
-  admin:            ['recruit-dashboard','recruit-demand','recruit-talent','recruit-interview','recruit-ai','recruit-config'],
+  employee:         ['home','recruit-dashboard','recruit-demand'],
+  dept_head:        ['home','recruit-dashboard','recruit-demand'],
+  executive:        ['home','recruit-dashboard','recruit-demand'],
+  interviewer:      ['home','recruit-dashboard','recruit-interview'],
+  temp_interviewer: ['home','recruit-dashboard','recruit-interview'],
+  hr:               ['home','recruit-dashboard','recruit-demand','recruit-talent','recruit-interview'],
+  admin:            ['home','recruit-dashboard','recruit-demand','recruit-talent','recruit-interview','recruit-ai','recruit-config'],
 };
 
 export const ROLE_LABELS = {

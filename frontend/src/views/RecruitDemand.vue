@@ -6,7 +6,6 @@
 
     <!-- 需求状态统计卡 -->
     <StatCardRow :cards="statCards" :active-key="filters.status" clickable @select="onStatSelect" />
-    <section class="hero-page-summary" style="display:none" aria-hidden="true"></section>
 
     <div class="permission-bar" style="margin-bottom:14px">
       <svg viewBox="0 0 24 24" style="width:14px;height:14px;vertical-align:-2px;stroke:var(--c-sub);fill:none;stroke-width:2;stroke-linecap:round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
@@ -227,9 +226,9 @@ const statCards = computed(() => {
   const cnt = (st) => demandList.value.filter(d => d.status === st).length;
   return [
     { key: 'all', label: '全部需求', value: demandList.value.length, hint: '含各状态', icon: KPI_ICONS.fileText },
-    { key: 'open', label: '招聘中', value: cnt('open'), hint: '进展中', icon: KPI_ICONS.briefcase },
-    { key: 'approval', label: '待审批', value: cnt('approval'), hint: '审批流程中', icon: KPI_ICONS.clock },
-    { key: 'closed', label: '已关闭', value: cnt('closed'), hint: '本期完成', icon: KPI_ICONS.check },
+    { key: 'approval', label: '待审批', value: cnt('approval'), hint: '需及时处理', icon: KPI_ICONS.clock },
+    { key: 'open', label: '招聘中', value: cnt('open'), hint: '进行中', icon: KPI_ICONS.briefcase },
+    { key: 'draft', label: '草稿', value: cnt('draft'), hint: '待提交审批', icon: KPI_ICONS.edit },
   ];
 });
 function onStatSelect(c) { filters.status = c.key; applyFilters(); }

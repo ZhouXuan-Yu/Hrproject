@@ -6,6 +6,8 @@
       <button class="btn btn-text-danger btn-sm" @click="doAlert('确认撤回该需求？')">撤回</button>
     </template>
 
+    <StatCardRow :cards="statCards" />
+
     <!-- Demand info card -->
     <div class="card data-region" style="margin-bottom:12px">
       <DataLoadingOverlay :visible="loading" />
@@ -262,6 +264,8 @@ import { useToast } from '../composables/useToast.js';
 import { useAppError } from '../composables/useAppError.js';
 import EmptyState from '../components/EmptyState.vue';
 import DataLoadingOverlay from '../components/DataLoadingOverlay.vue';
+import StatCardRow from '../components/StatCardRow.vue';
+import { KPI_ICONS } from '../components/kpiIcons.js';
 
 const { toast } = useToast();
 const { handleError } = useAppError();
@@ -292,6 +296,17 @@ const loadError = ref('');
 
 const checkedSet = reactive({});
 const checkedCount = computed(() => Object.keys(checkedSet).filter(k => checkedSet[k]).length);
+
+const statCards = computed(() => {
+  const list = candidates.value || [];
+  const cnt = (statuses) => list.filter(c => statuses.includes(c.processStatus)).length;
+  return [
+    { key: 'total', label: '候选人', value: list.length, hint: '已加入需求', icon: KPI_ICONS.users },
+    { key: 'interview', label: '面试中', value: cnt([1, 2, 3]), hint: '邀约/一面/二面', icon: KPI_ICONS.calendar },
+    { key: 'offer', label: '已发Offer', value: cnt([5, 6]), hint: '待确认/已接受', icon: KPI_ICONS.check },
+    { key: 'onboard', label: '待入职', value: cnt([6]), hint: '已接受待报到', icon: KPI_ICONS.userCheck },
+  ];
+});
 
 const drawerCandidate = ref(null);
 const drawerLoading = ref(false);

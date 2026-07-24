@@ -303,3 +303,15 @@ cd frontend/ && npx playwright test --workers=2          # 49/49 E2E
 | 加入需求弹窗 | 小下拉 → 正式弹窗：显示已选候选人（含投递岗位）、按投递岗位优先排序（"投递岗位"徽标）、"部分人已在流程"标记、已有 N 人计数、未选禁用确认；抽屉单个加入自动勾选并开弹窗 |
 | 测试 | 新增 `test_resume_screening.py` 5 用例；E2E「加入需求」用例改写为弹窗契约 |
 | 详情页需求透传 | 根因：`RecruitDemand.goDetail()` 跳转不带 id，详情页 `info` 用固定 mock（DM2026070005），任何岗位打开都是同一份候选人 → 修复：列表跳转带 `?id=DM...`，详情页 `useRoute().query.id` 初始化并加载对应需求的真实详情与候选人；新增 E2E 导航透传用例 |
+
+## 2026-07-24 新环境部署验证
+
+- MySQL RDS 连接成功，34 张表，4 个 IAM 用户
+- 数据库连接未加密（have_ssl: DISABLED）
+- 新建 `uploads/` 目录解决简历原件存储
+- 审批权限：三级身份校验生效，admin 可代批，非 admin 按角色匹配
+- 审批身份均未绑定具体用户（user_id=None）
+- 创建需求表单内嵌「AI 生成岗位说明」，与 JD 草稿生成共用 `POST /api/ai/run/jd-generate`
+- `calc_match_score` 仍为 MD5 哈希假匹配
+- 简历原件不可预览（`file_url` 指向旧机器路径）
+- 通知模板未接入发邮件（`confirm_service.py` 硬编码）

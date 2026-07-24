@@ -3,7 +3,6 @@
     <div class="card-title funnel-hero-title">
       <svg viewBox="0 0 24 24" style="width:18px;height:18px"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
       招聘全漏斗
-      <span class="funnel-title-hint" style="font-weight:400;font-size:11px;color:var(--c-sub);margin-left:8px">点击圆盘查看阶段洞察</span>
       <span style="font-weight:400;font-size:11px;color:var(--c-primary);margin-left:auto">总转化率 {{ FUNNEL_STEPS[FUNNEL_STEPS.length - 1].pct }}</span>
     </div>
     <div class="funnel-hero-body">
@@ -46,94 +45,6 @@
             </div>
           </div>
         </div>
-        <!-- Insight panel (right) -->
-        <div class="funnel-insight-panel" v-if="sel" :key="selected">
-          <div class="insight-panel-inner">
-            <!-- Header: label + badges -->
-            <div class="insight-header">
-              <span class="insight-dot" :style="{ background: selAccent }"></span>
-              <span class="insight-label-main">{{ sel.label }}</span>
-              <span v-if="sel.bottleneck" class="badge-bottleneck">瓶颈</span>
-              <span v-else class="health-badge" :class="'health-' + sel.health">{{ healthLabel(sel.health) }}</span>
-            </div>
-            <!-- Core metrics: big numbers -->
-            <div class="insight-metrics-row">
-              <div class="insight-metric-card">
-                <div class="im-val">{{ sel.count }}<span class="im-unit">人</span></div>
-                <div class="im-sub">在{{ sel.label }}阶段</div>
-              </div>
-              <div class="insight-metric-card" v-if="sel.conv">
-                <div class="im-val">{{ sel.conv }}</div>
-                <div class="im-sub">入口转化率</div>
-              </div>
-              <div class="insight-metric-card">
-                <div class="im-val">{{ sel.pct }}</div>
-                <div class="im-sub">占总简历</div>
-              </div>
-            </div>
-            <!-- WoW + Dwell row -->
-            <div class="insight-detail-row">
-              <div class="insight-detail-item">
-                <span class="detail-label">环比</span>
-                <span class="wow-delta" :class="sel.wowUp ? 'up' : 'down'">
-                  <svg viewBox="0 0 10 10" style="width:10px;height:10px">
-                    <polyline v-if="sel.wowUp" points="1,8 5,2 9,8" fill="none" stroke="currentColor" stroke-width="1.5"/>
-                    <polyline v-else points="1,2 5,8 9,2" fill="none" stroke="currentColor" stroke-width="1.5"/>
-                  </svg>
-                  {{ sel.wow }}
-                  <span class="wow-abs">{{ wowArrow(sel.wowUp) }}{{ sel.spark ? ((Math.round((sel.spark[sel.spark.length - 1] - sel.spark[0]) / sel.spark[0] * 100) || 0) + '%') : '' }}</span>
-                </span>
-              </div>
-              <div class="insight-detail-item">
-                <span class="detail-label">平均停留</span>
-                <span class="detail-val">{{ sel.dwell }}</span>
-              </div>
-              <div class="insight-detail-item">
-                <span class="detail-label">负责人</span>
-                <span class="detail-val detail-owner">{{ sel.owner }}</span>
-              </div>
-            </div>
-            <!-- Sparkline -->
-            <div class="insight-chart-block">
-              <div class="block-label">近 7 天趋势</div>
-              <svg viewBox="0 0 180 52" class="insight-spark-lg">
-                <defs>
-                  <linearGradient id="funnelSparkGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" :stop-color="selAccent" stop-opacity="0.22" />
-                    <stop offset="100%" :stop-color="selAccent" stop-opacity="0.02" />
-                  </linearGradient>
-                </defs>
-                <line v-for="gy in [12, 22, 32]" :key="'gl' + gy" x1="6" x2="174" :y1="gy" :y2="gy" class="spark-grid-line" />
-                <path :d="sparkAreaPath(sel.spark, 180, 40, 6)" fill="url(#funnelSparkGrad)" />
-                <path :d="sparkLinePath(sel.spark, 180, 40, 6)" fill="none" :stroke="selAccent" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
-                <text v-if="sel.spark" :x="6" :y="10" fill="var(--c-sub)" font-size="8">{{ Math.max(...sel.spark) }}</text>
-                <text v-if="sel.spark" :x="6" :y="49" fill="var(--c-sub)" font-size="8">{{ Math.min(...sel.spark) }}</text>
-              </svg>
-            </div>
-            <!-- Conversion chain -->
-            <div class="insight-chain">
-              <div class="block-label">全链路转化</div>
-              <div class="chain-bars">
-                <div v-for="(st, ci) in FUNNEL_STEPS" :key="ci" class="chain-step"
-                  :class="{ chainActive: ci === selected }"
-                  @click="selectStage(ci)">
-                  <div class="chain-bar-wrap">
-                    <div class="chain-bar" :style="'height:' + chainHeight(ci) + '%;--chain-accent:' + accentColor(st)"></div>
-                  </div>
-                  <span class="chain-label">{{ st.label }}</span>
-                  <span class="chain-val">{{ st.count }}</span>
-                </div>
-              </div>
-            </div>
-            <!-- Insight note -->
-            <div class="insight-note-block">
-              <svg viewBox="0 0 24 24" style="width:14px;height:14px;flex-shrink:0;fill:none;stroke:var(--c-primary);stroke-width:2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-              {{ sel.note }}
-            </div>
-            <!-- CTA -->
-            <button class="insight-cta" @click="router.push(sel.link)">查看 {{ sel.label }} 详情 →</button>
-          </div>
-        </div>
       </div>
     </div>
     <!-- Bottom stepper -->
@@ -154,12 +65,9 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { ref, onMounted, onUnmounted } from 'vue';
 import * as THREE from 'three';
 import { FUNNEL_STEPS } from '../data/dashboard.js';
-
-const router = useRouter();
 
 // ---------- state ----------
 const selected = ref(3); // default: bottleneck stage (Offer)
@@ -169,9 +77,6 @@ const vizWrap = ref(null);
 const chipEls = ref([]);
 const lineEls = ref([]);
 const dotEls = ref([]);
-
-const sel = computed(() => FUNNEL_STEPS[selected.value] || FUNNEL_STEPS[0]);
-const selAccent = computed(() => accentColor(sel.value));
 
 function accentColor(step) { return step.color || 'var(--c-primary)'; }
 function selectStage(i) { selected.value = i; }
@@ -196,55 +101,6 @@ function fbBg(i) {
   const r = (hex >> 16) & 255, g = (hex >> 8) & 255, b = hex & 255;
   return `rgba(${r},${g},${b},0.16)`;
 }
-
-// ---------- insight helpers (kept from legacy dashboard) ----------
-function chainHeight(i) {
-  const maxCount = Math.max(...FUNNEL_STEPS.map((s) => s.count));
-  return Math.round((FUNNEL_STEPS[i].count / maxCount) * 100);
-}
-// HeroUI-style area sparkline: smooth monotone curve + vertical gradient fill
-function sparkPts(spark, w, h, pad) {
-  w = w || 180; h = h || 40; pad = pad || 6;
-  if (!spark || !spark.length) return [[pad, h / 2], [w - pad, h / 2]];
-  const maxV = Math.max(...spark);
-  const minV = Math.min(...spark);
-  const range = maxV - minV || 1;
-  return spark.map((v, i) => {
-    const x = pad + (i / (spark.length - 1)) * (w - pad * 2);
-    const y = pad + (1 - (v - minV) / range) * (h - pad * 2);
-    return [x, y];
-  });
-}
-function smoothPath(pts) {
-  if (!pts.length) return '';
-  let d = `M ${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
-  for (let i = 0; i < pts.length - 1; i++) {
-    const p0 = pts[i - 1] || pts[i];
-    const p1 = pts[i];
-    const p2 = pts[i + 1];
-    const p3 = pts[i + 2] || p2;
-    const c1x = (p1[0] + (p2[0] - p0[0]) / 6).toFixed(1);
-    const c1y = (p1[1] + (p2[1] - p0[1]) / 6).toFixed(1);
-    const c2x = (p2[0] - (p3[0] - p1[0]) / 6).toFixed(1);
-    const c2y = (p2[1] - (p3[1] - p1[1]) / 6).toFixed(1);
-    d += ` C ${c1x},${c1y} ${c2x},${c2y} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
-  }
-  return d;
-}
-function sparkLinePath(spark, w, h, pad) {
-  return smoothPath(sparkPts(spark, w, h, pad));
-}
-function sparkAreaPath(spark, w, h, pad) {
-  const pts = sparkPts(spark, w, h, pad);
-  const first = pts[0];
-  const last = pts[pts.length - 1];
-  return `${smoothPath(pts)} L ${last[0].toFixed(1)},${h} L ${first[0].toFixed(1)},${h} Z`;
-}
-function healthLabel(h) {
-  const map = { good: '健康', watch: '关注', risk: '风险' };
-  return map[h] || h;
-}
-function wowArrow(up) { return up ? '▲' : '▼'; }
 
 // ---------- Three.js scene ----------
 let renderer = null;
@@ -660,21 +516,18 @@ onUnmounted(() => {
 .funnel-hero-title { position: relative; z-index: 2; }
 .funnel-hero-body { position: relative; z-index: 1; }
 .funnel-viz-row {
-  display: flex;
-  gap: 20px;
-  align-items: stretch;
+  display: block;
   padding: 8px 0 0;
 }
 
 /* — 3D scene area — */
 .funnel-viz-area {
-  flex: 1 1 auto;
-  min-width: 0;
+  width: 100%;
   position: relative;
 }
 .funnel-three-wrap {
   position: relative;
-  height: 520px;
+  height: 560px;
   border-radius: 14px;
   overflow: hidden;
   background: transparent;
@@ -794,231 +647,6 @@ onUnmounted(() => {
 .fb-disc span { font-size: 12px; }
 .fb-disc.active { background: rgba(79, 110, 247, 0.18) !important; }
 
-/* ===== Insight panel — layered glass ===== */
-.funnel-insight-panel {
-  flex: 0 1 400px;
-  min-width: 260px;
-  max-width: 400px;
-  display: flex;
-  align-items: stretch;
-}
-.insight-panel-inner {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 13px;
-  padding: 16px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.6);
-
-
-
-
-  border: 1px solid rgba(79, 110, 247, 0.14);
-  animation: insightFadeIn .25s ease;
-}
-@keyframes insightFadeIn {
-  from { opacity: 0; transform: translateX(10px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-
-/* Header */
-.insight-header { display: flex; align-items: center; gap: 10px; }
-.insight-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
-.insight-label-main {
-  font-size: 22px;
-  font-weight: 800;
-  color: var(--c-text);
-  letter-spacing: 0.5px;
-}
-.badge-bottleneck {
-  font-size: 11px;
-  font-weight: 700;
-  padding: 3px 10px;
-  border-radius: 12px;
-  background: var(--c-reject);
-  color: #fff;
-}
-.health-badge {
-  font-size: 11px;
-  font-weight: 700;
-  padding: 3px 10px;
-  border-radius: 12px;
-}
-.health-good { background: rgba(34, 197, 94, 0.15); color: var(--c-done); }
-.health-watch { background: rgba(245, 158, 11, 0.15); color: var(--c-warn); }
-.health-risk { background: rgba(239, 68, 68, 0.15); color: var(--c-reject); }
-
-/* Metric cards row */
-.insight-metrics-row { display: flex; gap: 10px; }
-.insight-metric-card {
-  flex: 1;
-  background: rgba(255, 255, 255, 0.55);
-
-
-
-
-  border: 1px solid var(--c-border-light);
-  border-radius: 8px;
-  padding: 10px 12px;
-}
-.im-val {
-  font-size: 22px;
-  font-weight: 800;
-  color: var(--c-text);
-  font-variant-numeric: tabular-nums;
-  display: flex;
-  align-items: baseline;
-  gap: 2px;
-}
-.im-unit { font-size: 13px; font-weight: 400; color: var(--c-sub); margin-left: 2px; }
-.im-sub { font-size: 11px; color: var(--c-sub); margin-top: 3px; }
-
-/* WoW + dwell row */
-.insight-detail-row {
-  display: flex;
-  gap: 16px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--c-border-light);
-}
-.insight-detail-item { flex: 1; }
-.detail-label {
-  display: block;
-  font-size: 10px;
-  color: var(--c-sub);
-  margin-bottom: 2px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-.detail-val {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--c-text);
-  font-variant-numeric: tabular-nums;
-}
-.detail-owner { font-size: 13px; font-weight: 500; color: var(--c-body); }
-.wow-delta {
-  font-size: 14px;
-  font-weight: 700;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-}
-.wow-delta.up { color: var(--c-done); }
-.wow-delta.down { color: var(--c-reject); }
-.wow-abs { font-size: 10px; font-weight: 600; opacity: 0.6; }
-
-/* Sparkline block */
-.insight-chart-block {
-  background: rgba(255, 255, 255, 0.55);
-
-
-
-
-  border-radius: 8px;
-  padding: 10px 12px;
-  border: 1px solid var(--c-border-light);
-}
-.block-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--c-sub);
-  margin-bottom: 6px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-.insight-spark-lg { width: 100%; height: 52px; display: block; }
-.spark-grid-line { stroke: rgba(79, 110, 247, 0.14); stroke-width: 1; }
-
-/* Conversion chain bars */
-.insight-chain {
-  background: rgba(255, 255, 255, 0.55);
-
-
-
-
-  border-radius: 8px;
-  padding: 10px 12px;
-  border: 1px solid var(--c-border-light);
-}
-.chain-bars {
-  display: flex;
-  gap: 6px;
-  align-items: flex-end;
-  height: 70px;
-  padding-top: 4px;
-}
-.chain-step {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  cursor: pointer;
-  transition: opacity .2s;
-}
-.chain-step:hover { opacity: 0.8; }
-.chain-bar-wrap {
-  flex: 1;
-  width: 100%;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-}
-.chain-bar {
-  width: 60%;
-  border-radius: 3px 3px 0 0;
-  background: var(--chain-accent, var(--c-primary));
-  opacity: 0.6;
-  min-height: 4px;
-  transition: opacity .2s;
-}
-.chain-step.chainActive .chain-bar {
-  opacity: 1;
-  box-shadow: 0 0 8px rgba(79, 110, 247, 0.15);
-}
-.chain-label { font-size: 9px; color: var(--c-sub); white-space: nowrap; }
-.chain-val {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--c-text);
-  font-variant-numeric: tabular-nums;
-}
-
-/* Insight note */
-.insight-note-block {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--c-body);
-  line-height: 1.6;
-  padding: 10px 12px;
-  background: rgba(79, 110, 247, 0.04);
-  border-radius: 8px;
-  border-left: 3px solid var(--c-primary);
-}
-
-/* CTA */
-.insight-cta {
-  width: 100%;
-  padding: 10px 0;
-  border: 1px solid var(--c-primary);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--c-primary);
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all .2s;
-  font-family: inherit;
-}
-.insight-cta:hover {
-  background: var(--c-primary);
-  color: #fff;
-  box-shadow: 0 4px 16px rgba(79, 110, 247, 0.2);
-}
-
 /* Bottom stepper chips */
 .funnel-stepper {
   display: flex;
@@ -1058,7 +686,6 @@ onUnmounted(() => {
 
 /* — Reduced motion — */
 @media (prefers-reduced-motion: reduce) {
-  .insight-panel-inner { animation: none !important; }
   .funnel-hud-chip,
   .funnel-hud-lines line,
   .funnel-hud-lines circle { transition: none !important; }
@@ -1067,14 +694,9 @@ onUnmounted(() => {
 
 /* — Mobile — */
 @media (max-width: 780px) {
-  .funnel-title-hint { display: none; }
-  .funnel-viz-row { flex-direction: column; }
-  .funnel-three-wrap { height: 380px; }
-  .funnel-fallback { height: 380px; gap: 8px; }
+  .funnel-three-wrap { height: 440px; }
+  .funnel-fallback { height: 440px; gap: 8px; }
   .fb-disc { height: 48px; }
-  .funnel-insight-panel { max-width: none; flex: 1 1 auto; }
-  .insight-metrics-row { flex-wrap: wrap; }
-  .insight-metric-card { min-width: 80px; }
   .funnel-hud-chip { width: 92px; padding: 4px 8px; }
   .hud-name { font-size: 10px; }
   .hud-count { font-size: 12px; }

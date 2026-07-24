@@ -40,8 +40,6 @@
         <i class="iv-stat-icon" v-html="stageIcon(kpi.key)"></i>
       </article>
     </div>
-    <section class="hero-page-summary" style="display:none" aria-hidden="true"></section>
-
     <section class="interview-workbench-grid" aria-label="面试任务流工作台">
       <article
         ref="calendarCardRef"
@@ -52,98 +50,111 @@
         <div class="iw-card-head">
           <div>
             <h3>{{ calendarTitle }}</h3>
-            <p>按真实面试时间一一对应，展开本周全部面试明细</p>
+            <p>{{ calendarRangeLabel }}</p>
           </div>
           <div class="calendar-nav">
+            <div class="cal-toggle-group">
+              <button :class="{ active: calView === 'month' }" @click="calView = 'month'">月</button>
+              <button :class="{ active: calView === 'week' }" @click="calView = 'week'">周</button>
+              <button :class="{ active: calView === 'day' }" @click="calView = 'day'">日</button>
+            </div>
             <label class="calendar-select-group">
               <span>月份</span>
               <select data-testid="calendar-month-select" v-model="calendarMonthKey" @change="onCalendarMonthChange">
                 <option v-for="item in calendarMonthOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
               </select>
             </label>
-            <label class="calendar-select-group">
+            <label class="calendar-select-group" v-if="calView === 'week'">
               <span>周期</span>
               <select data-testid="calendar-week-select" v-model="selectedCalendarWeekStart" @change="onCalendarWeekChange">
                 <option v-for="item in calendarWeekOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
               </select>
             </label>
-            <button data-testid="calendar-current-month" class="btn btn-outline btn-sm" type="button" @click="resetCalendarMonth">本月</button>
+            <button data-testid="calendar-current-month" class="btn btn-outline btn-sm" type="button" @click="resetCalendarToday">今天</button>
           </div>
         </div>
         <div class="calendar-range">{{ calendarRangeLabel }}</div>
         <div class="inline-calendar data-region">
           <DataLoadingOverlay :visible="calendarLoading" />
-          <div class="inline-calendar-days" role="list">
+
+          <!-- 月视图：完整日历网格，风格与周视图一致 -->
+          <div v-if="calView === 'month'" class="calendar-month-grid">
+            <div class="month-grid-header"><span v-for="d in ['一','二','三','四','五','六','日']" :key="d">{{ d }}</span></div>
+            <div class="month-grid-body">
+              <button
+                v-for="(day, i) in calendarMonthDays" :key="'md'+i"
+                v-show="day !== null"
+                type="button"
+                class="inline-calendar-day month-day-cell"
+                :class="{ active: day && selectedCalendarDate === day.key, today: day && day.today }"
+                :data-testid="'calendar-day-' + (day ? day.key : '')"
+                @click="day && (selectedCalendarDate = day.key)"
+              >
+                <template v-if="day">
+                  <span>周{{ day.day }}</span>
+                  <b>{{ day.dateStr }}</b>
+                  <em v-if="day.count">{{ day.count }}场</em>
+                  <em v-else>—</em>
+                </template>
+              </button>
+            </div>
+          </div>
+
+          <!-- 周视图：7 天横向 -->
+          <div v-if="calView === 'week'" class="inline-calendar-days" role="list">
             <button
-              v-for="day in calendarDays"
-              :key="day.key"
-              type="button"
+              v-for="day in calendarDays" :key="day.key" type="button"
               class="inline-calendar-day"
               :class="{ active: selectedCalendarDate === day.key, today: day.today, outside: day.outsideMonth }"
               :data-testid="'calendar-day-' + day.key"
               @click="selectedCalendarDate = day.key"
             >
-              <span>周{{ day.day }}</span>
-              <b>{{ day.dateStr }}</b>
-              <em v-if="day.count">{{ day.count }}场</em>
-              <em v-else>—</em>
+              <span>周{{ day.day }}</span><b>{{ day.dateStr }}</b>
+              <em v-if="day.count">{{ day.count }}场</em><em v-else>—</em>
             </button>
           </div>
-          <div class="calendar-detail-list" data-testid="calendar-agenda">
-            <div
-              v-for="day in calendarDaySections"
-              :key="'detail-' + day.key"
-              class="calendar-day-section"
-              :class="{ active: selectedCalendarDate === day.key }"
-            >
+
+          <!-- 日视图：当天面试时间线 -->
+          <div v-if="calView === 'day'" class="day-timeline">
+            <div class="day-timeline-title">{{ selectedCalendarDate }} 周{{ '日一二三四五六'[parseDateKey(selectedCalendarDate).getDay()] }}</div>
+            <div v-if="selDayItems.length" class="day-items">
+              <div v-for="ev in selDayItems" :key="ev.id" class="day-item">
+                <span class="di-time">{{ ev.time || '—' }}</span>
+                <span class="di-name">{{ ev.title }}</span>
+                <span class="di-pos">{{ ev.position || '' }}</span>
+                <a v-if="ev.meetingUrl" :href="ev.meetingUrl" target="_blank" class="meeting-link">{{ ev.method || '会议' }} ↗</a>
+                <span v-html="renderActions(ev)" style="margin-left:auto"></span>
+              </div>
+            </div>
+            <div v-else class="workbench-empty">当天暂无面试安排</div>
+          </div>
+
+          <!-- 详情列表（月/周视图共用） -->
+          <div v-if="calView !== 'day'" class="calendar-detail-list" data-testid="calendar-agenda">
+            <div v-for="day in calendarDaySections" :key="'detail-'+day.key" class="calendar-day-section" :class="{ active: selectedCalendarDate === day.key }">
               <div class="calendar-section-title">{{ day.monthLabel }}</div>
               <div class="calendar-table-wrap">
                 <table class="calendar-detail-table">
-                  <thead>
-                    <tr>
-                      <th>候选人</th>
-                      <th>岗位</th>
-                      <th>轮次</th>
-                      <th>时间</th>
-                      <th>面试官</th>
-                      <th>方式</th>
-                      <th>状态</th>
-                      <th>会议信息</th>
-                    </tr>
-                  </thead>
+                  <thead><tr><th>候选人</th><th>岗位</th><th>轮次</th><th>时间</th><th>面试官</th><th>方式</th><th>状态</th><th>操作</th></tr></thead>
                   <tbody>
                     <tr v-for="event in day.items" :key="event.id">
-                      <td>
-                        <a href="javascript:void(0)" @click="openCandidateDrawer(event.title)">{{ event.title }}</a>
-                      </td>
-                      <td>{{ event.position || '岗位待定' }}</td>
-                      <td>{{ event.round || '轮次待定' }}</td>
+                      <td><a href="javascript:void(0)" @click="openCandidateDrawer(event.title)">{{ event.title }}</a></td>
+                      <td>{{ event.position || '—' }}</td>
+                      <td>{{ event.round || '—' }}</td>
                       <td>{{ event.time }}<span v-if="event.endTime"> - {{ event.endTime }}</span></td>
-                      <td>{{ event.interviewer || '面试官待定' }}</td>
+                      <td>{{ event.interviewer || '—' }}</td>
                       <td>
-                        <a v-if="event.meetingUrl" :href="event.meetingUrl" target="_blank" rel="noopener" class="meeting-link">
-                          {{ event.method || '线上会议' }}
-                          <svg viewBox="0 0 24 24" class="meeting-link-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                        </a>
-                        <template v-else>{{ event.method || '方式待定' }}</template>
+                        <a v-if="event.meetingUrl" :href="event.meetingUrl" target="_blank" class="meeting-link">{{ event.method || '会议' }} ↗</a>
+                        <template v-else>{{ event.method || '—' }}</template>
                       </td>
                       <td><StatusBadge :type="STATUS_TYPE_MAP[event.status]">{{ event.statusLabel || event.status }}</StatusBadge></td>
-                      <td>
-                        <span v-if="event.meetingCode || event.meetingPwd">
-                          <span v-if="event.meetingCode">会议号 {{ event.meetingCode }}</span>
-                          <span v-if="event.meetingPwd"> / 密码 {{ event.meetingPwd }}</span>
-                        </span>
-                        <span v-else-if="event.meetingUrl">已生成链接</span>
-                        <span v-else>—</span>
-                      </td>
+                      <td style="white-space:nowrap" v-html="renderActions(event)"></td>
                     </tr>
                   </tbody>
                 </table>
               </div>
             </div>
-            <div v-if="!calendarDaySections.length" class="workbench-empty">
-              {{ calendarLoading ? '日程加载中' : selectedCalendarEmptyText }}
-            </div>
+            <div v-if="!calendarDaySections.length" class="workbench-empty">{{ calendarLoading ? '日程加载中' : selectedCalendarEmptyText }}</div>
           </div>
         </div>
       </article>
@@ -424,6 +435,14 @@ const calendarData = ref({ month: '', monthStart: '', monthEnd: '', events: [] }
 const calendarMonthKey = ref(formatMonthKey(new Date()));
 const selectedCalendarWeekStart = ref(getWeekStartKey(new Date()));
 const selectedCalendarDate = ref(formatDateKey(new Date()));
+const calView = ref('week'); // month | week | day
+
+function resetCalendarToday() {
+  calendarMonthKey.value = formatMonthKey(new Date());
+  selectedCalendarWeekStart.value = getWeekStartKey(new Date());
+  selectedCalendarDate.value = formatDateKey(new Date());
+  onCalendarMonthChange();
+}
 
 const INTERVIEWS_SOURCE = computed(() => apiInterviewData.value ?? []);
 const ALERTS_SOURCE = computed(() => apiAlertData.value ?? []);
@@ -936,9 +955,10 @@ function getDefaultDateForWeek(weekStart, monthKey) {
 function normalizeCalendarEvent(event) {
   const start = event?.start || '';
   const end = event?.end || '';
+  const name = event?.title || event?.name || '候选人待定';
   return {
     ...event,
-    title: event?.title || event?.name || '候选人待定',
+    name, title: name,
     dateKey: start.slice(0, 10),
     time: start.slice(11, 16) || '待定',
     endTime: end.slice(11, 16),
@@ -1071,8 +1091,47 @@ const calendarDays = computed(() => {
   return result;
 });
 
+const calendarMonthDays = computed(() => {
+  const monthStartKey = calendarData.value.monthStart || getMonthStartKey(calendarMonthKey.value);
+  const monthEndKey = calendarData.value.monthEnd || getMonthEndKey(calendarMonthKey.value);
+  const start = parseDateKey(monthStartKey);
+  const end = parseDateKey(monthEndKey);
+  const todayKey = formatDateKey(new Date());
+  const days = ['一','二','三','四','五','六','日'];
+  // 填充到周一
+  const firstDow = (start.getDay() + 6) % 7;
+  const calData = {};
+  calendarEvents.value.forEach(item => {
+    const k = item.dateKey;
+    if (!calData[k]) calData[k] = [];
+    calData[k].push(item);
+  });
+  const result = [];
+  // 前置空白
+  for (let i = 0; i < firstDow; i++) result.push(null);
+  const cursor = new Date(start);
+  while (formatDateKey(cursor) <= monthEndKey) {
+    const key = formatDateKey(cursor);
+    const items = calData[key] || [];
+    const dayIndex = (cursor.getDay() + 6) % 7;
+    result.push({
+      key, items, count: items.length, today: key === todayKey,
+      day: days[dayIndex], dateStr: String(cursor.getDate()).padStart(2, '0'),
+      monthLabel: (cursor.getMonth() + 1) + '/' + String(cursor.getDate()).padStart(2, '0') + ' 周' + days[dayIndex] + ' · ' + items.length + '场'
+    });
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return result;
+});
+
 const selectedCalendarDay = computed(() => {
-  return calendarDays.value.find(day => day.key === selectedCalendarDate.value) || calendarDays.value[0] || null;
+  const pool = calView.value === 'month' ? calendarMonthDays.value : calendarDays.value;
+  return pool.find(day => day && day.key === selectedCalendarDate.value) || pool.find(d => d) || null;
+});
+
+const selDayItems = computed(() => {
+  const day = selectedCalendarDay.value;
+  return day ? calendarEvents.value.filter(e => e.dateKey === day.key) : [];
 });
 
 const calendarDaySections = computed(() => {
@@ -1082,10 +1141,21 @@ const calendarDaySections = computed(() => {
 
 const selectedCalendarEmptyText = computed(() => {
   const day = selectedCalendarDay.value;
-  return day ? `${day.monthLabel.replace(/ · 0场$/, '')} 暂无面试安排` : '本周暂无面试安排';
+  if (!day) return '暂无面试安排';
+  if (calView.value === 'month') return `${day.key} 暂无面试安排`;
+  return day.monthLabel ? `${day.monthLabel.replace(/ · 0场$/, '')} 暂无面试安排` : '本周暂无面试安排';
 });
 
 const calendarRangeLabel = computed(() => {
+  if (calView.value === 'month') {
+    const start = calendarData.value.monthStart || getMonthStartKey(calendarMonthKey.value);
+    const end = calendarData.value.monthEnd || getMonthEndKey(calendarMonthKey.value);
+    return `${formatMonthDay(start)} - ${formatMonthDay(end)} · 本月 ${calendarEvents.value.length} 场`;
+  }
+  if (calView.value === 'day') {
+    const d = parseDateKey(selectedCalendarDate.value);
+    return `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日 周${'日一二三四五六'[d.getDay()]} · ${selDayItems.value.length} 场`;
+  }
   const start = calendarDays.value[0]?.key || (calendarData.value.monthStart || getMonthStartKey(calendarMonthKey.value));
   const end = calendarDays.value[6]?.key || start;
   const weekCount = calendarDays.value.reduce((sum, day) => sum + day.count, 0);
@@ -1446,4 +1516,37 @@ function onOfferSuccess(result) {
   .interview-workbench-card { padding: 14px; }
   .inline-calendar-days { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
+
+/* ── 筛选行 ── */
+.iv-filter-row { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; flex-wrap: wrap; }
+.iv-filter-label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--c-body); }
+.iv-filter-label span { font-weight: 600; white-space: nowrap; }
+.iv-filter-label select { padding: 5px 10px; border: 1px solid var(--c-border); border-radius: 6px; font-size: 13px; background: var(--c-card); color: var(--c-text); }
+.iv-filter-count { flex: 1; text-align: right; font-size: 11px; color: var(--c-sub); }
+
+/* ── 日历视图切换 ── */
+.cal-view-group { display: flex; align-items: center; gap: 4px; }
+.cal-view-label { font-size: 13px; font-weight: 700; color: var(--c-text); min-width: 140px; text-align: center; }
+.cal-toggle-group { display: flex; border: 1px solid var(--c-border); border-radius: 6px; overflow: hidden; }
+.cal-toggle-group button { padding: 4px 12px; border: none; background: var(--c-card); color: var(--c-body); font-size: 12px; font-weight: 600; cursor: pointer; }
+.cal-toggle-group button + button { border-left: 1px solid var(--c-border); }
+.cal-toggle-group button.active { background: var(--c-primary); color: #fff; }
+
+/* ── 月视图网格 ── */
+.calendar-month-grid { margin-top: 8px; }
+.month-grid-header { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; font-size: 12px; color: var(--c-sub); font-weight: 600; padding: 4px 0; }
+.month-grid-body { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.month-day-cell { aspect-ratio: unset; padding: 8px 4px; }
+
+/* ── 日视图时间线 ── */
+.day-timeline { margin-top: 8px; }
+.day-timeline-title { font-size: 14px; font-weight: 700; color: var(--c-text); margin-bottom: 10px; }
+.day-items { display: flex; flex-direction: column; gap: 6px; }
+.day-item {
+  display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+  border: 1px solid var(--c-border); border-radius: 8px; background: var(--c-card);
+}
+.di-time { font-size: 14px; font-weight: 700; color: var(--c-primary); min-width: 48px; }
+.di-name { font-size: 14px; font-weight: 600; color: var(--c-text); }
+.di-pos { font-size: 12px; color: var(--c-sub); }
 </style>

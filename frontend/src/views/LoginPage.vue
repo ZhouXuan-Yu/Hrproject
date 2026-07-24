@@ -138,7 +138,7 @@ async function login() {
     }
   }
 
-  router.push('/recruit-dashboard');
+  router.push('/home');
 }
 
 // Mouse tracking for radar animation
