@@ -102,6 +102,31 @@ def calc_profile_score(edu_level=0, school_level=0, work_years=0, big_company=0,
     return min(99, max(50, round(50 + raw * 0.49)))
 
 
+def normalize_profile_score(score, default=50):
+    """Normalize persisted profile scores into the product scale: 50-99."""
+    try:
+        value = float(score)
+    except (TypeError, ValueError):
+        value = float(default)
+    if value <= 0:
+        value = float(default)
+    return min(99, max(50, round(value)))
+
+
+def candidate_profile_score(candidate):
+    """Return a consistent profile score for Candidate ORM rows."""
+    existing = getattr(candidate, 'static_ability_score', None)
+    if existing is not None and float(existing or 0) > 0:
+        return normalize_profile_score(existing)
+    return calc_profile_score(
+        edu_level=getattr(candidate, 'edu_level', 0) or 0,
+        school_level=getattr(candidate, 'school_level', 0) or 0,
+        work_years=getattr(candidate, 'work_years', 0) or 0,
+        big_company=getattr(candidate, 'big_company_flag', 0) or 0,
+        cert_count=getattr(candidate, 'cert_count', 0) or 0,
+    )
+
+
 def calc_recommend_score(profile_score, match_score, storage_time, now=None):
     """
     Comprehensive recommendation score.

@@ -251,11 +251,11 @@ const jdDraft = ref('');
 const jdEditMode = ref(false);
 
 function canEdit(d) {
-  return !!d && ['draft', 'rejected'].includes(d.status);
+  return !!d && ['draft', 'rejected', 'open'].includes(d.status);
 }
 
 function canDelete(d) {
-  return !!d && ['draft', 'rejected', 'cancelled'].includes(d.status);
+  return !!d && ['draft', 'rejected', 'cancelled', 'open'].includes(d.status);
 }
 
 function openCreateModal(){

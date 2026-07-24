@@ -460,7 +460,11 @@ async function loadFromApi() {
   talentLoading.value = true;
   talentLoadError.value = '';
   try {
-    const talentData = await fetchTalent({ page: extPage.value, pageSize: extPageSize.value });
+    const talentData = await fetchTalent({
+      page: extPage.value,
+      pageSize: extPageSize.value,
+      sort: extFilters.sort,
+    });
     if (talentData) {
       const ext = talentData.ext ?? talentData.external ?? null;
       apiExtData.value = Array.isArray(ext) ? ext.map(c => ({
@@ -529,11 +533,29 @@ const extFilters = reactive({
   edu: 'all', years: 'all', profile: '0', note: 'all', sort: 'default'
 });
 
+watch(() => extFilters.sort, () => {
+  extPage.value = 1;
+  loadFromApi();
+});
+
 const checkedExt = reactive({});
 const checkedInt = reactive({});
 
 const checkedExtCount = computed(() => Object.keys(checkedExt).filter(k => checkedExt[k]).length);
 const checkedIntCount = computed(() => Object.keys(checkedInt).filter(k => checkedInt[k]).length);
+
+function getProfileScore(c) {
+  const direct = Number(c.profileScore ?? c.staticAbilityScore ?? c.static_ability_score);
+  if (Number.isFinite(direct) && direct > 0) return direct;
+  const match = String(c.portrait || '').match(/\d+/);
+  return match ? Number(match[0]) : 0;
+}
+
+function getDateValue(c) {
+  const raw = String(c.storageTime || c.inDate || c.createdAt || '');
+  const value = Date.parse(raw.includes('-') && raw.length <= 5 ? `2026-${raw}` : raw);
+  return Number.isFinite(value) ? value : 0;
+}
 
 const extFiltered = computed(() => {
   let list = EXT_DATA_SOURCE.value.filter(c => {
@@ -552,17 +574,17 @@ const extFiltered = computed(() => {
       if (extFilters.years === '5+' && y < 5) return false;
     }
     const profileVal = parseInt(extFilters.profile) || 0;
-    if (profileVal > 0 && (parseInt(c.portrait.split('·')[1]) || 0) < profileVal) return false;
+    if (profileVal > 0 && getProfileScore(c) < profileVal) return false;
     if (extFilters.note === 'yes' && !c.note) return false;
     if (extFilters.note === 'no' && c.note) return false;
     if (extFilters.search) {
       const kw = extFilters.search.toLowerCase();
-      if (c.name.indexOf(kw) < 0 && c.company.indexOf(kw) < 0 && c.skillsHtml.toLowerCase().indexOf(kw) < 0) return false;
+      if (String(c.name || '').toLowerCase().indexOf(kw) < 0 && String(c.company || '').toLowerCase().indexOf(kw) < 0 && String(c.skillsHtml || '').toLowerCase().indexOf(kw) < 0) return false;
     }
     return true;
   });
-  if (extFilters.sort === 'profile_desc') list.sort((a, b) => (b.portrait.charCodeAt(0) || 0) - (a.portrait.charCodeAt(0) || 0));
-  else if (extFilters.sort === 'time_desc') list.sort((a, b) => b.inDate.localeCompare(a.inDate));
+  if (extFilters.sort === 'profile_desc') list.sort((a, b) => getProfileScore(b) - getProfileScore(a));
+  else if (extFilters.sort === 'time_desc') list.sort((a, b) => getDateValue(b) - getDateValue(a));
   return list;
 });
 

@@ -1,7 +1,7 @@
 """Talent service: candidate pool from DB with mock fallback."""
 import logging
 from app.utils.response import AppError
-from app.utils.scoring import profile_grade, match_color
+from app.utils.scoring import profile_grade, match_color, candidate_profile_score
 from app.extensions import db
 
 log = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ POSES = {1: '高级Java', 2: '前端', 3: '产品经理', 4: '运营总监', 5: 
 
 def _candidate_to_dict(c):
     """Convert Candidate ORM object to API dict."""
-    score = float(c.static_ability_score or 0)
+    score = candidate_profile_score(c)
     grade = profile_grade(score)
     cls = match_color(score)
     edu = EDU_LABELS.get(c.edu_level or 0, '本科')
@@ -42,6 +42,7 @@ def _candidate_to_dict(c):
         'id': c.candidate_no,
         'name': c.candidate_name,
         'portraitClass': cls,
+        'profileScore': int(score),
         'portrait': f'{grade} · {int(score)}' if score > 0 else '—',
         'edu': edu,
         'years': years,
@@ -282,8 +283,16 @@ def list_talent(params):
                 edu_map = {'本科': 2, '硕士': 3, '博士': 4, '大专': 1}
                 q = q.filter(Candidate.edu_level == edu_map.get(edu))
 
+            sort = params.get('sort', 'default')
+            if sort == 'profile_desc':
+                q = q.order_by(Candidate.static_ability_score.desc(), Candidate.id.desc())
+            elif sort == 'time_desc':
+                q = q.order_by(Candidate.created_at.desc(), Candidate.id.desc())
+            else:
+                q = q.order_by(Candidate.id.desc())
+
             total = q.count()
-            rows = q.order_by(Candidate.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+            rows = q.offset((page - 1) * page_size).limit(page_size).all()
             if rows:
                 data = [_candidate_to_dict(r) for r in rows]
                 _attach_linked_demands(data, rows)
@@ -471,11 +480,13 @@ def get_candidate_detail(candidate_id):
                     'recentCompany': ext.get('recent_company', ''),
                     'storageTime': resume.storage_time.strftime('%Y-%m-%d %H:%M') if resume.storage_time else '—',
                 }
+            score = candidate_profile_score(c)
             return {
                 'id': c.candidate_no,
                 'name': c.candidate_name,
-                'portraitClass': match_color(float(c.static_ability_score or 0)),
-                'portrait': f'{profile_grade(float(c.static_ability_score or 0))} · {int(c.static_ability_score or 0)}',
+                'portraitClass': match_color(score),
+                'profileScore': int(score),
+                'portrait': f'{profile_grade(score)} · {int(score)}',
                 'edu': EDU_LABELS.get(c.edu_level or 0, '—'),
                 'years': f'{c.work_years or 0}年',
                 'skills': _get_skills_for(c.candidate_no),

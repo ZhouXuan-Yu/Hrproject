@@ -4,7 +4,7 @@
 const BASE = '/api'
 const DEFAULT_TIMEOUT_MS = 30000
 const MAX_RETRIES = 2
-const CACHE_TTL_MS = 30000
+const CACHE_TTL_MS = 5 * 60 * 1000
 
 // ── In-flight dedup map ───────────────────────────────────────────────────
 const pendingRequests = new Map()

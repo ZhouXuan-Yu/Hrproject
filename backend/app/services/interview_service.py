@@ -117,6 +117,24 @@ def _ensure_process_for_interview(resume_id, demand_id, interview_round):
     return (process.id if process else 0), candidate.id
 
 
+def _resolve_demand_position(demand_id):
+    try:
+        from app.models.demand import RecruitDemand
+        d = RecruitDemand.query.filter_by(id=demand_id, is_deleted=0).first()
+        if not d:
+            return None
+        name = (getattr(d, 'position_name', None) or '').strip()
+        if name:
+            return name
+        try:
+            from app.services.demand_service import POS_NAMES
+            return POS_NAMES.get(d.position_id) or f'岗位#{d.demand_no}'
+        except Exception:
+            return f'岗位#{d.demand_no}'
+    except Exception:
+        return None
+
+
 def _db_to_dict(book):
     """Convert an InterviewBook ORM object to frontend-compatible dict.
 
@@ -201,6 +219,7 @@ def _db_to_dict(book):
     if record:
         eval_result = {1: 'pass', 2: 'reject', 3: 'hold'}.get(record.interview_result)
 
+    demand_pos = _resolve_demand_position(book.demand_id) or demand_pos
     invite = book.invite_json or {}
     round_num = getattr(book, 'interview_round', 1) or 1
     return {
@@ -685,6 +704,17 @@ def evaluate_interview(book_id, data):
     db.session.commit()
     log.info("面试评价已提交: book_id=%s, result=%s, score=%s", book.id, result, score)
 
+    reject_email_sent = None
+    reject_email_msg = ''
+    if result == 'fail':
+        try:
+            from app.services.confirm_service import send_interview_reject_email
+            reject_email_sent, reject_email_msg = send_interview_reject_email(book, comment)
+        except Exception as exc:
+            reject_email_sent = False
+            reject_email_msg = str(exc)
+            log.warning("Send interview rejection email failed: %s", exc)
+
     new_status = 'pending'
     new_label = '待安排'
     if result == 'pass':
@@ -698,6 +728,8 @@ def evaluate_interview(book_id, data):
         'evaluated': True,
         'newStatus': new_status,
         'newStatusLabel': new_label,
+        'rejectEmailSent': reject_email_sent,
+        'rejectEmailMsg': reject_email_msg,
     }
 
 

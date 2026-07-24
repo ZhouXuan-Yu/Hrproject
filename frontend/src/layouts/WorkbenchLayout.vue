@@ -14,7 +14,7 @@
     <aside class="sidebar" id="sidebar" role="navigation" aria-label="招聘模块导航">
       <div class="logo">
         <div class="logo-icon">HR</div>
-        <div class="logo-text">招聘管理系统<span>Recruitment v0.1</span></div>
+        <div class="logo-text">招聘管理系统</div>
       </div>
       <nav v-if="visibleMenus.length">
         <div class="nav-main-menu open">

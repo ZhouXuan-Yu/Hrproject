@@ -73,6 +73,7 @@
 import { ref, reactive, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { login as apiLogin } from '../api/auth.js';
+import { prefetchWorkbenchData } from '../services/dataPrefetch.js';
 
 const router = useRouter();
 const loginStage = ref(null);
@@ -138,6 +139,7 @@ async function login() {
     }
   }
 
+  prefetchWorkbenchData();
   router.push('/home');
 }
 

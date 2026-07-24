@@ -8,6 +8,7 @@ from app.utils.scoring import (
     calc_profile_score as _calc_profile_raw,
     calc_decay_coefficient,
     calc_direct_score,
+    normalize_profile_score,
     profile_grade,
     match_color,
 )
@@ -54,6 +55,19 @@ def calc_profile_score(candidate_data: dict) -> dict:
     Calculate static profile score from a candidate data dictionary.
     Returns {score, grade, class} where class is 'score-high'/'score-mid'/'score-low'.
     """
+    existing = None
+    for key in ('profileScore', 'profile_score', 'static_ability_score'):
+        if key in candidate_data and candidate_data.get(key) is not None:
+            existing = candidate_data.get(key)
+            break
+    if existing is not None:
+        score = normalize_profile_score(existing)
+        return {
+            'score': score,
+            'grade': profile_grade(score),
+            'class': match_color(score),
+        }
+
     edu_label = str(candidate_data.get('edu', '') or '')
     school_label = str(candidate_data.get('school', '') or '')
     work_years_raw = candidate_data.get('workYears') or candidate_data.get('work_years') or 0

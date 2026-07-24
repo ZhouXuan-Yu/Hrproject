@@ -12,6 +12,7 @@ Validations:
 import logging
 from app.utils.response import AppError
 from app.utils.enums import DemandStatus, DemandUrgency
+from app.utils.scoring import candidate_profile_score
 
 log = logging.getLogger(__name__)
 
@@ -117,16 +118,23 @@ def _has_active_interviews_or_offers(demand_id):
     Returns True if active engagements exist.
     """
     try:
-        from app.models.interview import InterviewBook
+        from app.models.interview import InterviewBook, InterviewRecord
         from app.models.process import RecruitProcess
 
-        # Check for active interviews linked via demand_id
-        active_books = InterviewBook.query.filter(
+        # An interview is only active while it has not been evaluated, or it
+        # was explicitly put on hold. Finished rejected interviews should not
+        # block demand cleanup.
+        books = InterviewBook.query.filter(
             InterviewBook.demand_id == demand_id,
             InterviewBook.is_deleted == 0,
-        ).count()
-        if active_books > 0:
-            return True
+        ).all()
+        for book in books:
+            record = InterviewRecord.query.filter(
+                InterviewRecord.book_id == book.id,
+                InterviewRecord.is_deleted == 0,
+            ).order_by(InterviewRecord.id.desc()).first()
+            if not record or record.interview_result in (0, 3):
+                return True
 
         # Check for processes that are in interview/offer stages
         active_process = RecruitProcess.query.filter(
@@ -571,6 +579,9 @@ def update_demand(demand_id, data):
         if d.demand_status in (4, 5):
             raise AppError('INVALID_STATE', f'需求已{STATUS_LABELS.get(d.demand_status, "关闭")}，无法编辑')
 
+        if d.demand_status == 2 and _has_active_interviews_or_offers(d.id):
+            raise AppError('HAS_ACTIVE_ENGAGEMENTS', '需求存在进行中的面试或Offer，无法编辑')
+
         if 'urgency' in data:
             d.urgency = _normalize_urgency(data['urgency'])
         if 'position' in data:
@@ -669,7 +680,7 @@ def delete_demand(demand_id):
         if not d:
             raise AppError('NOT_FOUND', f'需求 {demand_id} 不存在')
 
-        if d.demand_status not in (0, 3, 5):
+        if d.demand_status not in (0, 2, 3, 5):
             raise AppError('INVALID_STATE', f'需求状态为{STATUS_LABELS.get(d.demand_status, "未知")}，不允许删除')
 
         if _has_active_interviews_or_offers(d.id):
@@ -807,11 +818,12 @@ def list_demand_candidates(demand_id, params):
                     }
                     status, status_label = ps_map.get(p.process_status, ('available', '可联系'))
 
+                    profile_score = candidate_profile_score(cand)
                     candidates_db.append({
                         'id': cand.candidate_no or str(cand.id),
                         'name': cand.candidate_name,
-                        'profileScore': int(cand.static_ability_score) if cand.static_ability_score else None,
-                        'profileGrade': _compute_grade(cand.static_ability_score),
+                        'profileScore': int(profile_score),
+                        'profileGrade': _compute_grade(profile_score),
                         'matchScore': None,
                         'ageDays': (__import__('datetime').datetime.now() - p.created_at).days if p.created_at else 0,
                         'source': source_type,

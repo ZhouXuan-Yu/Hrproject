@@ -448,7 +448,7 @@
           </div>
           <div class="tpl-preview-card">
             <div class="tpl-preview-subject">{{ previewSubject }}</div>
-            <div class="tpl-preview-body">{{ previewBody }}</div>
+            <div class="tpl-preview-body" v-html="previewHtml"></div>
           </div>
           <div class="tpl-preview-vars">
             样例变量：候选人=张三，公司=XX公司，岗位=高级Java工程师，HR=李HR
@@ -586,6 +586,7 @@ const chanForm = reactive({ name: '', type: '第三方平台', cost: '¥0' });
 const tplForm = reactive({ name: '', type: '面试', method: '飞书', subject: '', body: '' });
 const previewSubject = computed(() => renderTemplateText(previewTpl.value?.subject || previewTpl.value?.name || '来自XX公司的招聘通知'));
 const previewBody = computed(() => renderTemplateText(previewTpl.value?.body || defaultTemplateBody(previewTpl.value)));
+const previewHtml = computed(() => renderTemplateHtml(previewTpl.value?.body || defaultTemplateBody(previewTpl.value)));
 
 import { EMAIL_PRESETS } from '../data/config.js';
 
@@ -1093,6 +1094,27 @@ function renderTemplateText(text) {
     .replaceAll('{{hr}}', '李HR')
     .replaceAll('{{时间}}', '2026-07-23 14:00')
     .replaceAll('{{time}}', '2026-07-23 14:00');
+}
+
+function escapeHtml(text) {
+  return String(text || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function renderTemplateHtml(text) {
+  const rendered = renderTemplateText(text)
+    .replaceAll('{{方式}}', '飞书视频')
+    .replaceAll('{{method}}', '飞书视频')
+    .replaceAll('{{轮次}}', '初试(1/2轮)')
+    .replaceAll('{{round}}', '初试(1/2轮)')
+    .replaceAll('{{确认链接}}', 'https://example.com/confirm/demo')
+    .replaceAll('{{confirm_url}}', 'https://example.com/confirm/demo');
+  if (/<[a-z][\s\S]*>/i.test(rendered)) return rendered;
+  return escapeHtml(rendered).replace(/\r?\n/g, '<br>');
 }
 
 async function saveKnowledgeBase() {
