@@ -132,6 +132,11 @@ def _render_text(template_text, context):
         'time': ('time', '时间', '面试时间'),
         'method': ('method', '方式', '面试方式'),
         'round': ('round', '轮次', '面试轮次'),
+        'meeting_url': (
+            'meeting_url', 'meetingUrl', 'meetingURL', 'meeting_link',
+            'meetingLink', '会议链接', '面试链接', '视频链接',
+        ),
+        'address': ('address', '地点', '面试地点'),
         'hr': ('hr', 'HR', 'hr'),
         'confirm_url': ('confirm_url', 'url', '链接', '确认链接'),
         'comment': ('comment', '评价', '原因'),
@@ -363,6 +368,9 @@ def send_interview_invite_email(book):
         'time': time_str,
         'method': method,
         'round': f'第{book.interview_round or 1}轮面试',
+        'meeting_url': book.meeting_url or '',
+        'meetingUrl': book.meeting_url or '',
+        'address': book.address or '',
         'confirm_url': url,
         'hr': os.environ.get('HR_DISPLAY_NAME', 'HR'),
     }

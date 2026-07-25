@@ -498,7 +498,7 @@ async function manualMailSync() {
     const r = (res && res.data) ? res.data : res;
     if (r && r.accepted) {
       toast.success(r.message || '同步已开始，请稍后刷新查看结果');
-      setTimeout(() => { loadFromApi(); }, 8000);
+      await loadFromApi();
     } else if (r && r.accounts_checked === 0) {
       toast.warning('没有已启用的收简历邮箱，请先在「基础配置」中添加');
     } else if (r && (r.new_emails > 0 || r.resumes_ingested > 0)) {

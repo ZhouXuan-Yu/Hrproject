@@ -1147,17 +1147,37 @@ function defaultTemplateBody(tpl) {
 }
 
 function renderTemplateText(text) {
-  return String(text || '')
-    .replaceAll('{{候选人}}', '张三')
-    .replaceAll('{{candidate}}', '张三')
-    .replaceAll('{{公司}}', 'XX公司')
-    .replaceAll('{{company}}', 'XX公司')
-    .replaceAll('{{岗位}}', '高级Java工程师')
-    .replaceAll('{{position}}', '高级Java工程师')
-    .replaceAll('{{HR}}', '李HR')
-    .replaceAll('{{hr}}', '李HR')
-    .replaceAll('{{时间}}', '2026-07-23 14:00')
-    .replaceAll('{{time}}', '2026-07-23 14:00');
+  return replaceTemplateTokens(text, {
+    candidate: '张三',
+    company: 'XX公司',
+    position: '高级Java工程师',
+    hr: '李HR',
+    time: '2026-07-23 14:00',
+  });
+}
+
+function replaceTemplateTokens(text, values) {
+  const aliases = {
+    candidate: ['candidate', 'name', '候选人', '候选人姓名'],
+    company: ['company', '公司'],
+    position: ['position', '岗位', '应聘岗位'],
+    hr: ['HR', 'hr'],
+    time: ['time', '时间', '面试时间'],
+    method: ['method', '方式', '面试方式'],
+    round: ['round', '轮次', '面试轮次'],
+    meeting_url: ['meeting_url', 'meetingUrl', 'meetingURL', 'meeting_link', 'meetingLink', '会议链接', '面试链接', '视频链接'],
+    confirm_url: ['confirm_url', 'url', '链接', '确认链接'],
+    address: ['address', '地点', '面试地点'],
+  };
+  let rendered = String(text || '');
+  Object.entries(aliases).forEach(([key, names]) => {
+    const value = values[key] || '';
+    names.forEach((name) => {
+      rendered = rendered.replaceAll(`{{${name}}}`, value);
+      rendered = rendered.replaceAll(`{${name}}`, value);
+    });
+  });
+  return rendered;
 }
 
 function escapeHtml(text) {
@@ -1170,13 +1190,18 @@ function escapeHtml(text) {
 }
 
 function renderTemplateHtml(text) {
-  const rendered = renderTemplateText(text)
-    .replaceAll('{{方式}}', '飞书视频')
-    .replaceAll('{{method}}', '飞书视频')
-    .replaceAll('{{轮次}}', '初试(1/2轮)')
-    .replaceAll('{{round}}', '初试(1/2轮)')
-    .replaceAll('{{确认链接}}', 'https://example.com/confirm/demo')
-    .replaceAll('{{confirm_url}}', 'https://example.com/confirm/demo');
+  const rendered = replaceTemplateTokens(text, {
+    candidate: '张三',
+    company: 'XX公司',
+    position: '高级Java工程师',
+    hr: '李HR',
+    time: '2026-07-23 14:00',
+    method: '飞书视频',
+    round: '初试(1/2轮)',
+    meeting_url: 'https://vc.feishu.cn/j/123456789',
+    confirm_url: 'https://example.com/confirm/demo',
+    address: 'XX公司会议室',
+  });
   if (/<[a-z][\s\S]*>/i.test(rendered)) return rendered;
   return escapeHtml(rendered).replace(/\r?\n/g, '<br>');
 }

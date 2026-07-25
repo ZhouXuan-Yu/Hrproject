@@ -85,7 +85,8 @@ async function request(path, options = {}) {
   const url = `${BASE}${path}`
   const method = options.method || 'GET'
   const timeout = options.timeout || DEFAULT_TIMEOUT_MS
-  const cacheKey = getCacheKey(url, { method, params: options.params })
+  const role = localStorage.getItem('hr_role')
+  const cacheKey = getCacheKey(url, { method, params: { ...(options.params || {}), role: role || '' } })
 
   // ── GET response cache check ──
   if (method === 'GET' && options.cache !== false) {
@@ -93,8 +94,8 @@ async function request(path, options = {}) {
     if (cached) return cached
   }
 
-  // ── POST request deduplication ──
-  if (method === 'POST') {
+  // ── Request deduplication ──
+  if (method === 'GET' || method === 'POST') {
     const pending = pendingRequests.get(cacheKey)
     if (pending) return pending
   }
@@ -113,7 +114,6 @@ async function request(path, options = {}) {
   }
 
   // In dev mode, forward the current role as query param for auth
-  const role = localStorage.getItem('hr_role')
   let finalUrl = url
   if (role && !url.includes('role=')) {
     const sep = url.includes('?') ? '&' : '?'
@@ -156,7 +156,7 @@ async function request(path, options = {}) {
       })()
 
       // Store pending promise for dedup
-      if (method === 'POST') {
+      if (method === 'GET' || method === 'POST') {
         pendingRequests.set(cacheKey, requestPromise)
         requestPromise.finally(() => pendingRequests.delete(cacheKey))
       }

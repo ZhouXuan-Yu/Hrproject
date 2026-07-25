@@ -36,9 +36,5 @@ export function prefetchWorkbenchData() {
     Promise.allSettled(tasks).catch(() => {});
   };
 
-  if ('requestIdleCallback' in window) {
-    window.requestIdleCallback(run, { timeout: 2500 });
-  } else {
-    window.setTimeout(run, 1500);
-  }
+  run();
 }
