@@ -164,6 +164,7 @@
             <td class="row-actions">
               <a href="#" class="btn btn-text btn-sm" @click.prevent="editTemplate(tpl)">编辑</a>
               <a href="#" class="btn btn-text btn-sm" @click.prevent="previewTemplate(tpl)">预览</a>
+              <a href="#" class="btn btn-text-danger btn-sm" @click.prevent="deleteTemplate(tpl)">删除</a>
             </td>
           </tr>
         </tbody>
@@ -459,6 +460,11 @@
         </div>
       </div>
     </Teleport>
+    <ConfirmDialog
+      v-bind="confirmDialog"
+      @confirm="onConfirmDialogConfirm"
+      @cancel="onConfirmDialogCancel"
+    />
   </WorkbenchLayout>
 </template>
 
@@ -470,6 +476,8 @@ import StatusBadge from '../components/StatusBadge.vue';
 import { KPI_ICONS } from '../components/kpiIcons.js';
 import { useToast } from '../composables/useToast.js';
 import { useAppError } from '../composables/useAppError.js';
+import { useConfirmDialog } from '../composables/useConfirmDialog.js';
+import ConfirmDialog from '../components/ConfirmDialog.vue';
 import { api } from '../api/index.js';
 import { fetchIngestLog, fetchMailLog } from '../api/talent.js';
 import {
@@ -478,12 +486,13 @@ import {
   createEmailAccount, updateEmailAccount, deleteEmailAccount, resolveEmailServer,
   createChannel, updateChannel,
   updateScoreRules,
-  createNotifyTemplate, updateNotifyTemplate,
+  createNotifyTemplate, updateNotifyTemplate, deleteNotifyTemplate,
   fetchKnowledgeBase, updateKnowledgeBase,
 } from '../api/config.js';
 
 const { toast } = useToast();
 const { handleError } = useAppError();
+const { confirmDialog, askConfirm, onConfirmDialogConfirm, onConfirmDialogCancel } = useConfirmDialog();
 
 const emailAccounts = ref([]);
 const channels = ref([]);
@@ -551,6 +560,29 @@ const DEFAULT_NOTIFY_TEMPLATES = [
     updated: '系统默认',
   },
 ];
+const DELETED_NOTIFY_TEMPLATES_KEY = 'hr_deleted_notify_templates';
+
+function getDeletedDefaultTemplateIds() {
+  try {
+    return JSON.parse(localStorage.getItem(DELETED_NOTIFY_TEMPLATES_KEY) || '[]');
+  } catch (e) {
+    return [];
+  }
+}
+
+function rememberDeletedDefaultTemplate(id) {
+  if (!String(id || '').startsWith('default_')) return;
+  const ids = new Set(getDeletedDefaultTemplateIds());
+  ids.add(id);
+  localStorage.setItem(DELETED_NOTIFY_TEMPLATES_KEY, JSON.stringify([...ids]));
+}
+
+function visibleDefaultTemplates() {
+  const deletedIds = new Set(getDeletedDefaultTemplateIds());
+  return DEFAULT_NOTIFY_TEMPLATES
+    .filter(t => !deletedIds.has(t.id))
+    .map(t => ({ ...t }));
+}
 
 const showEmailModal = ref(false);
 const showChanModal = ref(false);
@@ -636,7 +668,7 @@ async function loadAll() {
     if (rules) Object.assign(scoreRules, rules);
     notifyTemplates.value = Array.isArray(notifs) && notifs.length
       ? notifs
-      : DEFAULT_NOTIFY_TEMPLATES.map(t => ({ ...t }));
+      : visibleDefaultTemplates();
     if (roles) rolePermissions.value = roles;
     if (logs) auditLogs.value = logs;
     if (kb) Object.assign(knowledgeForm, kb);
@@ -656,7 +688,7 @@ async function loadAll() {
   } catch (e) {
     console.warn('Config API fallback:', e.message);
     if (!notifyTemplates.value.length) {
-      notifyTemplates.value = DEFAULT_NOTIFY_TEMPLATES.map(t => ({ ...t }));
+      notifyTemplates.value = visibleDefaultTemplates();
     }
   }
 }
@@ -917,13 +949,21 @@ async function testEmailConn(acct) {
   await loadAll();
 }
 async function deleteEmail(acct) {
-  if (!confirm(`确定删除邮箱 ${acct.address} 吗？`)) return;
+  const ok = await askConfirm({
+    title: '删除邮箱账号',
+    message: `确定删除邮箱 ${acct.address} 吗？`,
+    detail: '删除后该邮箱将不再用于简历收取和后续招聘通知发送，可重新添加后再启用。',
+    type: 'danger',
+    confirmText: '删除',
+  });
+  if (!ok) return;
   try {
     await deleteEmailAccount(acct.id);
+    emailAccounts.value = emailAccounts.value.filter(item => item.id !== acct.id);
+    toast.success('邮箱已删除：' + acct.address);
   } catch (e) {
     toast.error('删除失败: ' + e.message);
   }
-  await loadAll();
 }
 function onEmailTypeChange() {
   // 类型下拉降级为手动覆盖：已通过 MX 检测出服务器时不再强制覆盖
@@ -983,10 +1023,35 @@ async function submitEmail() {
     pass: emailForm.pass, freq: emailForm.freq, folder,
   };
   try {
+    let saved = null;
     if (editingEmail.value?.id) {
-      await updateEmailAccount(editingEmail.value.id, payload);
+      saved = await updateEmailAccount(editingEmail.value.id, payload);
+      emailAccounts.value = emailAccounts.value.map(item => item.id === editingEmail.value.id
+        ? {
+            ...item,
+            address: payload.address,
+            type: payload.type,
+            freq: payload.freq,
+            status: item.status || '启用',
+            statusColor: item.statusColor || 'done',
+            lastSync: item.lastSync || '—',
+            server: payload.server,
+            port: payload.port,
+          }
+        : item);
     } else {
-      await createEmailAccount(payload);
+      saved = await createEmailAccount(payload);
+      emailAccounts.value.unshift({
+        id: saved?.id || Date.now(),
+        address: payload.address,
+        type: payload.type,
+        freq: payload.freq,
+        status: '启用',
+        statusColor: 'done',
+        lastSync: '刚刚',
+        server: payload.server,
+        port: payload.port,
+      });
     }
   } catch (e) {
     // 失败时保留弹窗与已填内容，避免用户输入丢失
@@ -996,7 +1061,6 @@ async function submitEmail() {
   }
   emailSaving.value = false;
   showEmailModal.value = false;
-  await loadAll();
 }
 
 // ── Channel ──
@@ -1135,24 +1199,59 @@ async function updateTplMethod(tpl, e) {
   if (val === tpl.method) return;
   try {
     await updateNotifyTemplate(tpl.id, { method: val, name: tpl.name, type: tpl.type, subject: tpl.subject, body: tpl.body });
+    tpl.method = val;
+    tpl.updated = '刚刚';
+    toast.success('模板发送方式已更新');
   } catch (err) {
     toast.error('更新失败: ' + err.message);
+    e.target.value = tpl.method || '';
   }
-  await loadAll();
 }
 async function submitTemplate() {
   if (!tplForm.name) { toast.warning('请填写模板名称'); return; }
   try {
+    const payload = { ...tplForm };
     if (editingTpl.value?.id) {
-      await updateNotifyTemplate(editingTpl.value.id, { ...tplForm });
+      await updateNotifyTemplate(editingTpl.value.id, payload);
+      notifyTemplates.value = notifyTemplates.value.map(t => t.id === editingTpl.value.id
+        ? { ...t, ...payload, updated: '刚刚' }
+        : t);
     } else {
-      await createNotifyTemplate({ ...tplForm });
+      const created = await createNotifyTemplate(payload);
+      notifyTemplates.value.unshift({
+        id: created?.id || `local_${Date.now()}`,
+        ...payload,
+        updated: '刚刚',
+      });
     }
+    toast.success('模板已保存');
   } catch (e) {
     toast.error('操作失败: ' + e.message);
+    return;
   }
   showTplModal.value = false;
-  await loadAll();
+}
+
+async function deleteTemplate(tpl) {
+  const ok = await askConfirm({
+    title: '删除通知模板',
+    message: `确定删除模板「${tpl.name}」吗？`,
+    detail: '删除后后续发送通知将不会再使用该模板。系统默认模板可重新新建一份恢复。',
+    type: 'danger',
+    confirmText: '删除',
+  });
+  if (!ok) return;
+  try {
+    if (tpl.id && !String(tpl.id).startsWith('default_') && !String(tpl.id).startsWith('local_')) {
+      await deleteNotifyTemplate(tpl.id);
+    } else {
+      rememberDeletedDefaultTemplate(tpl.id);
+    }
+    notifyTemplates.value = notifyTemplates.value.filter(item => item.id !== tpl.id);
+    toast.success('模板已删除：' + tpl.name);
+  } catch (e) {
+    toast.error('删除失败: ' + e.message);
+  }
 }
 </script>
 

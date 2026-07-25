@@ -64,7 +64,7 @@
             <td class="row-actions">
               <button class="btn btn-outline btn-sm" @click="goDetail(d)">查看详情</button>
               <button class="btn btn-outline btn-sm" :disabled="!canEdit(d)" @click="openEditModal(d)">编辑</button>
-              <button class="btn btn-ghost btn-sm" :disabled="!canDelete(d)" style="color:var(--c-reject,#d4380d)" @click="removeDemand(d)">删除</button>
+              <button class="btn btn-ghost btn-sm" style="color:var(--c-reject,#d4380d)" @click="removeDemand(d)">删除</button>
               <button class="btn btn-ghost btn-sm" @click="openMoreOps(d)">更多</button>
             </td>
           </tr>
@@ -146,7 +146,7 @@
             <button class="more-action" :disabled="moreDemand?.status !== 'open'" @click="closeDemandFromMore">
               <b>关闭需求</b><span>用于招聘完成或停止招聘的岗位</span>
             </button>
-            <button class="more-action" :disabled="!canDelete(moreDemand)" @click="deleteDemandFromMore">
+            <button class="more-action" @click="deleteDemandFromMore">
               <b>删除需求</b><span>仅草稿、驳回、取消且无进行中面试/Offer时可删</span>
             </button>
           </div>
@@ -156,6 +156,11 @@
         </div>
       </div>
     </Teleport>
+    <ConfirmDialog
+      v-bind="confirmDialog"
+      @confirm="onConfirmDialogConfirm"
+      @cancel="onConfirmDialogCancel"
+    />
   </WorkbenchLayout>
 </template>
 
@@ -168,9 +173,11 @@ import { fetchDemands, createDemand, updateDemand, deleteDemand, submitForApprov
 import { api } from '../api/index.js';
 import { useToast } from '../composables/useToast.js';
 import { useAppError } from '../composables/useAppError.js';
+import { useConfirmDialog } from '../composables/useConfirmDialog.js';
 import StatCardRow from '../components/StatCardRow.vue';
 import EmptyState from '../components/EmptyState.vue';
 import DataLoadingOverlay from '../components/DataLoadingOverlay.vue';
+import ConfirmDialog from '../components/ConfirmDialog.vue';
 import AiMarkdown from '../components/ai/AiMarkdown.vue';
 import { KPI_ICONS } from '../components/kpiIcons.js';
 import { runJdGenerate } from '../api/ai.js';
@@ -178,6 +185,7 @@ import { runJdGenerate } from '../api/ai.js';
 const router = useRouter();
 const { toast } = useToast();
 const { handleError } = useAppError();
+const { confirmDialog, askConfirm, onConfirmDialogConfirm, onConfirmDialogCancel } = useConfirmDialog();
 const apiDemands = ref(null);
 const loading = ref(true);
 const loadError = ref('');
@@ -255,7 +263,32 @@ function canEdit(d) {
 }
 
 function canDelete(d) {
-  return !!d && ['draft', 'rejected', 'cancelled', 'open'].includes(d.status);
+  return !!d && ['draft', 'rejected', 'cancelled', 'open', 'closed'].includes(d.status);
+}
+
+function activeEngagementReason(d) {
+  if (!d) return '';
+  const parts = [];
+  if (Number(d.interviewing || 0) > 0) parts.push(`进行中的面试 ${d.interviewing} 个`);
+  if (Number(d.pendingOffer || d.offerPending || 0) > 0) parts.push(`待处理 Offer ${d.pendingOffer || d.offerPending} 个`);
+  return parts.join('，');
+}
+
+function replaceDemandInList(id, patch) {
+  if (!apiDemands.value?.data) return;
+  apiDemands.value = {
+    ...apiDemands.value,
+    data: apiDemands.value.data.map(item => item.id === id ? { ...item, ...patch } : item),
+  };
+}
+
+function removeDemandFromList(id) {
+  if (!apiDemands.value?.data) return;
+  apiDemands.value = {
+    ...apiDemands.value,
+    data: apiDemands.value.data.filter(item => item.id !== id),
+    total: Math.max(0, (apiDemands.value.total || apiDemands.value.data.length) - 1),
+  };
 }
 
 function openCreateModal(){
@@ -386,7 +419,14 @@ async function submitApproval(){
 }
 
 async function approveDemand(d) {
-  if (!confirm(`确认审批通过 "${d.id} ${d.position}"？`)) return;
+  const ok = await askConfirm({
+    title: '审批通过',
+    message: `确认审批通过「${d.id} ${d.position}」？`,
+    detail: '系统会按当前登录身份记录审批人；管理员代审批会在审批记录中备注管理员身份。',
+    type: 'warning',
+    confirmText: '通过审批',
+  });
+  if (!ok) return;
   // 找到当前待审批层级（state === 'current'），缺省退回第一个未完成节点
   const nodes = d.approvalNodes || [];
   let level = null;
@@ -457,11 +497,35 @@ async function rejectDemandFromMore() {
 async function closeDemandFromMore() {
   const d = moreDemand.value;
   if (!d) return;
+  const reason = activeEngagementReason(d);
+  if (reason) {
+    await askConfirm({
+      title: '无法关闭需求',
+      message: `需求「${d.id} ${d.position}」存在进行中的面试或 Offer，无法关闭。`,
+      detail: `当前原因：${reason}。\n请先完成面试评价、撤回或处理 Offer 后再关闭需求。`,
+      type: 'warning',
+      confirmText: '我知道了',
+      showCancel: false,
+    });
+    return;
+  }
+  const ok = await askConfirm({
+    title: '关闭需求',
+    message: `确定关闭需求「${d.id} ${d.position}」吗？`,
+    detail: '关闭后该岗位不再继续招聘；已关联但未进入流程的候选人会释放回人才库。',
+    type: 'warning',
+    confirmText: '关闭需求',
+  });
+  if (!ok) return;
   try {
     await api.post(`/demand/${d.id}/close`);
     toast.info('已关闭：' + d.id);
+    replaceDemandInList(d.id, {
+      status: 'closed',
+      statusLabel: '已关闭',
+      statusType: 'done',
+    });
     closeMoreOps();
-    await loadFromApi();
   } catch (e) {
     handleError(e, 'RecruitDemand.closeDemandFromMore');
   }
@@ -477,11 +541,41 @@ async function deleteDemandFromMore() {
 function goDetail(d){ router.push({ path: '/recruit-demand-detail', query: { id: d.id } }); }
 
 async function removeDemand(d) {
-  if (!confirm(`确认删除需求 "${d.id} ${d.position}"？删除后不可恢复。`)) return;
+  if (!canDelete(d)) {
+    await askConfirm({
+      title: '无法删除需求',
+      message: `需求「${d.id} ${d.position}」当前状态不允许删除。`,
+      detail: '只有草稿、驳回、招聘中、已关闭或取消的需求可以进入删除校验。',
+      type: 'warning',
+      confirmText: '我知道了',
+      showCancel: false,
+    });
+    return;
+  }
+  const reason = activeEngagementReason(d);
+  if (reason) {
+    await askConfirm({
+      title: '无法删除需求',
+      message: `需求「${d.id} ${d.position}」存在进行中的面试或 Offer，无法删除。`,
+      detail: `当前原因：${reason}。\n请先完成面试评价、撤回或处理 Offer 后再删除。`,
+      type: 'warning',
+      confirmText: '我知道了',
+      showCancel: false,
+    });
+    return;
+  }
+  const ok = await askConfirm({
+    title: '删除需求',
+    message: `确认删除需求「${d.id} ${d.position}」？`,
+    detail: '删除后不可恢复；已关闭需求可以直接删除。',
+    type: 'danger',
+    confirmText: '删除',
+  });
+  if (!ok) return;
   try {
     await deleteDemand(d.id);
     toast.success('已删除：' + d.id);
-    await loadFromApi();
+    removeDemandFromList(d.id);
   } catch (e) {
     toast.error(e?.message || '删除失败');
     handleError(e, 'RecruitDemand.removeDemand');

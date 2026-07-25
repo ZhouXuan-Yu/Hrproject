@@ -305,6 +305,16 @@ def update_notify_template(template_id):
     return success(result)
 
 
+@bp.route('/notify-templates/<template_id>', methods=['DELETE'])
+def delete_notify_template(template_id):
+    """DELETE /api/config/notify-templates/{template_id}"""
+    from app.services.config_service import delete_notify_template, append_audit_log
+    result = delete_notify_template(template_id)
+    if result.get('deleted'):
+        append_audit_log('系统', '配置', '删除模板', f"删除模板 #{template_id}")
+    return success(result)
+
+
 @bp.route('/knowledge-base')
 def get_knowledge_base():
     """GET /api/config/knowledge-base - AI company knowledge base."""

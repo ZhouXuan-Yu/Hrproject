@@ -217,12 +217,9 @@ function barCenter(monthIdx, chart) {
 // ── Lifecycle ──
 function refreshData() {
   loading.value = true;
-  // Simulate API delay
-  setTimeout(() => {
-    mockData.value = genMockMonths();
-    loading.value = false;
-    lastUpdate.value = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-  }, 300);
+  mockData.value = genMockMonths();
+  loading.value = false;
+  lastUpdate.value = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
 }
 
 onMounted(() => {

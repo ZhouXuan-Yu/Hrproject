@@ -100,6 +100,10 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
             此内容由AI生成，请人工审核确认后使用。实际联系需通过电话/邮件/飞书由HR手动完成。
           </div>
+          <div v-if="sendResult.visible" class="send-result" :class="{ ok: sendResult.sent, fail: !sendResult.sent }">
+            <b>{{ sendResult.sent ? '发送成功' : '发送失败' }}</b>
+            <span>{{ sendResult.message }}</span>
+          </div>
         </div>
 
         <!-- Footer -->
@@ -110,7 +114,7 @@
             {{ copied ? '已复制' : '复制话术' }}
           </button>
           <button class="btn btn-primary" @click="confirmContact">
-            记录联系
+            {{ sendResult.visible ? '确定' : '记录联系' }}
           </button>
         </div>
       </div>
@@ -141,6 +145,7 @@ const copied = ref(false);
 const contactInfo = ref({ mobile: '', email: '', feishu: '' });
 const sent = ref({ email: false, feishu: false });
 const sending = ref(false);
+const sendResult = ref({ visible: false, sent: false, message: '' });
 let draftSeq = 0;
 const { toast } = useToast();
 
@@ -226,6 +231,13 @@ async function sendCurrentChannel() {
     const message = result?.send?.message || result?.message || '';
     if (channel.value === 'email') sent.value.email = ok;
     if (channel.value === 'feishu') sent.value.feishu = ok;
+    sendResult.value = {
+      visible: true,
+      sent: ok,
+      message: ok
+        ? `${channelLabels[channel.value] || '消息'}已发送至 ${result?.send?.recipient || contactInfo.value.email || contactInfo.value.feishu || '候选人'}`
+        : (message || '请检查邮箱/飞书配置'),
+    };
     if (ok) {
       toast.success((channelLabels[channel.value] || '消息') + '已真实发送');
     } else {
@@ -272,6 +284,7 @@ function resetForm() {
   draftError.value = '';
   copied.value = false;
   sent.value = { email: false, feishu: false };
+  sendResult.value = { visible: false, sent: false, message: '' };
   sending.value = false;
 }
 
@@ -469,6 +482,28 @@ watch(
   margin-top: 2px;
 }
 .ai-disclaimer svg { flex-shrink: 0; margin-top: 1px; color: #D97706; }
+.send-result {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--e-border, #E1E6EF);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.send-result b { font-size: 13px; }
+.send-result.ok {
+  color: var(--c-done);
+  border-color: rgba(34, 197, 94, 0.25);
+  background: rgba(34, 197, 94, 0.08);
+}
+.send-result.fail {
+  color: var(--c-reject);
+  border-color: rgba(239, 68, 68, 0.25);
+  background: rgba(239, 68, 68, 0.08);
+}
 
 /* ===== Skeleton loading ===== */
 .draft-loading { display: flex; flex-direction: column; gap: 8px; padding: 12px; }

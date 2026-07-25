@@ -685,7 +685,7 @@ def create_notify_template(data):
 def update_notify_template(template_id, data):
     """Update an existing notification template."""
     try:
-        from app.models.auxiliary import NotifyTemplate, AuditLog
+        from app.models.auxiliary import NotifyTemplate
         from app.extensions import db
 
         t = NotifyTemplate.active().filter_by(id=template_id).first()
@@ -708,6 +708,33 @@ def update_notify_template(template_id, data):
         if not _mock_enabled():
             raise
     return {'updated': True, 'id': int(template_id)}
+
+
+def delete_notify_template(template_id):
+    """Soft-delete an existing notification template."""
+    try:
+        from app.models.auxiliary import NotifyTemplate
+        from app.extensions import db
+
+        t = NotifyTemplate.active().filter_by(id=template_id).first()
+        if not t:
+            raise AppError('NOT_FOUND', f'模板不存在: {template_id}')
+
+        t.soft_delete()
+        t.status = 0
+        db.session.commit()
+        return {'deleted': True, 'id': int(template_id)}
+    except AppError:
+        raise
+    except Exception as exc:
+        log.error("DB delete failed in delete_notify_template: %s", exc, exc_info=True)
+        if not _mock_enabled():
+            raise
+    try:
+        numeric_id = int(template_id)
+    except (TypeError, ValueError):
+        numeric_id = template_id
+    return {'deleted': True, 'id': numeric_id}
 
 
 # ════════════════════════════════════════════════════════════════════

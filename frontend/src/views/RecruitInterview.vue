@@ -978,6 +978,16 @@ function applyCalendarData(res) {
     monthEnd,
     events: Array.isArray(data.events) ? data.events : [],
   };
+  const monthEvents = calendarData.value.events
+    .map(normalizeCalendarEvent)
+    .filter(event => event.dateKey >= monthStart && event.dateKey <= monthEnd)
+    .sort((a, b) => (a.start || '').localeCompare(b.start || ''));
+  const selectedHasEvent = monthEvents.some(event => event.dateKey === selectedCalendarDate.value);
+  if (!selectedHasEvent && monthEvents.length) {
+    selectedCalendarWeekStart.value = getWeekStartKey(parseDateKey(monthEvents[0].dateKey));
+    selectedCalendarDate.value = monthEvents[0].dateKey;
+    return;
+  }
   const validDays = new Set(calendarDays.value.map(d => d.key));
   if (!validDays.has(selectedCalendarDate.value)) {
     selectedCalendarDate.value = getDefaultDateForWeek(selectedCalendarWeekStart.value, month);

@@ -100,7 +100,7 @@
         <DataLoadingOverlay :visible="candidatesLoading" />
         <table v-if="filteredCandidates.length > 0" id="candidateTable" style="min-width:860px"><thead><tr>
           <th style="width:36px"><input type="checkbox" id="checkAll" @change="toggleAll"></th>
-          <th>姓名</th><th>画像分</th><th>匹配分</th><th>来源</th><th>入库时长</th><th>状态</th><th>操作</th>
+          <th>姓名</th><th>画像分</th><th>匹配分</th><th>来源</th><th>入库时长</th><th>状态</th><th>操作</th><th>加入状态</th>
         </tr></thead><tbody>
           <tr v-for="c in filteredCandidates" :key="c.name" :class="rowClass(c)">
             <td><input type="checkbox" class="row-check" v-model="checkedSet[c.name]" @change="onCheck"></td>
@@ -129,6 +129,10 @@
                       style="font-size:11px;color:var(--c-warn);margin-left:2px"
                       title="匹配分较低，建议谨慎评估后再推进">建议不推荐</span>
               </template>
+            </td>
+            <td>
+              <StatusBadge v-if="isCandidateJoined(c)" type="done">已加入需求</StatusBadge>
+              <span v-else style="font-size:12px;color:var(--c-sub)">未加入</span>
             </td>
           </tr>
         </tbody></table>
@@ -248,6 +252,11 @@
         </div>
       </div>
     </div>
+    <ConfirmDialog
+      v-bind="confirmDialog"
+      @confirm="onConfirmDialogConfirm"
+      @cancel="onConfirmDialogCancel"
+    />
   </WorkbenchLayout>
 </template>
 
@@ -262,13 +271,17 @@ import AiMarkdown from '../components/ai/AiMarkdown.vue';
 import { fetchDemandDetail, fetchDemandCandidates, linkCandidateToDemand } from '../api/demand.js';
 import { useToast } from '../composables/useToast.js';
 import { useAppError } from '../composables/useAppError.js';
+import { useConfirmDialog } from '../composables/useConfirmDialog.js';
 import EmptyState from '../components/EmptyState.vue';
 import DataLoadingOverlay from '../components/DataLoadingOverlay.vue';
+import ConfirmDialog from '../components/ConfirmDialog.vue';
+import StatusBadge from '../components/StatusBadge.vue';
 import StatCardRow from '../components/StatCardRow.vue';
 import { KPI_ICONS } from '../components/kpiIcons.js';
 
 const { toast } = useToast();
 const { handleError } = useAppError();
+const { confirmDialog, askConfirm, onConfirmDialogConfirm, onConfirmDialogCancel } = useConfirmDialog();
 const route = useRoute();
 
 const emptyDemandInfo = {
@@ -296,6 +309,33 @@ const loadError = ref('');
 
 const checkedSet = reactive({});
 const checkedCount = computed(() => Object.keys(checkedSet).filter(k => checkedSet[k]).length);
+const joinedCandidateSet = reactive({});
+
+function candidateKey(c) {
+  return c?.id || c?.candidateId || c?.candidateNo || c?.name || '';
+}
+
+function isCandidateJoined(c) {
+  const key = candidateKey(c);
+  return !!(
+    (key && joinedCandidateSet[key]) ||
+    c?.joined ||
+    c?.joinedDemand ||
+    c?.linked ||
+    c?.linkedDemand ||
+    c?.processId ||
+    c?.process_id
+  );
+}
+
+function markCandidateJoined(name) {
+  const c = candidates.value.find(item => item.name === name);
+  if (!c) return;
+  const key = candidateKey(c);
+  if (key) joinedCandidateSet[key] = true;
+  c.joined = true;
+  c.joinedDemand = info.value.id;
+}
 
 const statCards = computed(() => {
   const list = candidates.value || [];
@@ -566,7 +606,12 @@ async function addToDemand() {
   let ok = 0, fail = 0;
   for (const name of names) {
     try {
-      await linkCandidateToDemand(demandId, name);
+      const result = await linkCandidateToDemand(demandId, name);
+      if (result && result.linked === false) {
+        fail++;
+        continue;
+      }
+      markCandidateJoined(name);
       ok++;
     } catch (e) {
       console.warn('[RecruitDemandDetail] linkCandidateToDemand failed for', name, e);
@@ -667,7 +712,14 @@ async function doAlert(msg) {
     return;
   }
   if (msg.indexOf('确认撤回该需求？') >= 0) {
-    if (!window.confirm('确认撤回该需求？')) return;
+    const ok = await askConfirm({
+      title: '撤回需求',
+      message: '确认撤回该需求？',
+      detail: '撤回后该需求会从当前审批流程中退出，请确认没有需要保留的审批动作。',
+      type: 'warning',
+      confirmText: '撤回',
+    });
+    if (!ok) return;
     try {
       const { createDemand } = await import('../api/demand.js');
       toast.success('需求已撤回');

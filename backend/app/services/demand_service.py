@@ -680,7 +680,7 @@ def delete_demand(demand_id):
         if not d:
             raise AppError('NOT_FOUND', f'需求 {demand_id} 不存在')
 
-        if d.demand_status not in (0, 2, 3, 5):
+        if d.demand_status not in (0, 2, 3, 4, 5):
             raise AppError('INVALID_STATE', f'需求状态为{STATUS_LABELS.get(d.demand_status, "未知")}，不允许删除')
 
         if _has_active_interviews_or_offers(d.id):
