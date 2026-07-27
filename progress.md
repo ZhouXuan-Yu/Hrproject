@@ -1,0 +1,34 @@
+# Redis Performance Retrofit Progress
+
+## 2026-07-27
+- Created planning files for Redis performance retrofit.
+- Discovered existing backend already depends on `redis==5.2.1` and `celery[redis]==5.4.0`.
+- Found Redis is currently wired mainly as Celery broker/result backend, not as application API cache.
+- Found frontend has `KeepAlive`, 5-minute in-memory GET cache, request dedup, and immediate workbench prefetch from prior work.
+- Found page switching still calls each page `onMounted(loadFromApi/loadAll)`, so cache only helps within the same browser runtime and only after first successful fetch.
+- Found interview scheduling modal calls `fetchTalent()` + `fetchDemands()` each time it opens, causing the first row/options to appear slowly.
+- Added `backend/app/services/cache_service.py` as an optional Redis read-through cache with tenant/role-aware keys, namespace invalidation, health reporting, and best-effort distributed locks.
+- Added Redis cache config keys: `REDIS_CACHE_URL`, `CACHE_ENABLED`, and `CACHE_DEFAULT_TTL`.
+- Wired `/api/health` to report Redis cache health even when the database health check fails.
+- Cached demand list/detail/candidate read APIs and invalidated affected demand, talent, and dashboard namespaces after demand mutations.
+- Verified cache foundation with `backend\.venv\Scripts\python.exe -m pytest backend\tests\test_cache_service.py -q` -> 3 passed.
+- Re-ran demand regression with `backend\.venv\Scripts\python.exe -m pytest backend\tests\test_demand.py -q` -> 7 passed.
+- Cached talent list/detail/match/employee and short-lived ingest-log reads; invalidated talent, demand, and dashboard namespaces after notes, demand linking, resume upload, and contact actions.
+- Left the mail-log endpoint uncached for now because the system mail board is user-facing near-realtime; contact actions still invalidate the future `talent:mail-log` namespace.
+- Verified talent/contact/log flow with `backend\.venv\Scripts\python.exe -m pytest backend\tests\test_contact_info.py -q` -> 6 passed.
+- Verified resume screening/demand count regression with `backend\.venv\Scripts\python.exe -m pytest backend\tests\test_resume_screening.py -q` -> 5 passed.
+- Cached interview list/alerts/detail/calendar reads, added a Redis best-effort duplicate-submit lock for interview creation, and invalidated interview, demand, talent, and dashboard caches after interview state changes.
+- Cached dashboard KPI/funnel/department/channel/risk reads with short TTLs and extended write-side invalidation to department/channel dashboard namespaces.
+- Optimized `frontend/src/components/ScheduleInterviewModal.vue` so the current candidate and demand are seeded immediately from props before talent/demand option API calls return.
+- Added Redis cache settings to `backend/.env.example`.
+- Verified interview offer flow with `backend\.venv\Scripts\python.exe -m pytest backend\tests\test_interview_offer.py -q` -> 4 passed.
+- Verified evaluation status flow with `backend\.venv\Scripts\python.exe -m pytest backend\tests\test_evaluation_status.py -q` -> 3 passed.
+- Verified meeting URL flow with `backend\.venv\Scripts\python.exe -m pytest backend\tests\test_meeting_url.py -q` -> 5 passed.
+- Verified frontend compile with `cmd /c npm run build` under `frontend/` -> passed with existing chunk-size/dynamic-import warnings only.
+- Ran full backend regression with `backend\.venv\Scripts\python.exe -m pytest backend\tests -q` -> 55 passed.
+- Adversarial review found missing invalidation for `talent:ingest-log` after resume upload and incomplete dashboard invalidation after candidate linking/approval state changes; patched both.
+- Re-ran targeted regressions after adversarial fixes:
+  - `backend\.venv\Scripts\python.exe -m pytest backend\tests\test_demand.py -q` -> 7 passed.
+  - `backend\.venv\Scripts\python.exe -m pytest backend\tests\test_contact_info.py backend\tests\test_resume_screening.py -q` -> 11 passed.
+  - `git diff --check` -> passed; only repository line-ending warnings from Git on Windows.
+- Ran frontend Playwright click-flow regression with `cmd /c npm test -- --workers=1` under `frontend/` -> 13 passed.

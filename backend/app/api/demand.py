@@ -9,7 +9,14 @@ bp = Blueprint('demand', __name__)
 def get_list():
     """GET /api/demand/list — paginated demand list."""
     from app.services.demand_service import list_demands
-    data, total = list_demands(request.args)
+    from app.services.cache_service import cached
+
+    def load():
+        data, total = list_demands(request.args)
+        return {'data': data, 'total': total}
+
+    payload = cached('demand:list', request.args, load, ttl=30)
+    data, total = payload['data'], payload['total']
     page = int(request.args.get('page', 1))
     page_size = int(request.args.get('pageSize', 20))
     return success_list(data, total, page, page_size)
@@ -19,7 +26,9 @@ def get_list():
 def create():
     """POST /api/demand/create — create a new demand."""
     from app.services.demand_service import create_demand
+    from app.services.cache_service import invalidate_many
     result = create_demand(request.get_json(silent=True) or {})
+    invalidate_many('demand:list', 'demand:detail', 'demand:candidates', 'dashboard:kpi', 'dashboard:funnel', 'dashboard:dept-progress', 'dashboard:channel')
     return success(result)
 
 
@@ -27,7 +36,9 @@ def create():
 def update(demand_id):
     """PATCH /api/demand/{id} — partial update."""
     from app.services.demand_service import update_demand
+    from app.services.cache_service import invalidate_many
     result = update_demand(demand_id, request.get_json(silent=True) or {})
+    invalidate_many('demand:list', 'demand:detail', 'demand:candidates', 'dashboard:kpi', 'dashboard:funnel', 'dashboard:dept-progress', 'dashboard:channel')
     return success(result)
 
 
@@ -35,7 +46,9 @@ def update(demand_id):
 def close(demand_id):
     """POST /api/demand/{id}/close — close a demand."""
     from app.services.demand_service import close_demand
+    from app.services.cache_service import invalidate_many
     result = close_demand(demand_id)
+    invalidate_many('demand:list', 'demand:detail', 'demand:candidates', 'dashboard:kpi', 'dashboard:funnel', 'dashboard:dept-progress', 'dashboard:channel')
     return success(result)
 
 
@@ -43,7 +56,8 @@ def close(demand_id):
 def get_detail(demand_id):
     """GET /api/demand/{id} — demand detail with approval nodes."""
     from app.services.demand_service import get_demand_detail
-    data = get_demand_detail(demand_id)
+    from app.services.cache_service import cached
+    data = cached('demand:detail', {'id': demand_id}, lambda: get_demand_detail(demand_id), ttl=30)
     return success(data)
 
 
@@ -51,7 +65,14 @@ def get_detail(demand_id):
 def get_candidates(demand_id):
     """GET /api/demand/{id}/candidates — candidates linked to this demand."""
     from app.services.demand_service import list_demand_candidates
-    data = list_demand_candidates(demand_id, request.args)
+    from app.services.cache_service import cached
+    data = cached(
+        'demand:candidates',
+        request.args,
+        lambda: list_demand_candidates(demand_id, request.args),
+        ttl=30,
+        vary={'demand_id': demand_id},
+    )
     return success(data)
 
 
@@ -67,7 +88,9 @@ def get_candidate_detail(demand_id, name):
 def link_candidate(demand_id, name):
     """POST /api/demand/{id}/candidates/{name}/link — link candidate to demand."""
     from app.services.demand_service import link_candidate_to_demand
+    from app.services.cache_service import invalidate_many
     result = link_candidate_to_demand(demand_id, name)
+    invalidate_many('demand:list', 'demand:detail', 'demand:candidates', 'talent:list', 'dashboard:kpi', 'dashboard:funnel', 'dashboard:dept-progress', 'dashboard:channel')
     return success(result)
 
 
@@ -97,6 +120,8 @@ def match_candidates(demand_id):
             except Exception as exc:
                 linked.append({'name': item.get('name'), 'linked': False, 'reason': str(exc)})
         match_result['linked'] = linked
+        from app.services.cache_service import invalidate_many
+        invalidate_many('demand:list', 'demand:detail', 'demand:candidates', 'talent:list', 'dashboard:kpi', 'dashboard:funnel', 'dashboard:dept-progress', 'dashboard:channel')
         return success(match_result)
 
     if body.get('applyHardFilter'):
@@ -138,6 +163,8 @@ def approve_node(demand_id):
 
     numeric_id = _resolve_demand_id(demand_id)
     result = approve(numeric_id, int(level), int(approve_user_id), opinion, current_role)
+    from app.services.cache_service import invalidate_many
+    invalidate_many('demand:list', 'demand:detail', 'dashboard:kpi', 'dashboard:funnel', 'dashboard:dept-progress', 'dashboard:channel')
     return success(result)
 
 
@@ -159,6 +186,8 @@ def reject_node(demand_id):
 
     numeric_id = _resolve_demand_id(demand_id)
     result = reject(numeric_id, int(level), int(approve_user_id), opinion, current_role)
+    from app.services.cache_service import invalidate_many
+    invalidate_many('demand:list', 'demand:detail', 'dashboard:kpi', 'dashboard:funnel', 'dashboard:dept-progress', 'dashboard:channel')
     return success(result)
 
 
@@ -168,7 +197,9 @@ def reject_node(demand_id):
 def delete_demand(demand_id):
     """DELETE /api/demand/{id} — soft-delete a demand (only draft/rejected)."""
     from app.services.demand_service import delete_demand
+    from app.services.cache_service import invalidate_many
     result = delete_demand(demand_id)
+    invalidate_many('demand:list', 'demand:detail', 'demand:candidates', 'dashboard:kpi', 'dashboard:funnel', 'dashboard:dept-progress', 'dashboard:channel')
     return success(result)
 
 
@@ -176,7 +207,9 @@ def delete_demand(demand_id):
 def submit_for_approval(demand_id):
     """POST /api/demand/{id}/submit — submit demand for approval (draft -> approval)."""
     from app.services.demand_service import submit_for_approval
+    from app.services.cache_service import invalidate_many
     result = submit_for_approval(demand_id)
+    invalidate_many('demand:list', 'demand:detail', 'dashboard:kpi', 'dashboard:funnel', 'dashboard:dept-progress', 'dashboard:channel')
     return success(result)
 
 

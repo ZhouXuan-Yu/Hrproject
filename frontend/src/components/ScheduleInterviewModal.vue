@@ -225,7 +225,33 @@ const demandOptions = ref([]);
 const selectedCandidateNo = ref('');
 const selectedDemandNo = ref('');
 
+function prependUnique(options, item) {
+  if (!item?.id) return options;
+  return [item, ...options.filter(x => x.id !== item.id)];
+}
+
+function seedCurrentSelection() {
+  if (props.candidate?.id || props.candidate?.name) {
+    const injected = {
+      id: props.candidate.id || props.candidate.name,
+      name: props.candidate.name || props.candidate.id,
+    };
+    candidateOptions.value = prependUnique(candidateOptions.value, injected);
+    selectedCandidateNo.value = injected.id;
+  }
+
+  if (props.demand?.id || props.demand?.position) {
+    const injected = {
+      id: props.demand.id || props.demand.position,
+      position: props.demand.position || props.demand.id,
+    };
+    demandOptions.value = prependUnique(demandOptions.value, injected);
+    selectedDemandNo.value = injected.id;
+  }
+}
+
 async function loadOptions() {
+  seedCurrentSelection();
   try {
     const [t, d] = await Promise.all([fetchTalent(), fetchDemands()]);
     // fetchTalent 返回 { ext: [...], total }，不是 { data }
@@ -356,6 +382,9 @@ watch(
       resetForm();
       selectedCandidateNo.value = '';
       selectedDemandNo.value = '';
+      candidateOptions.value = [];
+      demandOptions.value = [];
+      seedCurrentSelection();
       loadOptions();
     }
   }

@@ -8,26 +8,40 @@ bp = Blueprint('talent', __name__)
 @bp.route('/list')
 def get_list():
     """GET /api/talent/list — paginated talent pool."""
+    from app.services.cache_service import cached
     from app.services.talent_service import list_talent
-    data, total = list_talent(request.args)
+
+    def load():
+        data, total = list_talent(request.args)
+        return {'items': data, 'total': total}
+
+    result = cached('talent:list', request.args, load, ttl=30)
     page = int(request.args.get('page', 1))
     page_size = int(request.args.get('pageSize', 20))
-    return success_list(data, total, page, page_size)
+    return success_list(result['items'], result['total'], page, page_size)
 
 
 @bp.route('/<candidate_id>/note', methods=['PATCH'])
 def update_note(candidate_id):
     """PATCH /api/talent/{id}/note — update candidate note."""
+    from app.services.cache_service import invalidate_many
     from app.services.talent_service import update_note
     result = update_note(candidate_id, request.get_json(silent=True) or {})
+    invalidate_many('talent:list', 'talent:detail', 'demand:candidates')
     return success(result)
 
 
 @bp.route('/match')
 def get_match():
     """GET /api/talent/match — internal employee match results."""
+    from app.services.cache_service import cached
     from app.services.talent_service import get_match_results
-    result = get_match_results(request.args.get('demandId', ''))
+    result = cached(
+        'talent:match',
+        request.args,
+        lambda: get_match_results(request.args.get('demandId', '')),
+        ttl=30,
+    )
     return success(result)
 
 
@@ -47,22 +61,35 @@ def create_match():
 @bp.route('/candidate/<candidate_id>')
 def get_candidate(candidate_id):
     """GET /api/talent/candidate/{id} — single candidate detail."""
+    from app.services.cache_service import cached
     from app.services.talent_service import get_candidate_detail
-    data = get_candidate_detail(candidate_id)
+    data = cached(
+        'talent:detail',
+        {'candidate_id': candidate_id},
+        lambda: get_candidate_detail(candidate_id),
+        ttl=30,
+    )
     return success(data)
 
 
 @bp.route('/employee/<employee_id>')
 def get_employee(employee_id):
     """GET /api/talent/employee/{id} — single employee detail."""
+    from app.services.cache_service import cached
     from app.services.talent_service import get_employee_detail
-    data = get_employee_detail(employee_id)
+    data = cached(
+        'talent:employee',
+        {'employee_id': employee_id},
+        lambda: get_employee_detail(employee_id),
+        ttl=60,
+    )
     return success(data)
 
 
 @bp.route('/link', methods=['POST'])
 def link_to_demand():
     """POST /api/talent/link — link candidates to demand."""
+    from app.services.cache_service import invalidate_many
     from app.services.demand_service import link_candidate_to_demand
     body = request.get_json(silent=True) or {}
     demand_id = body.get('demandId') or ''
@@ -73,6 +100,11 @@ def link_to_demand():
     for name in names:
         r = link_candidate_to_demand(demand_id, name)
         results.append({'name': name, **r})
+    invalidate_many(
+        'talent:list', 'talent:detail', 'talent:match',
+        'demand:list', 'demand:detail', 'demand:candidates',
+        'dashboard:kpi', 'dashboard:funnel', 'dashboard:dept-progress', 'dashboard:channel',
+    )
     return success({'linked': len(results), 'total': len(names), 'candidates': results})
 
 
@@ -108,6 +140,7 @@ def upload_resume():
 
     文件经文本提取（pdfplumber/python-docx）→ DeepSeek 结构化解析 → 去重入库。
     """
+    from app.services.cache_service import invalidate_many
     from app.services.resume_service import ingest_resume, SUPPORTED_EXTENSIONS
     import os
 
@@ -129,15 +162,22 @@ def upload_resume():
     except ValueError as exc:
         raise AppError('BAD_REQUEST', str(exc))
 
+    invalidate_many(
+        'talent:list', 'talent:detail', 'talent:match',
+        'demand:candidates', 'talent:ingest-log',
+        'dashboard:kpi', 'dashboard:funnel', 'dashboard:dept-progress', 'dashboard:channel',
+    )
     return success(result)
 
 
 @bp.route('/ingest-log')
 def get_ingest_log():
     """GET /api/talent/ingest-log — recent resume ingestion records for pipeline view."""
+    from app.services.cache_service import cached
     from app.services.talent_service import get_ingest_log as _log
     limit = request.args.get('limit', 10)
-    return success({'items': _log(limit)})
+    data = cached('talent:ingest-log', request.args, lambda: {'items': _log(limit)}, ttl=10)
+    return success(data)
 
 
 _TYPE_LABELS = {'invite': '面试邀请', 'offer': '录用通知', 'entry': '入职指引',
@@ -181,6 +221,7 @@ def get_candidate_contact_info(candidate_id):
 @bp.route('/contact', methods=['POST'])
 def contact_candidate():
     """POST /api/talent/contact - record and optionally send candidate contact."""
+    from app.services.cache_service import invalidate_many
     from app.services.talent_service import update_note, get_candidate_contact
     body = request.get_json(silent=True) or {}
     candidate_id = body.get('candidateId') or ''
@@ -192,6 +233,7 @@ def contact_candidate():
 
     if names:
         contacts = [{'name': name, 'note': f'[contact] HR via {method}'} for name in names]
+        invalidate_many('talent:list', 'talent:detail')
         return success({'recorded': True, 'count': len(contacts), 'contacts': contacts})
 
     if candidate_id:
@@ -240,6 +282,7 @@ def contact_candidate():
 
         note_text = f"[contact] HR via {method}; sent={send_result.get('sent')}; msg={send_result.get('message')}"
         update_note(candidate_id, {'note': note_text})
+        invalidate_many('talent:list', 'talent:detail', 'talent:mail-log')
         return success({'recorded': True, 'sent': send_result.get('sent'),
                         'send': send_result, 'contact': {'id': candidate_id, 'note': note_text}})
 

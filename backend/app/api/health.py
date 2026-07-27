@@ -33,6 +33,7 @@ def health_check():
                 'connected': False,
                 'type': db_name,
             },
+            'redis': _redis_health(),
             'mock_fallback': bool(current_app.config.get('MOCK_FALLBACK', False)),
             'deepseek': {
                 'key_configured': bool(Config.DEEPSEEK_API_KEY),
@@ -45,8 +46,17 @@ def health_check():
             'connected': True,
             'type': db_name,
         },
+        'redis': _redis_health(),
         'mock_fallback': bool(current_app.config.get('MOCK_FALLBACK', False)),
         'deepseek': {
             'key_configured': bool(Config.DEEPSEEK_API_KEY),
         },
     })
+
+
+def _redis_health():
+    try:
+        from app.services.cache_service import cache_status
+        return cache_status()
+    except Exception as exc:
+        return {'enabled': False, 'connected': False, 'error': str(exc)}

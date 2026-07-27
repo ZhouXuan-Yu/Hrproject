@@ -29,6 +29,10 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     # Redis / Celery
+    REDIS_URL = os.getenv('REDIS_URL', 'redis://127.0.0.1:6379/0')
+    REDIS_CACHE_URL = os.getenv('REDIS_CACHE_URL', 'redis://127.0.0.1:6379/1')
+    CACHE_ENABLED = os.getenv('CACHE_ENABLED', 'true').lower() in ('true', '1', 'yes')
+    CACHE_DEFAULT_TTL = int(os.getenv('CACHE_DEFAULT_TTL', '60'))
     CELERY_BROKER_URL = os.getenv('REDIS_URL', 'redis://127.0.0.1:6379/0')
     CELERY_RESULT_BACKEND = os.getenv('REDIS_URL', 'redis://127.0.0.1:6379/0')
 
