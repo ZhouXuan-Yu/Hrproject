@@ -1,11 +1,11 @@
 // Capture README screenshots of all main pages with real backend data.
-// Usage: ensure dev server on :7100 and backend on :5000, then `node scripts/capture-readme-shots.mjs`
+// Usage: ensure dev server on :5173 and backend on :5000, then `node scripts/capture-readme-shots.mjs`
 import { chromium } from 'playwright';
 import { mkdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const BASE = process.env.README_SHOT_BASE || 'http://127.0.0.1:7100';
+const BASE = 'http://127.0.0.1:5173';
 const OUT = resolve(dirname(fileURLToPath(import.meta.url)), '../../docs/screenshots');
 mkdirSync(OUT, { recursive: true });
 
