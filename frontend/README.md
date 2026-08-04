@@ -1,73 +1,40 @@
-# 智能招聘系统 · Recruitment System
+# 智能招聘系统前端
 
-> Python Flask + Vue 3 · 邮箱收简历 → AI 解析画像 → 人岗匹配 → 面试(飞书) → Offer → 入职
+Vue 3 + Vite + Vue Router 前端工作台，页面覆盖登录、首页、招聘看板、需求管理、需求详情、人才库、面试计划、招聘辅助中心和招聘基础配置。
 
----
+## 启动
 
-## 项目结构
+后端需要先运行在 `http://127.0.0.1:5000`，前端 `/api` 请求会由 Vite 代理到后端。
 
-```
-hr-web/                         ← 前后端代码
-├── frontend/                   ← 前端（原型 HTML+CSS+JS，未来迁移 Vue 3）
-│   ├── css/style.css           ← 全局样式（浅柔商务蓝 #4080FF）
-│   ├── js/app.js               ← 核心逻辑（角色权限/抽屉组件/评分系统）
-│   └── *.html × 8              ← 功能页面
-│
-└── backend/                    ← Flask 后端（待开发）
-    └── app.py                  ← 入口 & 架构说明
-
-docs/                           ← 设计文档
-├── SUMMARY.md                  ← 全部对话总结 & 决策记录（Day 1~11）
-├── PRD_FINAL.md                ← 标准化产品方案（6 角色/全流程权限）
-├── 数据库表/                    ← 27 张表设计（确定.docx 为终版）
-├── 流程设计/                    ← 流程图 7.png 为最新版本
-└── 设计规范/                    ← spec-status-colors.html / spec-dashboard-fix.html
-
-hr-master/                      ← IAM 组织管理参考项目（Java Spring Boot）
+```powershell
+cd D:\WorkProject\HrProject\hr-web\frontend
+npm install
+npm run dev
 ```
 
-## 4 大模块
+访问：`http://127.0.0.1:7100/login`
 
-| 模块 | 职责 | 状态 |
-|------|------|:--:|
-| ① 招聘需求管理 | 需求单→审批→生成岗位→内外部并行搜索 | 原型完成 |
-| ② 人才库 | 外部候选人 + 内部员工库，画像+标签+黑名单 | 原型完成 |
-| ③ 招聘流程 | 匹配打分→面试(飞书)→Offer→入职同步 | 原型完成 |
-| ④ 招聘数据报表 | 全链路数据聚合（AI 中心二期） | 待开发 |
+默认账号：`admin / admin123`
 
-## 6 类角色
+## 页面截图
 
-管理员 / HR 专员 / 常规面试官 / 临时面试官 / 部门负责人 / 普通员工
+README 中展示的页面截图由 Playwright 从本地前后端实采生成，输出到根目录的 `docs/screenshots/`。
 
-## Phase 规划
+```powershell
+cd D:\WorkProject\HrProject\hr-web\frontend
+node scripts\capture-readme-shots.mjs
+```
 
-| Phase | 内容 | 优先级 |
-|-------|------|:--:|
-| P1 | 外部人才库：邮箱采集 → AI 解析 → 候选人入库 | P0 |
-| P2 | 招聘流程：需求→审批→匹配→面试→Offer 闭环 | P0 |
-| P3 | 内部人才库 + 6 角色 RBAC 落地 | P1 |
-| P4 | 飞书集成：建会 + 通知 + 日历同步 | P1 |
-| P5 | AI 智能自动化中心 | P2 |
-| P6 | 入职同步 + 全链路报表 + 审批流引擎 | P2 |
+如需临时指定前端地址：
 
-**v0.1 = P1 + P2（核心招聘闭环）**
+```powershell
+$env:README_SHOT_BASE="http://127.0.0.1:7100"
+node scripts\capture-readme-shots.mjs
+```
 
-## 关键设计决策
+## 测试与构建
 
-- **三个分**：画像分（人，静态规则） / 匹配分（岗，Dify AI） / 综合推荐分（画像×10% + 匹配×90% × 衰减系数）
-- **Dify 调用**：后端代理转发，前端不直连（3 个工作流：简历解析/人岗匹配/面试问题生成）
-- **审批流程**：v0.1 三步（部门负责人→HR→高管），v0.2 引擎化
-- **IAM 对接**：v0.1 定时同步本地缓存，v0.2 API + webhook
-- **飞书集成**：v0.1 建会+消息通知（3 个触发节点），v0.2 日历同步
-- **部署**：独立 Flask → 并入公司时微前端 + SSO
-
-## 技术栈
-
-| 层 | 技术 | 备注 |
-|----|------|------|
-| 前端 | Vue 3（当前原型 HTML+JS） | 公司技术栈确认 |
-| 后端 | Python Flask | RESTful API |
-| 数据 | MySQL + SQLAlchemy | 27 张业务表 + IAM 3 张底座表 |
-| AI | Dify 工作流 | 后端代理转发 |
-| 异步 | Celery + Redis | 邮件同步/批量匹配/通知 |
-| 集成 | 飞书 Open API | 建会/消息卡片/日历 |
+```powershell
+npm run build
+npx playwright test --workers=2
+```

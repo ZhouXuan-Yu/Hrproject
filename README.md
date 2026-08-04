@@ -4,53 +4,55 @@
 >
 > 前端 Vue 3 + Vite，后端 Flask + SQLAlchemy + Celery，AI 由 DeepSeek API 驱动并带本地规则引擎降级兜底。
 
-## 界面预览
+## 界面预览（Playwright 实采）
+
+以下截图由 `frontend/scripts/capture-readme-shots.mjs` 使用 Playwright 从本地运行中的前后端直接截取，覆盖当前主业务页面。截图输出目录为 `docs/screenshots/`。
 
 ### 登录页
 
-Three.js 动态背景，支持角色选择（系统管理员 / HR 专员 / 面试官）。
+Three.js 动态背景，支持管理员、HR、部门负责人、高管、普通员工、面试官、临时面试官和无招聘权限等角色入口。
 
 ![登录页](docs/screenshots/01-login.png)
 
 ### 招聘看板
 
-招聘全漏斗总览（收简历 → 筛选通过 → 面试 → Offer → 入职）、阶段转化率、瓶颈诊断与近 7 天趋势，支持时间范围与组织范围筛选。
+展示招聘目标、投递简历、面试场次、通过人数、到岗人数等 KPI，并提供月度计划/实际招聘、投递、面试、通过趋势图。
 
 ![招聘看板](docs/screenshots/02-dashboard.png)
 
 ### 需求管理
 
-招聘需求列表：审批进度（部门负责人 → HR → 财务总监）、招聘进展、紧急度、批量操作与新建需求。
+招聘需求列表包含审批进度、招聘进展、紧急度、岗位状态、批量操作和新建需求入口。
 
 ![需求管理](docs/screenshots/03-demand.png)
 
 ### 需求详情
 
-单个岗位的候选人推进路径（已加入需求 / 面试中 / 待评价 / 不合适）、审计关注、需求信息与重新匹配。
+单个岗位展示候选人池、面试推进、待评价、不合适原因、审计关注、需求信息与重新匹配入口。
 
 ![需求详情](docs/screenshots/04-demand-detail.png)
 
 ### 人才库
 
-简历储备库 + 简历处理管道可视化（邮箱同步过程步骤条 + 最近入库记录），支持手动刷新邮箱简历、查重合并、联系候选人（电话 / 邮件，自动提取自简历）。
+人才库覆盖外部候选人、内部员工、黑名单、简历处理管道与最近入库记录，支持邮箱收简历、查重合并、联系候选人和发起面试。
 
 ![人才库](docs/screenshots/05-talent.png)
 
 ### 面试计划
 
-面试预约、飞书视频 / 腾讯会议链接自动生成、面试评价、通过后一键发 Offer、入职确认全流程。
+面试计划覆盖待安排、待面试、待评价、Offer、待入职和历史记录，支持预约、评价、发 Offer 与入职推进。
 
 ![面试计划](docs/screenshots/06-interview.png)
 
 ### 招聘辅助中心（AI）
 
-9 项 AI 辅助能力统一入口：JD 草稿生成、语义简历搜索、人岗匹配工作台、面试辅助、招聘深度报表、候选人沟通助手。支持 DeepSeek 流式输出（SSE）与思考过程可视化，所有 AI 内容带「人工审核」声明。
+AI 辅助中心统一承载 JD 草稿、语义简历搜索、人岗匹配、面试辅助、招聘深度报表、候选人沟通等能力，支持 DeepSeek 流式输出（SSE）与思考过程可视化。
 
 ![招聘辅助中心](docs/screenshots/07-ai.png)
 
 ### 招聘基础配置
 
-API 密钥管理（保存后自动连通性测试，实时显示可用状态）、邮箱账户（IMAP 收简历）、评分规则、渠道、通知模板等。
+基础配置覆盖 API 密钥、邮箱账户、评分规则、招聘渠道、通知模板、会议集成与系统参数，保存后可进行连通性测试。
 
 ![招聘基础配置](docs/screenshots/08-config.png)
 
@@ -72,7 +74,7 @@ API 密钥管理（保存后自动连通性测试，实时显示可用状态）�
 |----|------|
 | 前端 | Vue 3 + Vite + Vue Router + Three.js（登录 / 漏斗 3D 装饰） |
 | 后端 | Flask + SQLAlchemy + Celery（异步任务） |
-| 数据库 | SQLite（开发，`backend/hr_recruit.db`）/ MySQL（生产） |
+| 数据库 | MySQL / MariaDB（应用运行）；测试环境使用内存 SQLite |
 | AI | DeepSeek API + ai_engine 本地规则降级，SSE 流式输出 `/api/ai/stream/*` |
 | 集成 | 飞书（视频会议 / 消息）、腾讯会议、Boss 直聘 CLI、IMAP 邮箱 |
 | 测试 | Playwright 49 E2E + pytest 37 后端用例 |
@@ -99,33 +101,37 @@ hr-web/
 
 ## 快速启动
 
-```bash
+```powershell
 # 后端（建议使用 backend/.venv）
-cd backend/
-pip install -r requirements.txt
-python scripts/seed.py      # 初始化数据库 + 种子数据（可选）
-python app.py               # http://127.0.0.1:5000
+cd D:\WorkProject\HrProject\hr-web\backend
+.\.venv\Scripts\pip.exe install -r requirements.txt
+.\.venv\Scripts\python.exe app.py     # http://127.0.0.1:5000
 
 # 前端
-cd frontend/
+cd D:\WorkProject\HrProject\hr-web\frontend
 npm install
-npm run dev                 # http://127.0.0.1:7100（/api 代理到 5000）
+npm run dev                           # http://127.0.0.1:7100（/api 代理到 5000）
 ```
 
 浏览器打开 `http://127.0.0.1:7100/login`，默认账号 `admin / admin123`。
 
 ### 运行测试
 
-```bash
-cd backend/ && python -m pytest tests/ -q        # 37 个后端用例
-cd frontend/ && npx playwright test --workers=2  # 49 个 E2E 用例
+```powershell
+cd D:\WorkProject\HrProject\hr-web\backend
+.\.venv\Scripts\python.exe -m pytest tests/ -q
+
+cd D:\WorkProject\HrProject\hr-web\frontend
+npx playwright test --workers=2
 ```
 
 ### 重新生成 README 截图
 
-```bash
-cd frontend/ && npm run dev &                    # 需后端已启动
-node scripts/capture-readme-shots.mjs            # 输出到 docs/screenshots/
+先启动后端 `http://127.0.0.1:5000` 和前端 `http://127.0.0.1:7100`，再运行：
+
+```powershell
+cd D:\WorkProject\HrProject\hr-web\frontend
+node scripts\capture-readme-shots.mjs            # 输出到 docs/screenshots/
 ```
 
 ## 环境变量（backend/.env）
