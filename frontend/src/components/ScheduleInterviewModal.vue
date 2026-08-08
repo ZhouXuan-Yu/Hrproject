@@ -175,6 +175,7 @@ import { ref, computed, watch, nextTick } from 'vue';
 import { createInterview } from '../api/interview.js';
 import { fetchTalent } from '../api/talent.js';
 import { fetchDemands } from '../api/demand.js';
+import { api } from '../api/index.js';
 import { useToast } from '../composables/useToast.js';
 
 const { toast } = useToast();
@@ -187,11 +188,7 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'success']);
 
-const interviewers = [
-  { id: '1', name: '张HR' },
-  { id: '2', name: '李面试官' },
-  { id: '3', name: '王面试官' },
-];
+const interviewers = ref([]);
 
 const modes = [
   { id: '1', label: '飞书视频' },
@@ -326,6 +323,16 @@ function handleClose() {
   emit('close');
 }
 
+async function loadInterviewers() {
+  try {
+    const r = await api.get('/auth/interviewers');
+    interviewers.value = Array.isArray(r.data) ? r.data : [];
+  } catch (e) {
+    console.warn('[ScheduleInterviewModal] load interviewers failed:', e);
+    interviewers.value = [];
+  }
+}
+
 function resetForm() {
   rounds.value = [createEmptyRound()];
   keyCounter = 0;
@@ -336,7 +343,7 @@ async function handleSubmit() {
   submitting.value = true;
 
   const interviewerMap = {};
-  interviewers.forEach((iv) => { interviewerMap[iv.id] = iv.name; });
+  interviewers.value.forEach((iv) => { interviewerMap[iv.id] = iv.name; });
   const modeMap = {};
   modes.forEach((m) => { modeMap[m.id] = m.label; });
 
@@ -386,6 +393,7 @@ watch(
       demandOptions.value = [];
       seedCurrentSelection();
       loadOptions();
+      loadInterviewers();
     }
   }
 );

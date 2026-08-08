@@ -110,7 +110,11 @@ def link_to_demand():
 
 @bp.route('/resume-file/<resume_id>')
 def download_resume_file(resume_id):
-    """GET /api/talent/resume-file/{resume_id} — 下载/预览简历原件。"""
+    """GET /api/talent/resume-file/{resume_id} — 下载/预览简历原件。
+    Restricted to HR-level roles; interviewers view resumes in the UI preview only.
+    """
+    if g.current_role not in {'admin', 'hr', 'director', 'dept_head'}:
+        raise AppError('FORBIDDEN', '无权下载简历原件')
     import os
     from flask import send_file, current_app
     from app.models.candidate import Resume
@@ -157,8 +161,19 @@ def upload_resume():
     if len(file_bytes) > 20 * 1024 * 1024:
         raise AppError('BAD_REQUEST', '文件大小不能超过 20MB')
 
+    position = (request.form.get('position') or '').strip()
+    note = (request.form.get('note') or '').strip()
+
     try:
-        result = ingest_resume(file_bytes, file.filename, source_channel='手动上传')
+        result = ingest_resume(file_bytes, file.filename, source_channel='手动上传',
+                               target_position=position)
+        if note and result.get('candidate_no'):
+            from app.models.candidate import Candidate
+            c = Candidate.query.filter_by(candidate_no=result['candidate_no'], is_deleted=0).first()
+            if c:
+                c.note = note
+                from app.extensions import db
+                db.session.commit()
     except ValueError as exc:
         raise AppError('BAD_REQUEST', str(exc))
 
@@ -207,13 +222,18 @@ def get_mail_log():
 
 @bp.route('/candidate/<candidate_id>/contact-info')
 def get_candidate_contact_info(candidate_id):
-    """GET /api/talent/candidate/<id>/contact-info — full mobile/email for contact action."""
+    """GET /api/talent/candidate/<id>/contact-info — full mobile/email for contact action.
+    Restricted to HR-level roles; interviewers see masked info in candidate detail instead.
+    """
+    if g.current_role not in {'admin', 'hr', 'director', 'dept_head'}:
+        raise AppError('FORBIDDEN', '无权查看候选人完整联系方式')
     from app.services.talent_service import get_candidate_contact
     from app.services.config_service import append_audit_log
     data = get_candidate_contact(candidate_id)
     if data is None:
         raise AppError('NOT_FOUND', f'候选人不存在: {candidate_id}')
-    append_audit_log('系统', '人才库', '查看联系方式',
+    operator = getattr(g, 'real_name', None) or g.current_username or '系统'
+    append_audit_log(operator, '人才库', '查看联系方式',
                      f"查看候选人 {data.get('name', candidate_id)} 的联系方式")
     return success(data)
 
@@ -293,6 +313,8 @@ def _sender_account_id_for_candidate(candidate_no):
     try:
         from app.models.candidate import Candidate, Resume
         c = Candidate.query.filter_by(candidate_no=candidate_no, is_deleted=0).first()
+        if not c and candidate_no.isdigit():
+            c = Candidate.query.filter_by(id=int(candidate_no), is_deleted=0).first()
         if not c:
             return None
         r = (Resume.query.filter_by(candidate_id=c.id, is_deleted=0)
@@ -300,3 +322,36 @@ def _sender_account_id_for_candidate(candidate_no):
         return r.mail_account_id if r and r.mail_account_id else None
     except Exception:
         return None
+
+
+# ── Data export & hard delete (PIPL / GDPR) ──
+
+
+@bp.route('/candidate/<candidate_id>/export')
+def export_candidate(candidate_id):
+    """GET /api/talent/candidate/<id>/export — full data export (right to access)."""
+    from app.services.talent_service import export_candidate_data
+    from app.services.config_service import append_audit_log
+    data = export_candidate_data(candidate_id)
+    append_audit_log('系统', '人才库', '导出数据',
+                     f"导出候选人 {data.get('candidate', {}).get('name', candidate_id)} 的全部数据")
+    return success(data)
+
+
+@bp.route('/candidate/<candidate_id>/hard', methods=['DELETE'])
+def hard_delete_candidate(candidate_id):
+    """DELETE /api/talent/candidate/<id>/hard — permanent erasure (right to delete).
+
+    Requires admin role (enforced by blueprint role guard on /api/talent/*).
+    This irreversibly removes the candidate and all associated records.
+    """
+    from app.services.talent_service import hard_delete_candidate
+    from app.services.cache_service import invalidate_many
+    from app.services.config_service import append_audit_log
+    result = hard_delete_candidate(candidate_id)
+    append_audit_log('系统', '人才库', '彻底删除',
+                     f"彻底删除候选人 {result.get('candidate', candidate_id)} 及关联数据: {', '.join(result.get('items', []))}")
+    invalidate_many('talent:list', 'talent:detail', 'talent:match',
+                    'demand:list', 'demand:candidates',
+                    'dashboard:kpi', 'dashboard:funnel')
+    return success(result)

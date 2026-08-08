@@ -2,14 +2,6 @@
 // All POST to /api/ai/run/<workflow>
 // Never returns local mock data; failures must surface to the caller.
 import { api } from './index.js';
-import { useStreaming } from '../composables/useStreaming.js';
-
-// Export SSE streaming API (to be used with useStreaming composable)
-export const STREAM_WORKFLOWS = {
-  'jd-generate': '/api/ai/stream/jd-generate',
-  'match': '/api/ai/stream/match',
-};
-
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }

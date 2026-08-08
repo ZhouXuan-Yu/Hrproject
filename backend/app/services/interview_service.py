@@ -6,6 +6,7 @@ All transitions are validated against INTERVIEW_TRANSITIONS. In-memory store rem
 import logging
 import random
 from datetime import datetime, timedelta
+from flask import g
 from app.utils.response import AppError
 
 log = logging.getLogger(__name__)
@@ -260,9 +261,24 @@ def list_interviews(params):
     page = max(1, int(params.get('page', 1)))
     page_size = min(100, max(1, int(params.get('pageSize', 20))))
 
-    from app.models.interview import InterviewBook
+    from app.models.interview import InterviewBook, InterviewSlot
+    from app.services.data_scope import apply_interview_scope
     q = InterviewBook.query.filter(InterviewBook.is_deleted == 0)
 
+    # Tab filter
+    if tab == 'mine':
+        current_user = getattr(g, 'current_user_id', None)
+        if current_user:
+            q = q.join(InterviewSlot, InterviewBook.slot_id == InterviewSlot.id)\
+                 .filter(InterviewSlot.interviewer_id == current_user,
+                         InterviewSlot.is_deleted == 0)
+    elif tab == 'pending':
+        q = q.filter(~InterviewBook.interview_records.any())
+    elif tab == 'all':
+        # Apply role-based data scope for non-hr/admin roles
+        q = apply_interview_scope(q, InterviewBook, InterviewSlot)
+
+    # Status sub-filter
     if status and status != 'all':
         if status == 'pending':
             q = q.filter(~InterviewBook.interview_records.any())
@@ -282,41 +298,81 @@ def list_interviews(params):
 
 
 def get_alerts():
-    """Return interview alerts with state-aware logic."""
-    alerts = [
-        {'text': '孙九 · 复试超3天未评价', 'type': 'reject', 'action': '去评价',
-         'actionMsg': '填写对孙九的评价'},
-        {'text': '陈二 · 初试超5天未评价', 'type': 'reject', 'action': '去评价',
-         'actionMsg': '填写对陈二的评价'},
-        {'text': '张三 · 07-16 14:00 初试', 'type': 'warn', 'action': '查看', 'actionMsg': ''},
-        {'text': '李四 · 07-17 10:00 初试', 'type': 'warn', 'action': '查看', 'actionMsg': ''},
-        {'text': '郑一 · 已通过，待发Offer', 'type': 'done', 'action': '发Offer',
-         'actionMsg': '发起Offer'},
-        {'text': '王工 · 内部面试已通过', 'type': 'done', 'action': '发起调岗',
-         'actionMsg': '发起调岗'},
-    ]
-
-    # Real overdue checks from DB
+    """Return interview alerts from real database data only."""
+    alerts = []
     try:
         from app.models.interview import InterviewBook, InterviewRecord
-        from app.extensions import db
+        from app.models.hire import Offer
+        from app.models.candidate import Resume, Candidate
         now = datetime.now()
+
+        # 1) Overdue evaluations — interviews past due without evaluation
         books = InterviewBook.query.filter(InterviewBook.is_deleted == 0).all()
         for book in books:
             record = InterviewRecord.query.filter_by(book_id=book.id, is_deleted=0).first()
             if not record and book.book_time and book.book_time < now:
                 days_ago = (now - book.book_time).days
-                if days_ago > 3:
+                if days_ago > 2:
+                    resume = Resume.query.filter_by(id=book.resume_id, is_deleted=0).first()
+                    cand_name = ''
+                    if resume:
+                        cand = Candidate.query.filter_by(id=resume.candidate_id, is_deleted=0).first()
+                        cand_name = cand.candidate_name if cand else ''
                     alerts.append({
-                        'text': f"预约#{book.id} · 面试超{days_ago}天未评价",
+                        'text': f"{cand_name or '候选人'} · 面试超{days_ago}天未评价",
                         'type': 'reject',
                         'action': '去评价',
                         'actionMsg': f"填写面试评价",
                     })
+
+        # 2) Upcoming interviews today
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_end = today_start.replace(hour=23, minute=59, second=59)
+        upcoming = InterviewBook.query.filter(
+            InterviewBook.is_deleted == 0,
+            InterviewBook.book_time >= today_start,
+            InterviewBook.book_time <= today_end,
+        ).all()
+        for book in upcoming:
+            resume = Resume.query.filter_by(id=book.resume_id, is_deleted=0).first()
+            cand_name = ''
+            if resume:
+                cand = Candidate.query.filter_by(id=resume.candidate_id, is_deleted=0).first()
+                cand_name = cand.candidate_name if cand else ''
+            time_str = book.book_time.strftime('%H:%M') if book.book_time else ''
+            alerts.append({
+                'text': f"{cand_name or '候选人'} · {time_str} 面试",
+                'type': 'warn',
+                'action': '查看',
+                'actionMsg': '',
+            })
+
+        # 3) Pending offers — interviews passed, no offer sent yet
+        if len(alerts) < 8:
+            pending_offer = InterviewRecord.query.filter(
+                InterviewRecord.is_deleted == 0,
+                InterviewRecord.interview_result == 1,  # passed
+            ).all()
+            for rec in pending_offer:
+                existing = Offer.query.filter_by(last_interview_id=rec.id, is_deleted=0).first()
+                if not existing:
+                    book = InterviewBook.query.filter_by(id=rec.book_id, is_deleted=0).first()
+                    resume = Resume.query.filter_by(id=book.resume_id, is_deleted=0).first() if book else None
+                    cand_name = ''
+                    if resume:
+                        cand = Candidate.query.filter_by(id=resume.candidate_id, is_deleted=0).first()
+                        cand_name = cand.candidate_name if cand else ''
+                    alerts.append({
+                        'text': f"{cand_name or '候选人'} · 已通过，待发Offer",
+                        'type': 'done',
+                        'action': '发Offer',
+                        'actionMsg': f"发起Offer",
+                    })
+
     except Exception:
         pass
 
-    return alerts[:6]
+    return alerts[:10]
 
 
 def _resolve_links(data):
@@ -391,12 +447,18 @@ def create_interview(data):
     time_str = data.get('time', '')
     book_time = None
     if date_str and time_str:
+        now = datetime.now()
         try:
-            now = datetime.now()
-            book_time = datetime.strptime(f"{now.year}-{date_str} {time_str}", "%Y-%m-%d %H:%M")
+            # Try full date with year first
+            book_time = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
         except (ValueError, TypeError):
             try:
-                book_time = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
+                # Frontend may send "MM-DD" without year — append current year
+                book_time = datetime.strptime(f"{now.year}-{date_str} {time_str}", "%Y-%m-%d %H:%M")
+                # If the resulting date is >30 days in the past, the interview is
+                # likely next year (e.g. booking in Dec for Jan). Push forward.
+                if (now - book_time).days > 30:
+                    book_time = book_time.replace(year=now.year + 1)
             except (ValueError, TypeError):
                 pass
     if not book_time:
@@ -467,7 +529,7 @@ def _random_digits(n):
 
 
 def _build_feishu_vc(data, book_time, meeting_code):
-    """Create a Feishu VC meeting; fall back to a locally-built URL on any error."""
+    """Create a Feishu VC meeting; returns empty on mock or failure."""
     from app.services import feishu_client
     try:
         topic = f"面试-{data.get('candidate', '')}-{data.get('position', '')}".strip('-') or '招聘面试'
@@ -476,12 +538,10 @@ def _build_feishu_vc(data, book_time, meeting_code):
         url = vc.get('meeting_url') or ''
         code = vc.get('meeting_code') or meeting_code
         if url:
-            return url, code or meeting_code or _random_digits(9)
+            return url, code or meeting_code
     except Exception as exc:
-        log.warning("create_vc_meeting failed, using fallback URL: %s", exc)
-    if not meeting_code:
-        meeting_code = _random_digits(9)
-    return f'https://vc.feishu.cn/j/{meeting_code}', meeting_code
+        log.warning("create_vc_meeting failed: %s", exc)
+    return '', ''
 
 
 def _build_tencent_meeting(data, book_time, meeting_code):
@@ -496,10 +556,8 @@ def _build_tencent_meeting(data, book_time, meeting_code):
         if url:
             return url, code or meeting_code or _random_digits(10)
     except Exception as exc:
-        log.warning("tencent create_meeting failed, using fallback URL: %s", exc)
-    if not meeting_code:
-        meeting_code = _random_digits(10)
-    return f'https://meeting.tencent.com/dm/{meeting_code}', meeting_code
+        log.warning("tencent create_meeting failed: %s", exc)
+    return '', ''
 
 
 def _notify_interview_invite(book, data, book_time):
@@ -818,13 +876,29 @@ def send_offer(book_id, data):
 
     db.session.commit()
     log.info("Offer已发送: book_id=%s, offer_no=%s, reused=%s", book_id, offer_no, reused)
+
+    # Best-effort: notify HR about Offer status change
+    try:
+        from app.services.notify_service import notify_user, CARD_GREEN
+        from flask import g
+        hr_id = getattr(g, 'current_user_id', None)
+        if hr_id:
+            notify_user(hr_id, 'Offer 通知',
+                        f"Offer {offer_no} 已发送给候选人，请关注候选人反馈。",
+                        CARD_GREEN)
+    except Exception:
+        pass
+
     return {**send_result, 'id': offer_no, 'reused': reused}
 
 
-def confirm_onboard(book_id):
+def confirm_onboard(book_id, user_data=None):
     """Confirm candidate onboarding — onboard -> done.
 
     Updates the hire event and process status to reflect completed onboarding.
+
+    If user_data is provided (realName, mobile, deptId, positionId, etc.),
+    also creates an IamUser login account and an Employee internal record.
     """
     from app.models.interview import InterviewBook, InterviewRecord
     from app.models.process import RecruitProcess
@@ -845,20 +919,163 @@ def confirm_onboard(book_id):
             process.process_status = 8  # onboard
 
     # 联动人才库：入职后候选人状态置为 hired
+    candidate = None
     try:
         from app.models.candidate import Candidate
         cid = _candidate_id_for_resume(book.resume_id)
         if cid:
-            cand = Candidate.query.filter_by(id=cid, is_deleted=0).first()
-            if cand:
-                cand.status = 'hired'
-                log.info("候选人已入职: id=%s name=%s", cand.id, cand.candidate_name)
+            candidate = Candidate.query.filter_by(id=cid, is_deleted=0).first()
+            if candidate:
+                candidate.status = 'hired'
+                log.info("候选人已入职: id=%s name=%s", candidate.id, candidate.candidate_name)
     except Exception as exc:
         log.warning("set hired status failed (best-effort): %s", exc)
 
+    db.session.flush()
+
+    # ── 自动创建 IamUser + Employee ──
+    created_user = None
+    if user_data and user_data.get('realName'):
+        from app.models.iam import IamUser
+        from app.models.internal import Employee
+        from werkzeug.security import generate_password_hash
+        import random, string, re
+        from datetime import datetime, timezone
+
+        real_name = (user_data.get('realName') or '').strip()
+        mobile = (user_data.get('mobile') or '').strip()
+        email = (user_data.get('email') or '').strip()
+        role_code = (user_data.get('roleCode') or 'employee').strip()
+        dept_id = user_data.get('deptId') or None
+        position_id = user_data.get('positionId') or None
+        employee_no = (user_data.get('employeeNo') or '').strip()
+
+        if not employee_no:
+            yyyy = str(datetime.now(timezone.utc).year)
+            latest = IamUser.query.filter(
+                IamUser.employee_no.like(f'{yyyy}%'),
+                IamUser.is_deleted == 0,
+            ).order_by(IamUser.employee_no.desc()).first()
+            if latest and latest.employee_no and len(latest.employee_no) == 8:
+                seq = int(latest.employee_no[4:]) + 1
+            else:
+                seq = 1
+            employee_no = f'{yyyy}{seq:04d}'
+
+        if role_code not in ['admin', 'hr', 'dept_head', 'director', 'employee', 'interviewer']:
+            role_code = 'employee'
+
+        username = employee_no
+        password = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
+        password_hash = generate_password_hash(password)
+
+        max_user = db.session.query(db.func.max(IamUser.user_id)).filter(
+            IamUser.is_deleted == 0).scalar() or 0
+        new_user_id = max_user + 1 if max_user > 0 else 10
+
+        if IamUser.query.filter_by(employee_no=employee_no, is_deleted=0).first():
+            log.warning("工号 %s 已存在，跳过 IamUser 创建", employee_no)
+        else:
+            u = IamUser(
+                user_id=new_user_id,
+                employee_no=employee_no, username=username,
+                real_name=real_name,
+                dept_id=int(dept_id) if dept_id else None,
+                position_id=int(position_id) if position_id else None,
+                role_code=role_code,
+                email=email or None,
+                mobile=mobile or None,
+                password_hash=password_hash,
+                must_change_password=1,
+                status=1,
+            )
+            db.session.add(u)
+            db.session.flush()
+
+            # 创建 Employee 内部员工记录
+            emp = Employee(
+                user_id=new_user_id,
+                dept_id=int(dept_id) if dept_id else None,
+                position_id=int(position_id) if position_id else None,
+                work_years=candidate.work_years if candidate else 0,
+                can_transfer=0,
+            )
+            db.session.add(emp)
+
+            created_user = {
+                'userId': new_user_id,
+                'employeeNo': employee_no,
+                'username': username,
+                'realName': real_name,
+                'roleCode': role_code,
+                'initialPassword': password,
+            }
+            log.info("入职自动创建账号: %s(%s) employee=%s", real_name, username, employee_no)
+
     db.session.commit()
     log.info("入职确认: book_id=%s", book_id)
-    return {'confirmed': True}
+
+    # Best-effort: notify HR about confirmed onboarding
+    try:
+        from app.services.notify_service import notify_user, CARD_GREEN
+        from flask import g
+        hr_id = getattr(g, 'current_user_id', None)
+        if hr_id:
+            msg = f"候选人已确认入职（面试预约 #{book_id}）"
+            if created_user:
+                msg += f"，已自动创建账号 {created_user['employeeNo']}"
+                msg += f"（初始密码：{created_user['initialPassword']}）"
+            notify_user(hr_id, '入职确认', msg + "，请安排入职手续。", CARD_GREEN)
+    except Exception:
+        pass
+
+    result = {'confirmed': True}
+    if created_user:
+        result['user'] = created_user
+
+    # ── 返回候选人信息供前端自动填表 ──
+    result['candidate'] = _get_candidate_info_for_onboard(book)
+    return result
+
+
+def _get_candidate_info_for_onboard(book):
+    """Return candidate fields for pre-filling the user creation form."""
+    try:
+        from app.models.candidate import Candidate, Resume
+        from app.models.demand import RecruitDemand, RecruitProcess
+        info = {}
+        if book.resume_id:
+            resume = Resume.query.filter_by(id=book.resume_id, is_deleted=0).first()
+            if resume and resume.candidate_id:
+                c = Candidate.query.filter_by(id=resume.candidate_id, is_deleted=0).first()
+                if c:
+                    info['realName'] = c.candidate_name
+                    info['mobile'] = c.mobile or ''
+                    info['email'] = c.email or ''
+        if book.process_id:
+            process = RecruitProcess.query.filter_by(id=book.process_id, is_deleted=0).first()
+            if process and process.demand_id:
+                demand = RecruitDemand.query.filter_by(id=process.demand_id, is_deleted=0).first()
+                if demand:
+                    info['deptId'] = demand.dept_id
+                    info['positionId'] = demand.position_id
+                    # Resolve dept/position names
+                    try:
+                        from app.models.iam import IamDept, IamPosition
+                        if demand.dept_id:
+                            d = IamDept.query.filter_by(dept_id=demand.dept_id, status=1).first()
+                            if d:
+                                info['deptName'] = d.dept_name
+                        if demand.position_id:
+                            p = IamPosition.query.filter_by(position_id=demand.position_id, status=1).first()
+                            if p:
+                                info['positionName'] = p.position_name
+                    except Exception:
+                        pass
+        return info
+    except Exception as exc:
+        log.warning("get candidate info for onboard failed: %s", exc)
+        return {}
 
 
 def cancel_interview(book_id, reason=None):
@@ -875,11 +1092,14 @@ def cancel_interview(book_id, reason=None):
     if not book:
         raise AppError('NOT_FOUND', f'面试预约 {book_id} 不存在')
 
-    # Cannot cancel completed interviews
+    # Cannot cancel if evaluating or already passed
     from app.models.interview import InterviewRecord
     record = InterviewRecord.query.filter_by(book_id=book.id, is_deleted=0).first()
-    if record and record.interview_result == 1:
-        raise AppError('INVALID_STATE', '面试已通过，无法取消')
+    if record:
+        if record.interview_result == 1:
+            raise AppError('INVALID_STATE', '面试已通过，无法取消')
+        if not record.evaluate_text:
+            raise AppError('INVALID_STATE', '请先完成面试评价，才能取消')
 
     book.soft_delete()
 

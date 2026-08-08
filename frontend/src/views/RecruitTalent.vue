@@ -15,10 +15,7 @@
           <div style="color:var(--c-body);margin-top:4px">&bull; 本页面仅 <b>HR 专员</b>和<b>系统管理员</b>可见</div>
         </div>
       </div>
-      <button class="btn btn-primary btn-sm" :disabled="uploading" @click="uploadResume">
-        {{ uploading ? '解析中...' : '+ 上传简历' }}
-      </button>
-      <input ref="resumeFileInput" type="file" accept=".pdf,.docx,.txt,.md,.html" style="display:none" @change="onResumeFilePicked">
+      <button class="btn btn-primary btn-sm" @click="showUploadModal = true">+ 上传简历</button>
     </template>
 
     <!-- 3 Tabs -->
@@ -73,7 +70,12 @@
             <td><a href="javascript:void(0)" style="font-weight:600;color:var(--c-primary)" @click="openCandidateDrawer(c.name)">{{ c.name }}</a></td>
             <td><span class="portrait-score" :class="c.portraitClass">{{ c.portrait }}</span></td>
             <td>{{ c.edu }}</td><td>{{ c.years }}</td>
-            <td v-html="wrapSkills(c.skillsHtml)"></td>
+            <td class="skills-cell">
+              <template v-if="c.skills && c.skills.length">
+                <span class="tag-item tag-hit" v-for="(sk, si) in c.skills" :key="si">{{ sk }}</span>
+              </template>
+              <span v-else style="color:var(--c-sub)">—</span>
+            </td>
             <td>{{ c.company }}</td>
             <td>
               <template v-if="c.linkedDemands && c.linkedDemands.length">
@@ -339,6 +341,40 @@
         </div>
       </div>
     </Teleport>
+
+    <!-- 上传简历弹窗 -->
+    <BaseModal v-if="showUploadModal" title="上传简历" @close="showUploadModal = false">
+      <div class="form-grid">
+        <div class="form-group">
+          <label>简历文件 <span style="color:var(--c-error)">*</span></label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn btn-outline btn-sm" @click="$refs.uploadFileInput && $refs.uploadFileInput.click()">选择文件</button>
+            <span style="font-size:13px;color:var(--c-muted)">{{ uploadFileName || '未选择文件' }}</span>
+          </div>
+          <input ref="uploadFileInput" type="file" accept=".pdf,.docx,.txt,.md,.html" style="display:none" @change="onUploadFilePicked">
+          <div v-if="!uploadFileName" style="font-size:12px;color:var(--c-muted);margin-top:4px">支持 PDF、DOCX、TXT 格式，最大 20MB</div>
+        </div>
+        <div class="form-group">
+          <label>应聘岗位</label>
+          <select v-model="uploadPosition">
+            <option value="">— 请选择（可选）—</option>
+            <option v-for="p in uploadPositionOptions" :key="p.id" :value="p.name">{{ p.name }}</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>备注</label>
+          <textarea v-model="uploadNote" rows="3" placeholder="HR备注（可选）" style="width:100%;resize:vertical;font-size:13px;padding:8px;border:1px solid var(--c-border);border-radius:6px"></textarea>
+        </div>
+      </div>
+      <div v-if="uploadError" style="color:var(--c-error);font-size:13px;margin-top:8px">{{ uploadError }}</div>
+      <template #footer>
+        <button class="btn btn-outline btn-sm" @click="showUploadModal = false">取消</button>
+        <button class="btn btn-primary btn-sm" :disabled="uploading || !uploadFile" @click="submitUpload">
+          {{ uploading ? '解析入库中...' : '确认上传' }}
+        </button>
+      </template>
+    </BaseModal>
+
   </WorkbenchLayout>
 </template>
 
@@ -347,6 +383,7 @@ import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } from
 import WorkbenchLayout from '../layouts/WorkbenchLayout.vue';
 import { fetchTalent, updateTalentNote, fetchMatchResults, uploadResumeFile } from '../api/talent.js';
 import { fetchDemands, linkCandidateToDemand } from '../api/demand.js';
+import { fetchPositions } from '../api/auth.js';
 import { useToast } from '../composables/useToast.js';
 import { useAppError } from '../composables/useAppError.js';
 import CandidateDrawer from '../components/CandidateDrawer.vue';
@@ -460,18 +497,15 @@ async function loadFromApi() {
   talentLoading.value = true;
   talentLoadError.value = '';
   try {
-    const talentData = await fetchTalent({
-      page: extPage.value,
-      pageSize: extPageSize.value,
-      sort: extFilters.sort,
-    });
+    const params = { page: extPage.value, pageSize: extPageSize.value, sort: extFilters.sort };
+    if (extFilters.search) params.search = extFilters.search;
+    if (extFilters.status !== 'all') params.status = extFilters.status;
+    if (extFilters.source !== 'all') params.source = extFilters.source;
+    if (extFilters.edu !== 'all') params.edu = extFilters.edu;
+    const talentData = await fetchTalent(params);
     if (talentData) {
       const ext = talentData.ext ?? talentData.external ?? null;
-      apiExtData.value = Array.isArray(ext) ? ext.map(c => ({
-        ...c,
-        skillsHtml: c.skillsHtml
-          || (Array.isArray(c.skills) ? c.skills.map(s => `<span class="tag-item tag-hit">${s}</span>`).join('') : (c.skills || '')),
-      })) : null;
+      apiExtData.value = Array.isArray(ext) ? [...ext] : null;
       apiIntData.value = Array.isArray(talentData.int ?? talentData.internal) ? (talentData.int ?? talentData.internal) : [];
       apiBlacklistData.value = Array.isArray(talentData.blacklist) ? talentData.blacklist : [];
       extTotal.value = talentData.total ?? 0;
@@ -564,7 +598,7 @@ const extFiltered = computed(() => {
       const m = { mail: '邮箱', boss: 'Boss', liepin: '猎聘', refer: '内推', upload: '手动上传' };
       if (c.source !== m[extFilters.source]) return false;
     }
-    if (extFilters.skill !== 'all' && c.skillsHtml.indexOf(extFilters.skill) < 0) return false;
+    if (extFilters.skill !== 'all' && (!c.skills || c.skills.indexOf(extFilters.skill) < 0)) return false;
     if (extFilters.edu !== 'all' && c.edu !== extFilters.edu) return false;
     if (extFilters.years !== 'all') {
       const y = parseInt(c.years) || 0;
@@ -579,7 +613,8 @@ const extFiltered = computed(() => {
     if (extFilters.note === 'no' && c.note) return false;
     if (extFilters.search) {
       const kw = extFilters.search.toLowerCase();
-      if (String(c.name || '').toLowerCase().indexOf(kw) < 0 && String(c.company || '').toLowerCase().indexOf(kw) < 0 && String(c.skillsHtml || '').toLowerCase().indexOf(kw) < 0) return false;
+      const skillsStr = (c.skills || []).join(' ').toLowerCase();
+      if (String(c.name || '').toLowerCase().indexOf(kw) < 0 && String(c.company || '').toLowerCase().indexOf(kw) < 0 && skillsStr.indexOf(kw) < 0) return false;
     }
     return true;
   });
@@ -612,7 +647,7 @@ function clearSelectionInt() {
   Object.keys(checkedInt).forEach(k => delete checkedInt[k]);
 }
 
-function renderExt() {}
+function renderExt() { loadFromApi(); }
 
 // Note modal
 function openNote(id, name) {
@@ -782,26 +817,59 @@ function onCandidateJoin(data) {
   openDemandModal();
 }
 
-const uploading = ref(false);
-const resumeFileInput = ref(null);
+// ── 上传简历弹窗 ──
+const showUploadModal = ref(false);
+const uploadFileName = ref('');
+const uploadFile = ref(null);
+const uploadPosition = ref('');
+const uploadNote = ref('');
+const uploadPositionOptions = ref([]);
+const uploadError = ref('');
 
-function uploadResume() {
-  resumeFileInput.value && resumeFileInput.value.click();
-}
-
-async function onResumeFilePicked(e) {
+function onUploadFilePicked(e) {
   const file = e.target.files && e.target.files[0];
   e.target.value = '';
   if (!file) return;
-  uploading.value = true;
+  uploadFile.value = file;
+  uploadFileName.value = file.name;
+  uploadError.value = '';
+}
+
+function uploadResume() {
+  // 保留旧按钮调用兼容（如有其他地方引用）
+  showUploadModal.value = true;
+}
+
+async function loadUploadPositions() {
   try {
-    const r = await uploadResumeFile(file);
+    const data = await fetchPositions();
+    uploadPositionOptions.value = Array.isArray(data) ? data : [];
+  } catch (e) { /* 非关键路径，静默失败 */ }
+}
+
+const uploading = ref(false);
+
+async function submitUpload() {
+  if (!uploadFile.value) {
+    uploadError.value = '请选择简历文件';
+    return;
+  }
+  uploading.value = true;
+  uploadError.value = '';
+  try {
+    const r = await uploadResumeFile(uploadFile.value, uploadPosition.value, uploadNote.value);
     const engine = r.parse_engine === 'deepseek' ? 'DeepSeek' : '本地解析';
-    toast.success(`简历已入库：${r.candidate_name}（${r.candidate_no} · ${engine}）`);
+    const noteInfo = uploadNote.value ? '（已添加备注）' : '';
+    toast.success(`简历已入库：${r.candidate_name}（${r.candidate_no} · ${engine}）${noteInfo}`);
+    showUploadModal.value = false;
+    uploadFile.value = null;
+    uploadFileName.value = '';
+    uploadPosition.value = '';
+    uploadNote.value = '';
     await loadFromApi();
   } catch (err) {
-    handleError(err, 'RecruitTalent.uploadResume');
-    toast.error('简历解析入库失败：' + (err?.response?.data?.message || err.message || '未知错误'));
+    handleError(err, 'RecruitTalent.submitUpload');
+    uploadError.value = err?.response?.data?.message || err.message || '上传失败';
   } finally {
     uploading.value = false;
   }
@@ -818,7 +886,7 @@ async function startInternalInterview(r) {
   }
 }
 
-function wrapSkills(html) { return '<span class="skill-inline">' + html + '</span>'; }
+
 function hoverStyle(e, on) { e.target.style.background = on ? 'var(--c-bg)' : ''; }
 
 // Close dropdowns on external click
@@ -831,6 +899,7 @@ onMounted(() => {
   document.addEventListener('click', onDocClick);
   loadFromApi();
   loadDemandOptions();
+  loadUploadPositions();
 });
 onUnmounted(() => {
   document.removeEventListener('click', onDocClick);

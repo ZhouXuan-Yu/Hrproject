@@ -37,8 +37,8 @@ export async function sendOffer(id, data = {}) {
   return r.data;
 }
 
-export async function confirmOnboard(id) {
-  const r = await api.post(`/interview/${id}/onboard`);
+export async function confirmOnboard(id, data = null) {
+  const r = await api.post(`/interview/${id}/onboard`, data || {});
   return r.data;
 }
 

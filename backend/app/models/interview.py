@@ -6,8 +6,8 @@ from app.models.base import BaseModel
 class InterviewSlot(BaseModel):
     __tablename__ = 't_hr_interview_slot'
 
-    interviewer_id = Column(BigInteger, nullable=False, comment='面试官用户ID')
-    demand_id = Column(BigInteger, nullable=True, comment='绑定需求ID NULL=通用')
+    interviewer_id = Column(BigInteger, nullable=False, index=True, comment='面试官用户ID')
+    demand_id = Column(BigInteger, nullable=True, index=True, comment='绑定需求ID NULL=通用')
     start_dt = Column(DateTime, nullable=False, comment='时段开始')
     end_dt = Column(DateTime, nullable=False, comment='时段结束')
     is_booked = Column(Integer, nullable=False, default=0, comment='0空闲 1占用')
@@ -16,10 +16,10 @@ class InterviewSlot(BaseModel):
 class InterviewBook(BaseModel):
     __tablename__ = 't_hr_interview_book'
 
-    demand_id = Column(BigInteger, nullable=False, comment='需求ID')
-    resume_id = Column(BigInteger, nullable=False, comment='简历ID')
-    process_id = Column(BigInteger, nullable=False, comment='流程ID')
-    slot_id = Column(BigInteger, nullable=False, comment='时段ID')
+    demand_id = Column(BigInteger, nullable=False, index=True, comment='需求ID')
+    resume_id = Column(BigInteger, nullable=False, index=True, comment='简历ID')
+    process_id = Column(BigInteger, nullable=False, index=True, comment='流程ID')
+    slot_id = Column(BigInteger, nullable=False, index=True, comment='时段ID')
     interview_round = Column(Integer, nullable=False, comment='1一面 2二面')
     interview_type = Column(Integer, nullable=False, comment='1飞书 2腾讯会议 3其他线上 4线下')
     meeting_code = Column(String(32), nullable=True, comment='会议号码')
@@ -33,8 +33,8 @@ class InterviewBook(BaseModel):
 class InterviewRecord(BaseModel):
     __tablename__ = 't_hr_interview_record'
 
-    book_id = Column(BigInteger, nullable=False, comment='关联预约单ID')
-    process_id = Column(BigInteger, nullable=False, comment='流程ID')
+    book_id = Column(BigInteger, nullable=False, index=True, comment='关联预约单ID')
+    process_id = Column(BigInteger, nullable=False, index=True, comment='流程ID')
     interviewer_ids = Column(JSON, nullable=False, comment='本场所有面试官ID')
     submit_interviewer_id = Column(BigInteger, nullable=False, comment='提交评价人ID')
     is_arrive = Column(Integer, nullable=False, default=0, comment='0未到 1已到')

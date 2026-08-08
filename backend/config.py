@@ -6,11 +6,45 @@ _dotenv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
 load_dotenv(dotenv_path=_dotenv_path)
 
 
+def _warn_if_default(name: str, value: str, default_hint: str):
+    """Log a warning if *value* looks like a placeholder / default."""
+    import logging
+    log = logging.getLogger(__name__)
+    dangerous = {'change-me', 'change_me', 'changeme', 'default', 'secret', 'your-',
+                 'replace', 'example', 'test', '123456', 'password'}
+    lower = value.lower()
+    if any(hint in lower for hint in dangerous) or len(value) < 16:
+        log.warning(
+            "⚠️  PRODUCTION RISK: %s appears to be a default/weak value (%s). "
+            "Set a strong random value in production via environment variable.",
+            name, default_hint,
+        )
+
+
+def _check_password_salt():
+    """Refuse to start in production with the default salt."""
+    salt = os.getenv('PASSWORD_SALT', 'default-salt-change-me')
+    if salt == 'default-salt-change-me':
+        msg = (
+            "PASSWORD_SALT is still the default value 'default-salt-change-me'. "
+            "In production a unique random salt MUST be set via the "
+            "PASSWORD_SALT environment variable."
+        )
+        # In production, refuse to start; in dev, warn loudly
+        if os.getenv('FLASK_ENV', '') == 'production' or os.getenv('ENV', '') == 'production':
+            raise ValueError(msg)
+        import logging
+        logging.getLogger(__name__).warning("⚠️  %s", msg)
+
+
 class Config:
     """Base configuration."""
     SECRET_KEY = os.getenv('SECRET_KEY')
     if not SECRET_KEY:
         raise ValueError("SECRET_KEY environment variable is required")
+
+    # Production safety check for password salt
+    _check_password_salt()
 
     # Database — application runtime requires MySQL/MariaDB.
     _database_url = os.getenv('DATABASE_URL', '').strip()
@@ -42,12 +76,12 @@ class Config:
         raise ValueError("JWT_SECRET_KEY environment variable is required")
     JWT_ACCESS_TOKEN_EXPIRES = int(os.getenv('JWT_ACCESS_TOKEN_EXPIRES', '3600'))
 
-    # Dify AI (deprecated, kept for compatibility)
-    DIFY_API_BASE_URL = os.getenv('DIFY_API_BASE_URL', '')
-    DIFY_API_KEY = os.getenv('DIFY_API_KEY', '')
-    DIFY_WORKFLOW_RESUME_PARSE = os.getenv('DIFY_WORKFLOW_RESUME_PARSE', '')
-    DIFY_WORKFLOW_MATCH = os.getenv('DIFY_WORKFLOW_MATCH', '')
-    DIFY_WORKFLOW_INTERVIEW_QA = os.getenv('DIFY_WORKFLOW_INTERVIEW_QA', '')
+    # Password hashing
+    PASSWORD_SALT = os.getenv('PASSWORD_SALT', 'default-salt-change-me')
+
+    # Cookie
+    COOKIE_SECURE = os.getenv('COOKIE_SECURE', 'false').lower() in ('true', '1', 'yes')
+    COOKIE_DOMAIN = os.getenv('COOKIE_DOMAIN', None)
 
     # DeepSeek AI
     # REVIEW: 原为必填（空值抛 ValueError），改为可选。

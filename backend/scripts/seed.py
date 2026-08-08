@@ -1,4 +1,5 @@
-"""Seed script — populates SQLite dev db with demo data matching frontend mock."""
+"""Seed script — populates dev db with demo data matching frontend mock."""
+import hashlib
 import sys, os, random
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -15,6 +16,11 @@ def seed():
         db.create_all()
         print("Tables ready.")
 
+        # Password hash helper
+        _salt = app.config.get('PASSWORD_SALT', '')
+        def _hash(pw):
+            return hashlib.sha256((pw + _salt).encode('utf-8')).hexdigest()
+
         # ── IAM base ──
         if not IamDept.query.first():
             db.session.add_all([
@@ -25,13 +31,15 @@ def seed():
                 IamDept(dept_id=5, dept_name='财务部', parent_dept_id=0, dept_path='/5', sort_num=5),
             ])
             db.session.add_all([
-                IamUser(user_id=1, username='liubo', real_name='刘博', dept_id=1, role_code='dept_head'),
-                IamUser(user_id=2, username='zhanghr', real_name='张HR', dept_id=1, role_code='hr'),
-                IamUser(user_id=3, username='chenzong', real_name='陈总', dept_id=5, role_code='dept_head'),
-                IamUser(user_id=4, username='zhoubo', real_name='周博', dept_id=2, role_code='dept_head'),
-                IamUser(user_id=5, username='limsg', real_name='李面试官', dept_id=1, role_code='interviewer'),
-                IamUser(user_id=6, username='wangmsg', real_name='王面试官', dept_id=1, role_code='interviewer'),
-                IamUser(user_id=7, username='zhaobo', real_name='赵博', dept_id=4, role_code='dept_head'),
+                # 管理员 — 拥有全部权限，可管理用户/配置
+                IamUser(user_id=100, username='admin', real_name='系统管理员', role_code='admin', password_hash=_hash('admin123')),
+                IamUser(user_id=1, username='liubo', real_name='刘博', dept_id=1, role_code='dept_head', password_hash=_hash('123456')),
+                IamUser(user_id=2, username='zhanghr', real_name='张HR', dept_id=1, role_code='hr', password_hash=_hash('123456')),
+                IamUser(user_id=3, username='chenzong', real_name='陈总', dept_id=5, role_code='dept_head', password_hash=_hash('123456')),
+                IamUser(user_id=4, username='zhoubo', real_name='周博', dept_id=2, role_code='dept_head', password_hash=_hash('123456')),
+                IamUser(user_id=5, username='limsg', real_name='李面试官', dept_id=1, role_code='interviewer', password_hash=_hash('123456')),
+                IamUser(user_id=6, username='wangmsg', real_name='王面试官', dept_id=1, role_code='interviewer', password_hash=_hash('123456')),
+                IamUser(user_id=7, username='zhaobo', real_name='赵博', dept_id=4, role_code='dept_head', password_hash=_hash('123456')),
             ])
             db.session.add_all([
                 IamPosition(position_id=1, position_name='高级Java工程师', dept_id=1),

@@ -2,6 +2,7 @@
 // Maps HTTP codes to user-facing messages and actions
 
 import { useToast } from './useToast.js'
+import { clearAuth } from './useAuth.js'
 
 const HTTP_ERROR_MAP = {
   401: { message: '登录已过期，请重新登录', action: 'redirect' },

@@ -13,10 +13,10 @@
         class="metric-card dashboard-kpi-card"
         :style="{ '--kpi-accent': kpiAccent(i) }"
       >
-        <div class="metric-icon dashboard-kpi-icon" v-html="kpi.icon"></div>
         <div>
           <div class="metric-value">{{ kpi.val }}</div>
           <div class="metric-label">{{ kpi.label }}</div>
+          <div class="metric-sub" v-if="kpi.sub" style="font-size:11px;color:var(--c-sub)">{{ kpi.sub }}</div>
         </div>
       </div>
     </div>
@@ -89,21 +89,21 @@ const CHANNEL_DATA_ = computed(() => apiChannelData.value || []);
 const deptSummary = computed(() => DEPT_PROGRESS_.value.map(d => d.dept + ' ' + d.hired + '/' + d.total).join(' · '));
 const channelSummary = computed(() => CHANNEL_DATA_.value.map(c => c.channel + ' ' + c.resume).join(' · '));
 
-const HOME_KPI_KEYS = ['在招岗位', '待面试', '面试通过', '待入职'];
-const HOME_KPI_COLORS = ['var(--c-primary)', 'var(--c-warn)', 'var(--c-done)', '#8B5CF6'];
+const HOME_KPI_COLORS = ['#4F6EF7', '#F59E0B', '#22C55E', '#8B5CF6'];
 
 const homeKpis = computed(() => {
   const all = apiKpis.value || [];
-  // Try to match by label, fallback to first 4 items
-  const matched = HOME_KPI_KEYS.map((key, i) => {
-    const hit = all.find(k => k.label === key);
-    return hit || { label: key, val: '—', icon: '' };
-  });
-  return matched;
+  // Take the first 4 KPI items from the API response directly
+  return all.slice(0, 4).map((k, i) => ({
+    label: k.label || '—',
+    val: k.val != null ? k.val : '—',
+    sub: k.trend || '',
+    color: HOME_KPI_COLORS[i % HOME_KPI_COLORS.length],
+  }));
 });
 
 function kpiAccent(i) {
-  return HOME_KPI_COLORS[i % HOME_KPI_COLORS.length];
+  return homeKpis.value[i]?.color || HOME_KPI_COLORS[0];
 }
 
 async function loadData() {
@@ -151,10 +151,7 @@ onMounted(() => {
   top: 0; left: 0; right: 0;
   height: 3px;
   background: var(--kpi-accent);
-  opacity: 0;
-  transition: opacity .2s;
 }
-.dashboard-kpi-card:hover::before { opacity: 1; }
 .dashboard-kpi-card:hover { box-shadow: 0 12px 32px rgba(23,32,51,.1); }
 .data-region { position: relative; min-height: 80px; }
 

@@ -10,6 +10,78 @@
       本页面仅<b>系统管理员</b>可操作 · HR 无配置权限 · 配置变更即时生效，请谨慎操作
     </div>
 
+    <!-- 部门管理 -->
+    <BaseAccordion title="部门管理" :open="false">
+      <div class="accordion-desc">管理部门组织架构，增删改查。有用户或需求引用的部门不可删除，只能停用；有在职员工的部门不可停用。</div>
+      <div style="display:flex;gap:8px;margin:12px 0">
+        <button class="btn btn-primary btn-sm" @click="openDeptCreate">+ 新增部门</button>
+      </div>
+      <div class="table-wrap data-region">
+        <table><thead><tr>
+          <th>ID</th><th>部门名称</th><th>排序</th><th>状态</th><th style="width:140px">操作</th>
+        </tr></thead><tbody>
+          <tr v-for="d in deptList" :key="d.id">
+            <td>{{ d.id }}</td><td>{{ d.name }}</td><td>{{ d.sortNum || 0 }}</td>
+            <td><span :style="{color: d.status === 1 ? 'var(--c-done)' : 'var(--c-error)', fontWeight:600}">{{ d.status === 1 ? '启用' : '停用' }}</span></td>
+            <td class="row-actions">
+              <a href="#" class="btn btn-text btn-sm" @click.prevent="openDeptEdit(d)">编辑</a>
+              <a href="#" class="btn btn-text btn-sm" @click.prevent="toggleDeptStatus(d)">{{ d.status === 1 ? '停用' : '启用' }}</a>
+              <a href="#" class="btn btn-text btn-sm" style="color:var(--c-error)" @click.prevent="deleteDept(d)">删除</a>
+            </td>
+          </tr></tbody>
+        </table>
+      </div>
+    </BaseAccordion>
+
+    <!-- 部门编辑弹窗 -->
+    <BaseModal v-if="deptDialogVisible" :title="deptEditingId ? '编辑部门' : '新增部门'" @close="deptDialogVisible = false">
+      <div class="form-grid">
+        <div class="form-group"><label>部门名称 <span style="color:var(--c-error)">*</span></label><input type="text" v-model="deptForm.name" placeholder="如：技术研发部"></div>
+        <div class="form-group"><label>排序号</label><input type="number" v-model.number="deptForm.sortNum" placeholder="越小越靠前"></div>
+      </div>
+      <div v-if="deptFormError" style="color:var(--c-error);font-size:13px;margin-top:8px">{{ deptFormError }}</div>
+      <template #footer>
+        <button class="btn btn-outline btn-sm" @click="deptDialogVisible = false">取消</button>
+        <button class="btn btn-primary btn-sm" :disabled="deptSaving" @click="saveDept">{{ deptSaving ? '保存中...' : '保存' }}</button>
+      </template>
+    </BaseModal>
+
+    <!-- 岗位管理 -->
+    <BaseAccordion title="岗位管理" :open="false">
+      <div class="accordion-desc">管理招聘岗位，增删改查。有用户或需求引用的岗位不可删除，只能停用。</div>
+      <div style="display:flex;gap:8px;margin:12px 0">
+        <button class="btn btn-primary btn-sm" @click="openPosCreate">+ 新增岗位</button>
+      </div>
+      <div class="table-wrap data-region">
+        <table><thead><tr>
+          <th>ID</th><th>岗位名称</th><th>所属部门</th><th>状态</th><th style="width:140px">操作</th>
+        </tr></thead><tbody>
+          <tr v-for="p in posList" :key="p.id">
+            <td>{{ p.id }}</td><td>{{ p.name }}</td><td>{{ deptNameMap[p.deptId] || '—' }}</td>
+            <td><span :style="{color: p.status === 1 ? 'var(--c-done)' : 'var(--c-error)', fontWeight:600}">{{ p.status === 1 ? '启用' : '停用' }}</span></td>
+            <td class="row-actions">
+              <a href="#" class="btn btn-text btn-sm" @click.prevent="openPosEdit(p)">编辑</a>
+              <a href="#" class="btn btn-text btn-sm" @click.prevent="togglePosStatus(p)">{{ p.status === 1 ? '停用' : '启用' }}</a>
+              <a href="#" class="btn btn-text btn-sm" style="color:var(--c-error)" @click.prevent="deletePos(p)">删除</a>
+            </td>
+          </tr></tbody>
+        </table>
+      </div>
+    </BaseAccordion>
+
+    <!-- 岗位编辑弹窗 -->
+    <BaseModal v-if="posDialogVisible" :title="posEditingId ? '编辑岗位' : '新增岗位'" @close="posDialogVisible = false">
+      <div class="form-grid">
+        <div class="form-group"><label>岗位名称 <span style="color:var(--c-error)">*</span></label><input type="text" v-model="posForm.name" placeholder="如：高级Java工程师"></div>
+        <div class="form-group"><label>所属部门</label><select v-model="posForm.deptId"><option value="">— 请选择 —</option><option v-for="d in deptOptionsAll" :key="d.id" :value="d.id">{{ d.name }}</option></select></div>
+      </div>
+      <div v-if="posFormError" style="color:var(--c-error);font-size:13px;margin-top:8px">{{ posFormError }}</div>
+      <template #footer>
+        <button class="btn btn-outline btn-sm" @click="posDialogVisible = false">取消</button>
+        <button class="btn btn-primary btn-sm" :disabled="posSaving" @click="savePos">{{ posSaving ? '保存中...' : '保存' }}</button>
+      </template>
+    </BaseModal>
+
     <!-- 邮箱配置 -->
     <BaseAccordion title="邮箱配置" :open="true">
       <div class="accordion-desc">
@@ -36,10 +108,10 @@
       <button class="btn btn-primary btn-sm" @click="openAddEmail">+ 添加邮箱账号</button>
       <hr class="config-divider">
       <div class="form-row">
-        <div class="form-group"><label>简历识别规则</label><select><option>解析服务识别（推荐）</option><option>关键词匹配</option><option>发件人域名</option></select></div>
-        <div class="form-group"><label>垃圾简历过滤</label><select><option>标准过滤（默认）</option><option>宽松</option><option>严格</option></select></div>
+        <div class="form-group"><label>简历识别规则</label><select v-model="emailConfig.resumeRule"><option value="ai">解析服务识别（推荐）</option><option value="keyword">关键词匹配</option><option value="domain">发件人域名</option></select></div>
+        <div class="form-group"><label>垃圾简历过滤</label><select v-model="emailConfig.spamFilter"><option value="standard">标准过滤（默认）</option><option value="loose">宽松</option><option value="strict">严格</option></select></div>
       </div>
-      <div class="form-group"><label>附件格式白名单</label><input type="text" value="PDF, DOCX, DOC" readonly style="background:#fafbfc"></div>
+      <div class="form-group"><label>附件格式白名单</label><input type="text" v-model="emailConfig.attachmentTypes" style="background:#fafbfc"></div>
     </BaseAccordion>
 
     <!-- 邮件监控：简历处理管道 + 系统邮件看板 -->
@@ -326,17 +398,25 @@
 
     <!-- 角色权限 -->
     <BaseAccordion title="角色权限">
-      <table class="config-table">
-        <thead><tr><th>角色</th><th>可见菜单</th><th>数据范围</th><th>操作权限</th></tr></thead>
-        <tbody>
-          <tr v-for="(rp, i) in rolePermissions" :key="i">
-            <td><span class="role-badge" :class="rp.badgeClass" :style="rp.style">{{ rp.role }}</span></td>
-            <td>{{ rp.menus }}</td>
-            <td>{{ rp.dataScope }}</td>
-            <td>{{ rp.ops }}</td>
-          </tr>
-        </tbody>
-      </table>
+      <div class="accordion-desc">管理员可在此调整每个角色能看到的菜单。修改后立即生效，该角色用户下次登录时菜单更新。</div>
+      <div class="role-perm-grid">
+        <div class="rp-header">
+          <span class="rp-role-col">角色</span>
+          <label class="rp-check-col" v-for="mid in allMenuIds" :key="mid">{{ allMenuLabels[mid] || mid }}</label>
+        </div>
+        <div class="rp-row" v-for="(rp, i) in editableRolePermissions" :key="i">
+          <span class="rp-role-col">
+            <span class="role-badge" :class="rp.badgeClass">{{ rp.role }}</span>
+          </span>
+          <label class="rp-check-col" v-for="mid in allMenuIds" :key="mid">
+            <input type="checkbox" :checked="rp.menuIds.includes(mid)" @change="toggleRoleMenu(rp, mid)">
+          </label>
+        </div>
+      </div>
+      <button class="btn btn-primary btn-sm" :disabled="rolePermSaving" @click="saveRolePermissions" style="margin-top:12px">
+        {{ rolePermSaving ? '保存中...' : '保存角色权限' }}
+      </button>
+      <span v-if="rolePermMsg" :style="{color: rolePermOk ? 'var(--c-done)' : 'var(--c-error)', marginLeft:'10px', fontSize:'13px'}">{{ rolePermMsg }}</span>
     </BaseAccordion>
 
     <!-- 操作日志 -->
@@ -480,9 +560,10 @@ import { useConfirmDialog } from '../composables/useConfirmDialog.js';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
 import { api } from '../api/index.js';
 import { fetchIngestLog, fetchMailLog } from '../api/talent.js';
+import { createDepartment, updateDepartment, deleteDepartment, toggleDepartmentStatus, createPosition, updatePosition, deletePosition, togglePositionStatus } from '../api/auth.js';
 import {
   fetchEmailAccounts, fetchChannels, fetchScoreRules, fetchNotifyTemplates,
-  fetchRolePermissions, fetchAuditLogs, fetchApiKeys, saveApiKeys, testApiKey, fetchTencentStatus, fetchFeishuStatus,
+  fetchRolePermissions, updateRolePermissions, fetchAuditLogs, fetchApiKeys, saveApiKeys, testApiKey, fetchTencentStatus, fetchFeishuStatus,
   createEmailAccount, updateEmailAccount, deleteEmailAccount, resolveEmailServer,
   createChannel, updateChannel,
   updateScoreRules,
@@ -495,6 +576,14 @@ const { handleError } = useAppError();
 const { confirmDialog, askConfirm, onConfirmDialogConfirm, onConfirmDialogCancel } = useConfirmDialog();
 
 const emailAccounts = ref([]);
+const emailConfig = reactive({
+  resumeRule: localStorage.getItem('hr_email_resume_rule') || 'ai',
+  spamFilter: localStorage.getItem('hr_email_spam_filter') || 'standard',
+  attachmentTypes: 'PDF, DOCX, DOC',
+});
+// Persist email config changes to localStorage (best-effort, until DB column added)
+watch(() => emailConfig.resumeRule, v => localStorage.setItem('hr_email_resume_rule', v));
+watch(() => emailConfig.spamFilter, v => localStorage.setItem('hr_email_spam_filter', v));
 const channels = ref([]);
 const scoreRules = reactive({
   profileWeight: 0.10, matchWeight: 0.90,
@@ -512,6 +601,49 @@ const knowledgeForm = reactive({
 });
 const knowledgeSaving = ref(false);
 const rolePermissions = ref([]);
+const editableRolePermissions = ref([]);
+const allMenuIds = ref([]);
+const allMenuLabels = ref({});
+const rolePermSaving = ref(false);
+const rolePermMsg = ref('');
+const rolePermOk = ref(false);
+
+function initEditablePermissions() {
+  const rp = rolePermissions.value || [];
+  editableRolePermissions.value = rp.map(r => ({
+    ...r, menuIds: [...(r.menuIds || [])],
+  }));
+  if (rp.length > 0) {
+    allMenuIds.value = rp[0].allMenuIds || [];
+    allMenuLabels.value = rp[0].allMenuLabels || {};
+  }
+}
+
+function toggleRoleMenu(rp, menuId) {
+  const idx = rp.menuIds.indexOf(menuId);
+  if (idx >= 0) rp.menuIds.splice(idx, 1);
+  else rp.menuIds.push(menuId);
+}
+
+async function saveRolePermissions() {
+  rolePermSaving.value = true;
+  rolePermMsg.value = '';
+  try {
+    const payload = {};
+    editableRolePermissions.value.forEach(rp => { payload[rp.roleCode] = rp.menuIds; });
+    await updateRolePermissions(payload);
+    rolePermOk.value = true;
+    rolePermMsg.value = '角色权限已保存，用户下次登录生效';
+    // Refresh to sync
+    const fresh = await fetchRolePermissions();
+    if (fresh) { rolePermissions.value = fresh; initEditablePermissions(); }
+  } catch (e) {
+    rolePermOk.value = false;
+    rolePermMsg.value = e.message || '保存失败';
+  } finally {
+    rolePermSaving.value = false;
+  }
+}
 const auditLogs = ref([]);
 const auditExportRange = reactive({ start: '', end: '' });
 const secretKeys = ref([]);
@@ -530,6 +662,161 @@ const feishuTesting = ref(false);
 const feishuMsg = ref('');
 const feishuMsgType = ref('ok');
 const feishuTest = reactive({ status: '', message: '', source: null });
+
+// ── 部门管理 ──
+const deptList = ref([]);
+const deptOptionsAll = ref([]);  // 含停用的完整列表（供岗位选择部门用）
+const deptDialogVisible = ref(false);
+const deptEditingId = ref(null);
+const deptForm = reactive({ name: '', sortNum: 0 });
+const deptFormError = ref('');
+const deptSaving = ref(false);
+const deptNameMap = computed(() => {
+  const m = {};
+  deptOptionsAll.value.forEach(d => { m[d.id] = d.name; });
+  return m;
+});
+
+function openDeptCreate() {
+  deptEditingId.value = null;
+  deptForm.name = '';
+  deptForm.sortNum = 0;
+  deptFormError.value = '';
+  deptDialogVisible.value = true;
+}
+function openDeptEdit(d) {
+  deptEditingId.value = d.id;
+  deptForm.name = d.name;
+  deptForm.sortNum = d.sortNum || 0;
+  deptFormError.value = '';
+  deptDialogVisible.value = true;
+}
+async function saveDept() {
+  if (!deptForm.name.trim()) { deptFormError.value = '请输入部门名称'; return; }
+  deptSaving.value = true;
+  deptFormError.value = '';
+  try {
+    if (deptEditingId.value) {
+      await updateDepartment(deptEditingId.value, { name: deptForm.name.trim(), sortNum: deptForm.sortNum });
+      toast.success('部门已更新');
+    } else {
+      await createDepartment({ name: deptForm.name.trim(), sortNum: deptForm.sortNum });
+      toast.success('部门已创建');
+    }
+    deptDialogVisible.value = false;
+    await loadDeptAndPosition();
+  } catch (e) {
+    deptFormError.value = e?.response?.data?.message || e.message || '操作失败';
+  } finally { deptSaving.value = false; }
+}
+async function toggleDeptStatus(d) {
+  try {
+    await toggleDepartmentStatus(d.id, d.status === 1 ? 0 : 1);
+    toast.success(d.status === 1 ? '部门已停用' : '部门已启用');
+    await loadDeptAndPosition();
+  } catch (e) {
+    toast.error(e?.response?.data?.message || '操作失败');
+  }
+}
+async function deleteDept(d) {
+  const ok = await askConfirm({
+    title: '删除部门',
+    message: `确定删除部门「${d.name}」吗？`,
+    detail: '如果有用户或需求引用将无法删除，建议先停用。',
+    type: 'danger',
+    confirmText: '删除',
+  });
+  if (!ok) return;
+  try {
+    await deleteDepartment(d.id);
+    toast.success('部门已删除');
+    await loadDeptAndPosition();
+  } catch (e) {
+    toast.error(e?.response?.data?.message || '删除失败');
+  }
+}
+
+// ── 岗位管理 ──
+const posList = ref([]);
+const posDialogVisible = ref(false);
+const posEditingId = ref(null);
+const posForm = reactive({ name: '', deptId: '' });
+const posFormError = ref('');
+const posSaving = ref(false);
+
+function openPosCreate() {
+  posEditingId.value = null;
+  posForm.name = '';
+  posForm.deptId = '';
+  posFormError.value = '';
+  posDialogVisible.value = true;
+}
+function openPosEdit(p) {
+  posEditingId.value = p.id;
+  posForm.name = p.name;
+  posForm.deptId = p.deptId || '';
+  posFormError.value = '';
+  posDialogVisible.value = true;
+}
+async function savePos() {
+  if (!posForm.name.trim()) { posFormError.value = '请输入岗位名称'; return; }
+  posSaving.value = true;
+  posFormError.value = '';
+  try {
+    const payload = { name: posForm.name.trim(), deptId: posForm.deptId || null };
+    if (posEditingId.value) {
+      await updatePosition(posEditingId.value, payload);
+      toast.success('岗位已更新');
+    } else {
+      await createPosition(payload);
+      toast.success('岗位已创建');
+    }
+    posDialogVisible.value = false;
+    await loadDeptAndPosition();
+  } catch (e) {
+    posFormError.value = e?.response?.data?.message || e.message || '操作失败';
+  } finally { posSaving.value = false; }
+}
+async function togglePosStatus(p) {
+  try {
+    await togglePositionStatus(p.id, p.status === 1 ? 0 : 1);
+    toast.success(p.status === 1 ? '岗位已停用' : '岗位已启用');
+    await loadDeptAndPosition();
+  } catch (e) {
+    toast.error(e?.response?.data?.message || '操作失败');
+  }
+}
+async function deletePos(p) {
+  const ok = await askConfirm({
+    title: '删除岗位',
+    message: `确定删除岗位「${p.name}」吗？`,
+    detail: '如果有用户或需求引用将无法删除，建议先停用。',
+    type: 'danger',
+    confirmText: '删除',
+  });
+  if (!ok) return;
+  try {
+    await deletePosition(p.id);
+    toast.success('岗位已删除');
+    await loadDeptAndPosition();
+  } catch (e) {
+    toast.error(e?.response?.data?.message || '删除失败');
+  }
+}
+
+async function loadDeptAndPosition() {
+  // 管理面板（全部，含停用）
+  try {
+    const r = await api.get('/auth/departments?all=1');
+    const all = Array.isArray(r.data) ? r.data : [];
+    deptList.value = all;
+    deptOptionsAll.value = all;
+  } catch { deptList.value = []; deptOptionsAll.value = []; }
+  try {
+    const r = await api.get('/auth/positions?all=1');
+    posList.value = Array.isArray(r.data) ? r.data : [];
+  } catch { posList.value = []; }
+}
 
 const DEFAULT_NOTIFY_TEMPLATES = [
   {
@@ -599,7 +886,7 @@ const ruleMsgType = ref('ok');
 const statCards = computed(() => [
   { key: 'email', label: '邮箱账号', value: emailAccounts.value.length, hint: emailAccounts.value.filter(a => a.status === '异常').length + ' 个异常', icon: KPI_ICONS.mail },
   { key: 'channel', label: '渠道配置', value: channels.value.length, hint: channels.value.filter(c => c.status === '启用').length + ' 个启用', icon: KPI_ICONS.briefcase },
-  { key: 'template', label: '通知模板', value: notifyTemplates.value.length, hint: '最近更新: ' + (notifyTemplates.value[0]?.updated || '—'), icon: KPI_ICONS.bell },
+  { key: 'template', label: '通知模板', value: notifyTemplates.value.length, hint: '最近更新: ' + (notifyTemplates.value.reduce((latest, t) => t.updated > latest ? t.updated : latest, '—')), icon: KPI_ICONS.bell },
   { key: 'role', label: '角色权限', value: rolePermissions.value.length, hint: '权限分组', icon: KPI_ICONS.users },
 ]);
 
@@ -669,8 +956,9 @@ async function loadAll() {
     notifyTemplates.value = Array.isArray(notifs) && notifs.length
       ? notifs
       : visibleDefaultTemplates();
-    if (roles) rolePermissions.value = roles;
+    if (roles) { rolePermissions.value = roles; initEditablePermissions(); }
     if (logs) auditLogs.value = logs;
+    loadDeptAndPosition();
     if (kb) Object.assign(knowledgeForm, kb);
     if (keys) {
       secretKeys.value = Object.values(keys)
@@ -1202,7 +1490,7 @@ function renderTemplateHtml(text) {
     confirm_url: 'https://example.com/confirm/demo',
     address: 'XX公司会议室',
   });
-  if (/<[a-z][\s\S]*>/i.test(rendered)) return rendered;
+  // Always escape to prevent XSS; convert newlines to <br> for formatting
   return escapeHtml(rendered).replace(/\r?\n/g, '<br>');
 }
 
@@ -1223,7 +1511,7 @@ async function updateTplMethod(tpl, e) {
   const val = e.target.value.trim();
   if (val === tpl.method) return;
   try {
-    await updateNotifyTemplate(tpl.id, { method: val, name: tpl.name, type: tpl.type, subject: tpl.subject, body: tpl.body });
+    await updateNotifyTemplate(tpl.id, { method: val });
     tpl.method = val;
     tpl.updated = '刚刚';
     toast.success('模板发送方式已更新');
@@ -1438,4 +1726,18 @@ async function deleteTemplate(tpl) {
 .ml-addr { font-size: 12px; color: var(--c-sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ml-arrow { font-size: 11px; color: var(--c-primary); font-weight: 700; }
 .ml-error { margin-top: 3px; font-size: 11px; color: var(--c-warn); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Role permission editable grid */
+.role-perm-grid { font-size: 13px; overflow-x: auto; }
+.rp-header, .rp-row { display: flex; align-items: center; gap: 4px; padding: 6px 0; border-bottom: 1px solid var(--c-border-light, #EFF1F5); }
+.rp-header { font-weight: 600; color: var(--c-muted, #8C95A6); font-size: 12px; }
+.rp-role-col { width: 110px; flex-shrink: 0; }
+.rp-check-col { width: 72px; text-align: center; font-size: 12px; cursor: pointer; }
+.rp-check-col input { cursor: pointer; width: 16px; height: 16px; accent-color: var(--c-primary, #4F6EF7); }
+
+/* User management form */
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.form-grid .form-group { display: flex; flex-direction: column; }
+.form-grid .form-group label { font-size: 12px; color: var(--c-sub); margin-bottom: 4px; }
+.form-grid .form-group input, .form-grid .form-group select { padding: 6px 10px; border: 1px solid var(--c-border); border-radius: 6px; font-size: 13px; }
 </style>

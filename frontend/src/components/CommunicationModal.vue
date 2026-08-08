@@ -21,6 +21,9 @@
 
         <!-- Body -->
         <div class="comm-body">
+          <!-- Contact error banner -->
+          <div v-if="contactError" class="contact-error-banner">{{ contactError }}</div>
+
           <!-- Channel selector -->
           <div class="form-section">
             <h4 class="section-title">选择联系方式</h4>
@@ -143,6 +146,7 @@ const draftLoading = ref(false);
 const draftError = ref('');
 const copied = ref(false);
 const contactInfo = ref({ mobile: '', email: '', feishu: '' });
+const contactError = ref('');
 const sent = ref({ email: false, feishu: false });
 const sending = ref(false);
 const sendResult = ref({ visible: false, sent: false, message: '' });
@@ -196,6 +200,7 @@ async function generateDraft() {
 async function loadContactInfo() {
   const id = props.candidate?.id || '';
   contactInfo.value = { mobile: '', email: '', feishu: '' };
+  contactError.value = '';
   if (!id) return;
   try {
     const info = await fetchCandidateContact(id);
@@ -206,6 +211,7 @@ async function loadContactInfo() {
     };
   } catch (e) {
     console.warn('[CommunicationModal] contact info failed:', e);
+    contactError.value = '联系方式加载失败：' + (e.message || '未知错误');
   }
 }
 
@@ -282,6 +288,7 @@ function resetForm() {
   purpose.value = 'initial';
   draftText.value = '';
   draftError.value = '';
+  contactError.value = '';
   copied.value = false;
   sent.value = { email: false, feishu: false };
   sendResult.value = { visible: false, sent: false, message: '' };
@@ -510,6 +517,7 @@ watch(
 .skeleton-line { height: 14px; border-radius: 4px; background: linear-gradient(90deg, #E1E6EF 25%, #F0F2F5 50%, #E1E6EF 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
 @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 .draft-error { color: var(--e-reject, #EF4444); font-size: 12px; margin-bottom: 8px; padding: 8px 12px; background: #FEF2F2; border-radius: 6px; }
+.contact-error-banner { color: var(--c-reject, #EF4444); font-size: 12px; margin-bottom: 12px; padding: 8px 12px; background: #FEF2F2; border: 1px solid #FECACA; border-radius: 6px; }
 
 /* ===== Actions footer ===== */
 .comm-actions {

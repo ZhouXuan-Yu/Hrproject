@@ -341,6 +341,17 @@ def get_role_permissions():
     return success(data)
 
 
+@bp.route('/role-permissions', methods=['PUT'])
+def update_role_permissions():
+    """PUT /api/config/role-permissions — admin updates which menus each role can see."""
+    from app.services.config_service import update_role_permissions, append_audit_log
+    result = update_role_permissions(request.get_json(silent=True) or {})
+    if result.get('updated'):
+        append_audit_log('系统', '配置', '更新角色权限',
+                         f"更新了 {', '.join(result.get('roles', []))} 的菜单权限")
+    return success(result)
+
+
 @bp.route('/audit-logs')
 def get_audit_logs():
     """GET /api/config/audit-logs"""

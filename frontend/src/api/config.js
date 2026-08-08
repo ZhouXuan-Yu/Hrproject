@@ -24,6 +24,7 @@ export async function fetchKnowledgeBase()    { const r = await api.get('/config
 export async function updateKnowledgeBase(d)  { const r = await api.put('/config/knowledge-base', d); return r.data; }
 
 export async function fetchRolePermissions()  { const r = await api.get('/config/role-permissions'); return r.data; }
+export async function updateRolePermissions(d) { const r = await api.put('/config/role-permissions', d); return r.data; }
 export async function fetchAuditLogs()        { const r = await api.get('/config/audit-logs'); return r.data; }
 export async function fetchAiCapabilities()   { const r = await api.get('/ai/capabilities'); return r.data; }
 export async function fetchApiKeys()          { const r = await api.get('/config/api-keys'); return r.data; }
@@ -31,3 +32,4 @@ export async function saveApiKeys(d)          { const r = await api.put('/config
 export async function testApiKey(name)        { const r = await api.post('/config/api-keys/test', { key_name: name }); return r.data; }
 export async function fetchTencentStatus()    { const r = await api.get('/config/tencent-meeting/status'); return r.data; }
 export async function fetchFeishuStatus()     { const r = await api.get('/config/feishu/status'); return r.data; }
+export async function fetchDepartments()      { const r = await api.get('/auth/departments'); return r.data; }

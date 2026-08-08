@@ -12,10 +12,14 @@ import pytest
 
 
 class TestFeishuVcMock:
-    """create_vc_meeting() in MOCK_MODE returns a deterministic-shaped fake URL."""
+    """create_vc_meeting() in MOCK_MODE returns a valid-shaped fake vc.feishu.cn URL."""
 
-    def test_mock_returns_fake_vc_url(self, app):
+    def test_mock_returns_fake_vc_url(self, app, monkeypatch):
+        monkeypatch.setenv('FEISHU_MOCK_MODE', 'true')
         from app.services import feishu_client
+        # re-import to pick up env change
+        import importlib
+        importlib.reload(feishu_client)
         assert feishu_client.MOCK_MODE is True
         vc = feishu_client.create_vc_meeting('面试-张三-后端', '1785000000', duration_minutes=60)
         assert re.fullmatch(r'https://vc\.feishu\.cn/j/\d{9}', vc['meeting_url'])

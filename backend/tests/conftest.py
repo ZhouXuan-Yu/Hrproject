@@ -29,12 +29,12 @@ def _seed_iam_data():
         IamUser(user_id=1, username='admin', real_name='管理员', role_code='admin', status=1),
         IamUser(user_id=2, username='hr', real_name='张HR', role_code='hr', status=1),
         IamUser(user_id=3, username='dept_head', real_name='部门负责人', role_code='dept_head', status=1),
-        IamUser(user_id=8, username='executive', real_name='高管', role_code='executive', status=1),
+        IamUser(user_id=8, username='director', real_name='总监', role_code='director', status=1),
     ]
     identities = [
         RecruitApprovalIdentity(approve_level=1, identity_code='dept_head', identity_name='部门负责人', role_code='dept_head', user_id=3, status=1),
         RecruitApprovalIdentity(approve_level=2, identity_code='hr', identity_name='HR', role_code='hr', user_id=2, status=1),
-        RecruitApprovalIdentity(approve_level=3, identity_code='executive', identity_name='高管', role_code='executive', user_id=8, status=1),
+        RecruitApprovalIdentity(approve_level=3, identity_code='director', identity_name='总监', role_code='director', user_id=8, status=1),
     ]
     _db.session.add_all(users + identities)
     _db.session.commit()
@@ -71,13 +71,13 @@ def auth_headers(app):
     middleware will accept it.
     """
     import jwt
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
 
     payload = {
         'user_id': 1,
         'role': 'admin',
         'tenant_id': 1,
-        'exp': datetime.utcnow() + timedelta(hours=1),
+        'exp': datetime.now(timezone.utc) + timedelta(hours=1),
     }
     token = jwt.encode(
         payload,

@@ -14,19 +14,15 @@ log = logging.getLogger(__name__)
 APPROVAL_LEVELS = {
     1: '部门负责人',
     2: 'HR',
-    3: '高管',
+    3: '总监',
 }
 
-# user_id -> display name used only when legacy rows do not join to IAM users.
-_USER_NAME_MAP = {
-    1: '刘博', 2: '张HR', 3: '陈总', 4: '周博',
-    5: '李面试官', 6: '王面试官', 7: '赵博', 8: '高管',
-}
+from app.services.name_resolver import resolve_user_name
 
 _APPROVAL_IDENTITY_DEFAULTS = [
     (1, 'dept_head', '部门负责人', 'dept_head', None),
     (2, 'hr', 'HR', 'hr', None),
-    (3, 'executive', '高管', 'executive', None),
+    (3, 'director', '总监', 'director', None),
 ]
 
 
@@ -186,30 +182,30 @@ def _resolve_hr():
     return admin_id
 
 
-def _resolve_executive():
-    """Find an executive approver.
+def _resolve_director():
+    """Find an director approver.
 
-    Queries IamUser with role_code='executive' first,
+    Queries IamUser with role_code='director' first,
     then falls back to 'admin'.
     """
     try:
         from app.models.iam import IamUser
-        executive = IamUser.query.filter(
-            IamUser.role_code == 'executive',
+        director = IamUser.query.filter(
+            IamUser.role_code == 'director',
             IamUser.is_deleted == 0,
             IamUser.status == 1,
         ).first()
 
-        if executive:
-            return executive.user_id
+        if director:
+            return director.user_id
 
         admin_id = _resolve_admin_user()
         if admin_id:
             return admin_id
     except Exception as exc:
-        log.warning("Failed to resolve executive approver: %s", exc)
+        log.warning("Failed to resolve director approver: %s", exc)
     admin_id = _resolve_admin_user()
-    log.warning("No active executive approver found; assigning approval task to admin user %s", admin_id)
+    log.warning("No active director approver found; assigning approval task to admin user %s", admin_id)
     return admin_id
 
 
@@ -221,7 +217,7 @@ def init_approval(demand_id):
     Each node is assigned a real approver by role lookup:
       Level 1: department head (dept_head)
       Level 2: HR (hr)
-      Level 3: executive (executive)
+      Level 3: director (director)
 
     Returns the list of created DemandApproval records.
     """
@@ -234,7 +230,7 @@ def init_approval(demand_id):
     approvers = {
         1: _resolve_dept_head(demand_id),
         2: _resolve_hr(),
-        3: _resolve_executive(),
+        3: _resolve_director(),
     }
 
     for level in (1, 2, 3):
@@ -251,7 +247,7 @@ def init_approval(demand_id):
 
     db.session.commit()
     log.info(
-        "Initialized 3-level approval for demand %s: dept_head=%s, hr=%s, executive=%s",
+        "Initialized 3-level approval for demand %s: dept_head=%s, hr=%s, director=%s",
         demand_id, approvers[1], approvers[2], approvers[3],
     )
     return rows
@@ -394,18 +390,25 @@ def reject(demand_id, level, approve_user_id, opinion=None, current_role='employ
     }
 
 
+_STATE_LABELS = {
+    'done': '已通过',
+    'current': '审批中',
+    'pending': '待审批',
+    'rejected': '已驳回',
+}
+
+
 def get_approval_progress(demand_id):
     """Return the approval progress array in frontend-compatible format.
 
     Queries t_hr_demand_approval for real data.
 
-    Example output::
-
-        [
-            {"label": "部门负责人", "state": "done",   "actor": "刘博", "date": "2026-07-12 14:30"},
-            {"label": "HR",         "state":"current", "actor": null,   "date": null},
-            {"label": "高管",       "state":"pending", "actor": null,   "date": null},
-        ]
+    Fields returned (support both list-page and detail-page conventions):
+        label  / role   — approval level display name
+        state  / status — machine-readable / human-readable state
+        actor           — real name of the person who approved (from IamUser)
+        date            — approval timestamp
+        opinion         — approval comment
     """
     from app.models.demand import DemandApproval
 
@@ -427,13 +430,18 @@ def get_approval_progress(demand_id):
     result = []
     for i, r in enumerate(records):
         state = _derive_state(r, i, current_idx)
-        actor_name = _resolve_actor_name(r.approve_user_id) if r.approve_user_id else None
+        # 只有已完成（通过/驳回）的节点才显示审批人姓名，待审批节点只显示角色身份
+        actor_name = _resolve_actor_name(r.approve_user_id) if (r.approve_user_id and r.approve_result != 1) else None
         date_str = r.approve_time.strftime('%Y-%m-%d %H:%M:%S') if r.approve_time else None
+        label = APPROVAL_LEVELS.get(r.approve_level, f'层级{r.approve_level}')
+        role = label
 
         result.append({
-            'label': APPROVAL_LEVELS.get(r.approve_level, f'层级{r.approve_level}'),
+            'label': label,
+            'role': role,
             'level': r.approve_level,
             'state': state,
+            'status': _STATE_LABELS.get(state, state),
             'actor': actor_name,
             'date': date_str,
             'opinion': r.approve_opinion,
@@ -453,7 +461,7 @@ def _resolve_actor_name(user_id):
             return user.real_name
     except Exception:
         pass
-    return _USER_NAME_MAP.get(user_id, str(user_id))
+    return resolve_user_name(user_id)
 
 
 # ---------------------------------------------------------------------------
@@ -484,27 +492,45 @@ def _derive_state(record, index, current_idx):
 def _notify_approver(approval_record):
     """Notify the designated approver about a pending approval task.
 
-    In v0.1 this logs the notification; the real implementation will
-    send a Feishu/Lark notification to the approver.
+    Sends a Feishu message to the approver; falls back to structured log
+    when Feishu is unavailable or the user has no open_id configured.
     """
-    actor_name = _USER_NAME_MAP.get(approval_record.approve_user_id, '未知用户')
-    level_label = APPROVAL_LEVELS.get(approval_record.approve_level, f'层级{approval_record.approve_level}')
+    from app.services.notify_service import notify_user, CARD_BLUE
 
-    log.info(
-        "[NOTIFY] 审批通知 -> user_id=%s (%s): 需求 %s 的「%s」审批已通过",
-        approval_record.approve_user_id,
-        actor_name,
-        approval_record.demand_id,
-        level_label,
+    name = resolve_user_name(approval_record.approve_user_id)
+    level_label = APPROVAL_LEVELS.get(approval_record.approve_level,
+                                      f'层级{approval_record.approve_level}')
+
+    title = '审批通知'
+    body = (
+        f"需求 {approval_record.demand_id} 的「{level_label}」审批已提交，"
+        f"请尽快处理。\n审批人：{name}"
     )
 
-    # TODO: Send real Feishu/Lark notification
-    # from app.services.feishu_service import send_feishu_message
-    # send_feishu_message(
-    #     user_id=approval_record.approve_user_id,
-    #     title='审批通知',
-    #     content=f'需求 {approval_record.demand_id} 的「{level_label}」审批已通过',
-    # )
+    notify_user(approval_record.approve_user_id, title, body, CARD_BLUE)
+
+    # Also notify the next-level approver when this level is approved
+    next_level = approval_record.approve_level + 1
+    if next_level <= 3:
+        try:
+            from app.models.demand import DemandApproval
+            next_record = DemandApproval.query.filter_by(
+                demand_id=approval_record.demand_id,
+                approve_level=next_level,
+                is_deleted=0,
+            ).first()
+            if next_record and next_record.approve_user_id:
+                next_name = resolve_user_name(next_record.approve_user_id)
+                next_label = APPROVAL_LEVELS.get(next_level, f'层级{next_level}')
+                notify_user(
+                    next_record.approve_user_id,
+                    '审批通知',
+                    f"需求 {approval_record.demand_id} 的「{level_label}」已通过，"
+                    f"现进入「{next_label}」审批，请尽快处理。\n审批人：{next_name}",
+                    CARD_BLUE,
+                )
+        except Exception as exc:
+            log.warning("Failed to notify next-level approver: %s", exc)
 
 
 def _fire_match_batch(demand_id):

@@ -149,6 +149,8 @@ def _feishu_post(path: str, json_body: dict, *, params: dict = None) -> dict:
         headers={"Authorization": f"Bearer {token}"},
         timeout=15,
     )
+    if not resp.ok:
+        logger.error("Feishu POST %s failed: HTTP %s body=%s", path, resp.status_code, resp.text[:500])
     resp.raise_for_status()
     return resp.json()
 
@@ -184,15 +186,22 @@ def create_vc_meeting(topic: str, start_time: str, duration_minutes: int = 60) -
     """
     import random
 
-    if MOCK_MODE:
-        code = str(random.randint(100000000, 999999999))
-        url = f"https://vc.feishu.cn/j/{code}"
-        logger.info("[MOCK] create_vc_meeting topic=%s url=%s", topic, url)
-        return {"meeting_url": url, "meeting_code": code}
+    # 有凭证就尝试真实 API，不受 MOCK_MODE 限制
+    try:
+        app_id, app_secret = _get_app_credentials()
+        has_credentials = bool(app_id and app_secret)
+    except Exception:
+        has_credentials = False
 
+    if not has_credentials:
+        logger.info("[MOCK] create_vc_meeting topic=%s — 未配置飞书凭证，跳过创建", topic)
+        return {"meeting_url": "", "meeting_code": ""}
+
+    end_time = str(int(start_time) + duration_minutes * 60) if start_time else ''
     body = _feishu_post(
         "/vc/v1/reserves/apply",
         {
+            "end_time": end_time,
             "meeting_settings": {
                 "topic": topic,
                 "start_time": start_time,
@@ -476,8 +485,18 @@ def send_reminder(book_id: str, *, recipient_open_id: str = None, interviewer_na
     Returns:
         {"success": bool, "message_id": str|None, "error": str|None}
     """
+    # Resolve the actual meeting URL from the interview booking
+    meeting_url = "https://vc.feishu.cn/"
+    try:
+        from app.models.interview import InterviewBook
+        book = InterviewBook.query.filter_by(id=int(book_id), is_deleted=0).first()
+        if book and book.meeting_url:
+            meeting_url = book.meeting_url
+    except Exception:
+        pass
+
     if MOCK_MODE:
-        logger.info("[MOCK] send_reminder book_id=%s", book_id)
+        logger.info("[MOCK] send_reminder book_id=%s url=%s", book_id, meeting_url)
         return {"success": True, "message_id": "om_mock_reminder_001", "error": None}
 
     open_id = recipient_open_id or get_recipient_open_id(interviewer_name or "")
@@ -488,7 +507,7 @@ def send_reminder(book_id: str, *, recipient_open_id: str = None, interviewer_na
         header_title="面试提醒", header_color="red",
         elements=[
             {"tag": "markdown", "content": "距离面试开始还有 **15 分钟**，请做好准备。"},
-            {"tag": "action", "actions": [{"tag": "button", "text": {"tag": "plain_text", "content": "进入面试"}, "type": "primary", "url": "https://vc.feishu.cn/"}]},
+            {"tag": "action", "actions": [{"tag": "button", "text": {"tag": "plain_text", "content": "进入面试"}, "type": "primary", "url": meeting_url}]},
         ],
     )
     return send_card_message(open_id, json.dumps(card))

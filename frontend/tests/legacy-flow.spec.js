@@ -131,6 +131,11 @@ const interviews = [
   },
 ];
 
+const userRows = [
+  { userId: 10001, employeeNo: '20260001', realName: '系统管理员', roleCode: 'admin', deptName: '技术研发部', positionName: '高级Java工程师', mobile: '13800138000', status: 1, statusLabel: '启用' },
+  { userId: 10002, employeeNo: '20260002', realName: 'HR专员', roleCode: 'hr', deptName: '人力资源部', positionName: '招聘专员', mobile: '13900139000', status: 1, statusLabel: '启用' },
+];
+
 async function seedAuth(page) {
   await page.addInitScript(() => {
     localStorage.setItem('hr_token', 'e2e-test-token-admin');
@@ -173,6 +178,9 @@ async function routeCoreApis(page) {
   }));
   await page.route('**/api/config/email-accounts/sync**', (route) => route.fulfill({ json: ok({ accounts: [] }) }));
   await page.route('**/api/config/**', (route) => route.fulfill({ json: ok([]) }));
+  await page.route('**/api/auth/users**', (route) => route.fulfill({ json: ok(userRows) }));
+  await page.route('**/api/auth/positions**', (route) => route.fulfill({ json: ok([{id:1,name:'高级Java工程师'},{id:2,name:'前端工程师'}]) }));
+  await page.route('**/api/auth/departments**', (route) => route.fulfill({ json: ok([{id:1001,name:'技术研发部'},{id:1002,name:'人力资源部'}]) }));
   await page.route('**/api/ai/**', (route) => route.fulfill({ json: ok({}) }));
 
   await page.route('**/api/interview/list**', (route) => route.fulfill({

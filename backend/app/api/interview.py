@@ -123,9 +123,15 @@ def send_offer(book_id):
 
 @bp.route('/<book_id>/onboard', methods=['POST'])
 def confirm_onboard(book_id):
-    """POST /api/interview/{id}/onboard — confirm candidate onboard."""
+    """POST /api/interview/{id}/onboard — confirm candidate onboard.
+
+    Optional body: { user: {realName, mobile, email, deptId, positionId, employeeNo?, roleCode?} }
+    When user data is provided, also creates IamUser + Employee records.
+    """
     from app.services.interview_service import confirm_onboard, _normalize_book_id
-    result = confirm_onboard(_normalize_book_id(book_id))
+    body = request.get_json(silent=True) or {}
+    user_data = body.get('user') or None
+    result = confirm_onboard(_normalize_book_id(book_id), user_data=user_data)
     _invalidate_interview_flow()
     return success(result)
 

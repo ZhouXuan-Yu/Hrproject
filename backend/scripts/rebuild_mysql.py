@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Drop ALL tables in MySQL hr_recruitment_db, then recreate from SQLAlchemy metadata."""
+"""Drop ALL tables and recreate from SQLAlchemy metadata.
+
+DANGER — this wipes the entire database. Set FORCE_REBUILD=true to run.
+"""
 import os
 import sys
 from pathlib import Path
@@ -7,12 +10,10 @@ from pathlib import Path
 BACKEND = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND))
 
-_pwd = (BACKEND / "scripts" / ".pwd_secret").read_text(encoding="utf-8").strip()
-os.environ["DATABASE_URL"] = (
-    "mysql+pymysql://hr_recruitment:%s@"
-    "rm-8vb7m858r8wt3b10hjo.mysql.zhangbei.rds.aliyuncs.com:3306"
-    "/hr_recruitment_db?charset=utf8mb4" % _pwd
-)
+if os.environ.get('FORCE_REBUILD', '').lower() not in ('true', '1', 'yes'):
+    print("DANGER: This script drops ALL tables and recreates them.")
+    print("Set FORCE_REBUILD=true to confirm.")
+    sys.exit(1)
 
 from sqlalchemy import text
 

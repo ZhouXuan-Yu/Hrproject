@@ -27,7 +27,7 @@
                   <svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;transition:transform .2s" :style="{ transform: expandedHints[qi] ? 'rotate(180deg)' : '' }"><polyline points="6 9 12 15 18 9"/></svg>
                 </button>
               </div>
-              <div v-if="expandedHints[qi]" data-slot="ai-question-hint">{{ q.expected_answer_hints }}</div>
+              <div v-if="expandedHints[qi]" data-slot="ai-question-hint">{{ Array.isArray(q.expected_answer_hints) ? q.expected_answer_hints.join('；') : q.expected_answer_hints }}</div>
             </li>
           </ol>
         </AiChatMessage>

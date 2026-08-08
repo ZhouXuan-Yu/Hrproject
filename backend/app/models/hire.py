@@ -18,10 +18,10 @@ class Offer(BaseModel):
     __tablename__ = 't_hr_offer'
 
     offer_no = Column(String(32), unique=True, nullable=False, comment='Offer编号')
-    resume_id = Column(BigInteger, nullable=False, comment='简历ID')
-    process_id = Column(BigInteger, nullable=False, comment='流程ID')
-    demand_id = Column(BigInteger, nullable=False, comment='需求ID')
-    last_interview_id = Column(BigInteger, nullable=True, comment='最后一面面试记录ID')
+    resume_id = Column(BigInteger, nullable=False, index=True, comment='简历ID')
+    process_id = Column(BigInteger, nullable=False, index=True, comment='流程ID')
+    demand_id = Column(BigInteger, nullable=False, index=True, comment='需求ID')
+    last_interview_id = Column(BigInteger, nullable=True, index=True, comment='最后一面面试记录ID')
     offer_content = Column(Text, nullable=True, comment='Offer正文')
     salary_json = Column(JSON, nullable=True, comment='薪资/补贴/试用期结构化数据')
     valid_deadline = Column(DateTime, nullable=False, comment='截止时间')
@@ -39,7 +39,7 @@ class OfferRemindLog(BaseModel):
     """
     __tablename__ = 't_hr_offer_remind_log'
 
-    offer_id = Column(BigInteger, nullable=False, comment='Offer主键ID')
+    offer_id = Column(BigInteger, nullable=False, index=True, comment='Offer主键ID')
     offer_no = Column(String(32), nullable=False, comment='Offer编号')
     remind_type = Column(String(16), nullable=False, default='countdown', comment='countdown倒计时提醒')
     days_left = Column(Integer, nullable=False, comment='发送时剩余天数')
@@ -52,9 +52,9 @@ class Entry(BaseModel):
     __tablename__ = 't_hr_entry'
 
     entry_no = Column(String(32), unique=True, nullable=False, comment='入职编号')
-    event_id = Column(BigInteger, nullable=False, comment='录用事件ID')
-    resume_id = Column(BigInteger, nullable=False, comment='简历ID')
-    dept_id = Column(BigInteger, nullable=False, comment='入职部门ID')
+    event_id = Column(BigInteger, nullable=False, index=True, comment='录用事件ID')
+    resume_id = Column(BigInteger, nullable=False, index=True, comment='简历ID')
+    dept_id = Column(BigInteger, nullable=False, index=True, comment='入职部门ID')
     position_id = Column(BigInteger, nullable=False, comment='入职岗位ID')
     entry_date = Column(Date, nullable=False, comment='实际入职日期')
     checklist_json = Column(JSON, nullable=True, comment='入职待办/转正记录快照')

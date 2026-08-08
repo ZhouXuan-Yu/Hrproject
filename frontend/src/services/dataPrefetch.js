@@ -2,7 +2,6 @@ import { fetchKpi, fetchFunnel, fetchDeptProgress, fetchChannel, fetchRiskAlerts
 import { fetchDemands } from '../api/demand.js';
 import { fetchTalent, fetchMailLog } from '../api/talent.js';
 import { fetchInterviews, fetchInterviewAlerts, fetchInterviewCalendar } from '../api/interview.js';
-import { fetchNotifyTemplates } from '../api/config.js';
 
 let prefetchStarted = false;
 
@@ -15,7 +14,7 @@ function currentWeekStart() {
 
 export function prefetchWorkbenchData() {
   if (navigator.webdriver) return;
-  if (prefetchStarted || !localStorage.getItem('hr_token')) return;
+  if (prefetchStarted) return;
   prefetchStarted = true;
 
   const run = () => {
@@ -31,7 +30,6 @@ export function prefetchWorkbenchData() {
       fetchInterviewAlerts(),
       fetchInterviewCalendar({ week_start: currentWeekStart() }),
       fetchMailLog(50),
-      fetchNotifyTemplates(),
     ];
     Promise.allSettled(tasks).catch(() => {});
   };

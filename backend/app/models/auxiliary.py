@@ -23,7 +23,7 @@ class RecruitMailAccount(BaseModel):
     email_address = Column(String(128), unique=True, nullable=False, comment='收简历邮箱地址')
     imap_host = Column(String(128), nullable=True, comment='IMAP服务器')
     imap_port = Column(Integer, nullable=True, comment='端口')
-    owner_user_id = Column(BigInteger, nullable=True, comment='负责人HR')
+    owner_user_id = Column(BigInteger, nullable=True, index=True, comment='负责人HR')
     status = Column(Integer, nullable=False, default=1, comment='1启用 0停用')
     monitor_folder = Column(String(128), nullable=True, comment='监控文件夹 NULL=默认INBOX')
     # Extended fields for full email config support
@@ -84,3 +84,25 @@ class ApiKeyConfig(BaseModel):
     value_encrypted = Column(String(512), nullable=False, comment='AES-256-GCM 加密后的值')
     display_label = Column(String(64), nullable=True, comment='前端显示名称')
     status = Column(Integer, nullable=False, default=1, comment='1启用 0停用')
+
+
+class RoleMenuPermission(BaseModel):
+    """Dynamic role-menu permission mapping. Admin can enable/disable menus per role."""
+    __tablename__ = 't_hr_role_menu_permission'
+
+    role_code = Column(String(32), nullable=False, index=True, comment='角色编码')
+    menu_id = Column(String(64), nullable=False, comment='菜单标识: recruit-dashboard/recruit-demand等')
+    enabled = Column(Integer, nullable=False, default=1, comment='1启用 0停用')
+
+
+class PasswordResetToken(BaseModel):
+    """Self-service password reset tokens — email / phone verification codes."""
+    __tablename__ = 't_hr_password_reset'
+
+    user_id = Column(BigInteger, nullable=False, index=True, comment='用户ID')
+    token = Column(String(128), nullable=False, comment='重置令牌/验证码')
+    channel = Column(String(16), nullable=False, default='email', comment='发送渠道: email/phone')
+    target = Column(String(64), nullable=False, comment='目标: 脱敏邮箱/手机号')
+    status = Column(String(16), nullable=False, default='pending', comment='pending/used/expired')
+    expires_at = Column(DateTime, nullable=False, comment='过期时间')
+    used_at = Column(DateTime, nullable=True, comment='使用时间')

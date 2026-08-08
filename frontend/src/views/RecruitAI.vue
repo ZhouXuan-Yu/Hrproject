@@ -4,7 +4,7 @@
     <StatCardRow :cards="statCards" />
 
     <div class="permission-bar">
-      本页面仅<b>系统管理员</b>可见 · 集中所有<b>用户主动发起</b>的招聘辅助能力 · 流程内嵌的简历解析、匹配评分、联系话术辅助已嵌入各业务页面
+      本页面供<b>管理员和HR</b>使用 · 集中<b>主动发起</b>的AI辅助能力 · 简历解析、匹配评分、联系话术等已嵌入各业务页面
     </div>
 
     <!-- 6 Tab navigation -->

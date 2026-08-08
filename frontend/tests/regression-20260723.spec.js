@@ -9,6 +9,10 @@ test.beforeEach(async ({ page }) => {
     localStorage.setItem('hr_user', 'E2E Admin');
     window.__E2E_DISABLE_TOAST__ = true;
   });
+  // Routes needed by RecruitConfig's onMounted loadAll() to prevent 401 redirect
+  await page.route('**/api/auth/users**', (route) => route.fulfill({ json: ok([{ userId:1, employeeNo:'001', realName:'Admin', roleCode:'admin', status:1, statusLabel:'启用' }]) }));
+  await page.route('**/api/auth/positions**', (route) => route.fulfill({ json: ok([{ id:1, name:'工程师' }]) }));
+  await page.route('**/api/auth/departments**', (route) => route.fulfill({ json: ok([{ id:1, name:'技术部' }]) }));
 });
 
 test('mail monitor panels live in config and keep useful vertical space', async ({ page }) => {

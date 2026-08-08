@@ -45,7 +45,7 @@
               <div v-if="d.approvalNodes.length" class="approval-mini" style="margin-bottom:4px">
                 <template v-for="(node, ni) in d.approvalNodes" :key="ni">
                   <span class="am-node" :class="node.state" :title="node.opinion || ''">
-                    {{ node.label }}<template v-if="node.actor"> · {{ node.actor }}</template><template v-if="node.date">（{{ node.date }}）</template>
+                    {{ node.label }}<template v-if="node.actor"> · {{ node.actor }}</template>
                   </span>
                   <span v-if="ni < d.approvalNodes.length - 1" class="am-arrow">→</span>
                 </template>
@@ -70,6 +70,7 @@
           </tr>
         </tbody>
       </table>
+      <div v-if="loadError" class="error-banner">{{ loadError }}</div>
       <EmptyState
         v-else-if="!loading"
         title="暂无匹配的需求"
@@ -106,7 +107,7 @@
             </div>
             <textarea v-model="form.desc" style="width:100%;min-height:78px;padding:10px;border:1px solid var(--c-border);border-radius:6px;font-size:13px;box-sizing:border-box" placeholder="说明核心职责、必备技能和补充要求"></textarea>
             <div v-if="jdLoading" class="jd-thinking">
-              <b>思考中</b><span>正在结合部门、岗位和补充要求生成 Markdown JD 草稿...</span>
+              <b>思考中</b><span>正在结合岗位、部门、薪资{{ form.salary }}等信息生成 JD 草稿...</span>
             </div>
             <div v-if="jdDraft" class="jd-preview-box">
               <div class="jd-preview-head">
@@ -121,9 +122,9 @@
             </div>
           </div>
           <div class="modal-actions">
-            <button class="btn btn-ghost btn-sm" @click="closeModal">取消</button>
-            <button class="btn btn-outline btn-sm" @click="saveDraft">保存草稿</button>
-            <button class="btn btn-primary btn-sm" @click="submitApproval">提交审批</button>
+            <button class="btn btn-ghost btn-sm" :disabled="submitting" @click="closeModal">取消</button>
+            <button class="btn btn-outline btn-sm" :disabled="submitting" @click="saveDraft">保存草稿</button>
+            <button class="btn btn-primary btn-sm" :disabled="submitting" @click="submitApproval">{{ submitting ? '提交中...' : '提交审批' }}</button>
           </div>
         </div>
       </div>
@@ -168,7 +169,7 @@
 import { ref, reactive, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import WorkbenchLayout from '../layouts/WorkbenchLayout.vue';
-import { HR_DEPARTMENTS } from '../composables/useMockData.js';
+import { fetchDepartments } from '../api/config.js';
 import { fetchDemands, createDemand, updateDemand, deleteDemand, submitForApproval, approveDemandApi, rejectDemandApi, fetchDemandDetail } from '../api/demand.js';
 import { api } from '../api/index.js';
 import { useToast } from '../composables/useToast.js';
@@ -204,7 +205,13 @@ async function loadFromApi() {
     loading.value = false;
   }
 }
-const departments = HR_DEPARTMENTS;
+const departments = ref([]);
+async function loadDepartments() {
+  try {
+    const depts = await fetchDepartments();
+    departments.value = (depts || []).map(d => d.name || d);
+  } catch { departments.value = []; }
+}
 
 // Filters
 const filters = reactive({ search: '', status: 'all', urgency: 'all' });
@@ -253,8 +260,9 @@ const showModal = ref(false);
 const showMoreModal = ref(false);
 const moreDemand = ref(null);
 const editingId = ref('');
-const form = reactive({ dept: '技术部', position: '', hc: 1, urgency: '普通', salary: '', date: '', desc: '' });
+const form = reactive({ dept: '', position: '', hc: 1, urgency: '普通', salary: '', date: '', desc: '' });
 const jdLoading = ref(false);
+const submitting = ref(false);
 const jdDraft = ref('');
 const jdEditMode = ref(false);
 
@@ -293,7 +301,8 @@ function removeDemandFromList(id) {
 
 function openCreateModal(){
   editingId.value = '';
-  Object.assign(form, { dept: '技术部', position: '', hc: 1, urgency: '普通', salary: '', date: '', desc: '' });
+  const defaultDept = departments.value && departments.value[0] ? departments.value[0] : '';
+  Object.assign(form, { dept: defaultDept, position: '', hc: 1, urgency: '普通', salary: '', date: '', desc: '' });
   jdDraft.value = '';
   jdEditMode.value = false;
   showModal.value = true;
@@ -341,7 +350,9 @@ async function generateDemandJd() {
       position: form.position,
       department: form.dept,
       level: '高级',
-      requirements: form.desc || `HC ${form.hc}人，紧急度${form.urgency}，薪资${form.salary || '面议'}`,
+      salary: form.salary,
+      headcount: form.hc,
+      requirements: form.desc,
       style: 'internal_approval',
     });
     jdDraft.value = result.jd_text || [
@@ -398,7 +409,9 @@ async function saveDraft(){
 }
 
 async function submitApproval(){
+  if (submitting.value) return;
   if (!form.position) { toast.warning('请填写岗位名称'); return; }
+  submitting.value = true;
   try {
     let id = editingId.value;
     if (id) {
@@ -414,6 +427,8 @@ async function submitApproval(){
     await loadFromApi(); // refresh list
   } catch (e) {
     handleError(e, 'RecruitDemand.submitApproval');
+  } finally {
+    submitting.value = false;
   }
   closeModal();
 }
@@ -583,6 +598,7 @@ async function removeDemand(d) {
 }
 
 onMounted(() => {
+  loadDepartments();
   loadFromApi();
 });
 </script>
@@ -590,6 +606,7 @@ onMounted(() => {
 <style scoped>
 .row-actions { white-space: nowrap; }
 .data-region { position: relative; min-height: 220px; }
+.error-banner { margin: 16px 0; padding: 12px 16px; border-radius: 8px; background: #FEF2F2; color: #991B1B; border: 1px solid #FECACA; font-size: 13px; }
 .row-actions .btn { display: inline-flex; margin-right: 4px; }
 .position-link { font-weight: 600; color: var(--c-primary); text-decoration: none; }
 .linked-cnt { color: var(--c-primary); font-weight: 600; margin-left: 4px; }

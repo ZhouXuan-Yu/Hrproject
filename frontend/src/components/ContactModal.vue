@@ -107,7 +107,7 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['close', 'done']);
-const toast = useToast();
+const { toast } = useToast();
 
 const selectedChannel = ref('phone');
 const isSubmitting = ref(false);
@@ -139,8 +139,7 @@ watch(() => props.visible, async (v) => {
   contactLoading.value = true;
   contact.value = { mobile: '', email: '' };
   try {
-    const res = await fetchCandidateContact(props.candidateId);
-    const data = (res && res.data) ? res.data : res;
+    const data = await fetchCandidateContact(props.candidateId);
     contact.value = { mobile: data?.mobile || '', email: data?.email || '' };
     // 默认选中第一个可用渠道
     if (!contact.value.mobile && contact.value.email) selectedChannel.value = 'email';

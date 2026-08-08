@@ -3,7 +3,7 @@
     <div class="card-title funnel-hero-title">
       <svg viewBox="0 0 24 24" style="width:18px;height:18px"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
       招聘全漏斗
-      <span style="font-weight:400;font-size:11px;color:var(--c-primary);margin-left:auto">总转化率 {{ FUNNEL_STEPS[FUNNEL_STEPS.length - 1].pct }}</span>
+      <span style="font-weight:400;font-size:11px;color:var(--c-primary);margin-left:auto">总转化率 {{ funnelData[funnelData.length - 1].pct }}</span>
     </div>
     <div class="funnel-hero-body">
       <div class="funnel-viz-row">
@@ -12,7 +12,7 @@
           <div v-show="webglOK" ref="vizWrap" class="funnel-three-wrap">
             <!-- HUD connector lines (positions driven per-frame) -->
             <svg v-if="webglOK" class="funnel-hud-lines" aria-hidden="true">
-              <template v-for="(st, i) in FUNNEL_STEPS" :key="'hl' + i">
+              <template v-for="(st, i) in funnelData" :key="'hl' + i">
                 <line :ref="(el) => (lineEls[i] = el)" x1="0" y1="0" x2="0" y2="0"
                   :stroke="stageCss(i)" :class="{ active: selected === i }" />
                 <circle :ref="(el) => (dotEls[i] = el)" r="2.5" cx="-10" cy="-10"
@@ -20,7 +20,7 @@
               </template>
             </svg>
             <!-- HUD stage chips -->
-            <div v-for="(st, i) in FUNNEL_STEPS" :key="'hud' + i"
+            <div v-for="(st, i) in funnelData" :key="'hud' + i"
               :ref="(el) => (chipEls[i] = el)"
               class="funnel-hud-chip"
               :class="[hudSide(i), { active: selected === i }]"
@@ -35,7 +35,7 @@
           </div>
           <!-- Static fallback (reduced motion / WebGL unavailable) -->
           <div v-if="!webglOK" class="funnel-fallback">
-            <div v-for="(st, i) in FUNNEL_STEPS" :key="'fb' + i" class="fb-row">
+            <div v-for="(st, i) in funnelData" :key="'fb' + i" class="fb-row">
               <div class="fb-disc" :class="{ active: selected === i }"
                 :style="{ width: fbWidth(i) + '%', background: fbBg(i), borderColor: stageCss(i) }"
                 role="button" tabindex="0" :aria-label="'选中阶段 ' + st.label"
@@ -49,7 +49,7 @@
     </div>
     <!-- Bottom stepper -->
     <div class="funnel-stepper viz-funnel">
-      <div v-for="(step, i) in FUNNEL_STEPS" :key="'step' + i"
+      <div v-for="(step, i) in funnelData" :key="'step' + i"
         class="viz-funnel-step funnel-step-chip"
         :class="{ active: selected === i }"
         role="link" :tabindex="0"
@@ -67,7 +67,20 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue';
 import * as THREE from 'three';
-import { FUNNEL_STEPS } from '../data/dashboard.js';
+import { FUNNEL_STEPS as funnelFallback } from '../data/dashboard.js';
+import { fetchFunnel } from '../api/dashboard.js';
+
+// Real data overlay — start with static fallback, replace with API data on mount
+const funnelData = ref(funnelFallback);
+
+async function loadFunnel() {
+  try {
+    const data = await fetchFunnel();
+    if (data?.stages?.length) {
+      funnelData.value = data.stages;
+    }
+  } catch (_) { /* keep static fallback */ }
+}
 
 // ---------- state ----------
 const selected = ref(3); // default: bottleneck stage (Offer)
@@ -443,6 +456,7 @@ function disposeThree() {
 }
 
 onMounted(() => {
+  loadFunnel();
   const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
   if (mq.matches) {
     webglOK.value = false;

@@ -10,7 +10,7 @@ import logging
 import os
 import html as html_utils
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import jwt
 
@@ -33,8 +33,8 @@ def generate_confirm_token(kind, ref, ttl_hours=None):
         'purpose': _TOKEN_PURPOSE,
         'kind': kind,
         'ref': str(ref),
-        'exp': datetime.utcnow() + timedelta(hours=ttl),
-        'iat': datetime.utcnow(),
+        'exp': datetime.now(timezone.utc) + timedelta(hours=ttl),
+        'iat': datetime.now(timezone.utc),
     }
     return jwt.encode(payload, current_app.config['JWT_SECRET_KEY'], algorithm='HS256')
 

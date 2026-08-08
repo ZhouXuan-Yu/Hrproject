@@ -131,7 +131,7 @@ class TestDemand:
         """
         dept_head_headers = _role_headers(client, 'dept_head', '部门负责人')
         hr_headers = _role_headers(client, 'hr', '张HR')
-        executive_headers = _role_headers(client, 'executive', '高管')
+        director_headers = _role_headers(client, 'director', '总监')
 
         # Level 1 — department head
         r1 = client.post(
@@ -151,11 +151,11 @@ class TestDemand:
         assert r2.status_code == 200
         assert r2.get_json()['data']['result'] == 'approved'
 
-        # Level 3 — executive → all approved → demand approved
+        # Level 3 — director → all approved → demand approved
         r3 = client.post(
             f'/api/demand/{created_demand_no}/approve',
             json={'level': 3},
-            headers=executive_headers,
+            headers=director_headers,
         )
         assert r3.status_code == 200
         assert r3.get_json()['data']['result'] == 'approved'

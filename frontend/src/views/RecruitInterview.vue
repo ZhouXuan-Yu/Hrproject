@@ -173,6 +173,7 @@
     <div class="tab-panel" :class="{ active: activeTab === 'list' }">
       <div class="table-wrap data-region">
         <DataLoadingOverlay :visible="loading" />
+        <div v-if="loadError" class="error-banner">{{ loadError }}</div>
         <table v-if="filteredList.length > 0"><thead><tr><th style="width:36px"><input data-testid="interview-check-all" type="checkbox" :checked="isAllVisibleSelected(filteredList)" @change="toggleVisible(filteredList, $event)"></th><th>候选人</th><th>岗位</th><th>轮次</th><th>面试官</th><th>时间</th><th>方式</th><th>状态</th><th>操作</th></tr></thead>
         <tbody>
           <tr v-for="(item, i) in filteredList" :key="'l'+i">
@@ -379,6 +380,33 @@
         </div>
       </div>
     </Teleport>
+
+    <!-- 入职创建账号弹窗 -->
+    <BaseModal v-if="showOnboardModal" title="确认入职并创建账号" @close="showOnboardModal = false">
+      <div style="font-size:13px;color:var(--c-sub);margin-bottom:16px">
+        候选人 <b>{{ onboardTarget.name }}</b> 已确认入职，请核对并补充账号信息后创建系统账号。
+      </div>
+      <div class="form-grid">
+        <div class="form-group"><label>工号 <span style="color:var(--c-muted);font-weight:400">（自动生成）</span></label><input type="text" v-model="onboardForm.employeeNo" disabled placeholder="自动生成"></div>
+        <div class="form-group"><label>真实姓名 <span style="color:var(--c-error)">*</span></label><input type="text" v-model="onboardForm.realName" placeholder="如：张三"></div>
+        <div class="form-group"><label>手机号</label><input type="text" v-model="onboardForm.mobile" placeholder="11位手机号"></div>
+        <div class="form-group"><label>邮箱</label><input type="text" v-model="onboardForm.email" placeholder="选填"></div>
+        <div class="form-group"><label>角色</label><select v-model="onboardForm.roleCode">
+          <option value="employee">员工</option><option value="interviewer">面试官</option><option value="dept_head">部门负责人</option>
+        </select></div>
+        <div class="form-group"><label>部门</label><select v-model="onboardForm.deptId"><option value="">— 请选择 —</option><option v-for="d in onboardDeptOptions" :key="d.id" :value="d.id">{{ d.name }}</option></select></div>
+        <div class="form-group"><label>岗位</label><select v-model="onboardForm.positionId"><option value="">— 请选择 —</option><option v-for="p in onboardPosOptions" :key="p.id" :value="p.id">{{ p.name }}</option></select></div>
+      </div>
+      <div v-if="onboardError" style="color:var(--c-error);font-size:13px;margin-top:8px">{{ onboardError }}</div>
+      <div v-if="onboardCreatedPwd" style="color:var(--c-done);font-size:13px;margin-top:8px;font-weight:600">初始密码：{{ onboardCreatedPwd }}（请告知用户及时修改）</div>
+      <template #footer>
+        <button class="btn btn-outline btn-sm" @click="showOnboardModal = false">取消</button>
+        <button class="btn btn-primary btn-sm" :disabled="onboardSaving" @click="submitOnboard">
+          {{ onboardSaving ? '创建中...' : '确认入职并创建账号' }}
+        </button>
+      </template>
+    </BaseModal>
+
   </WorkbenchLayout>
 </template>
 
@@ -386,9 +414,11 @@
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import WorkbenchLayout from '../layouts/WorkbenchLayout.vue';
 import { STATUS_TYPE_MAP } from '../data/interview.js';
-import { fetchInterviews, fetchInterviewAlerts, createInterview, evaluateInterview, completeInterview, cancelInterview, fetchInterviewCalendar } from '../api/interview.js';
+import { fetchInterviews, fetchInterviewAlerts, createInterview, evaluateInterview, completeInterview, cancelInterview, fetchInterviewCalendar, confirmOnboard } from '../api/interview.js';
+import { fetchPositions } from '../api/auth.js';
 import { useToast } from '../composables/useToast.js';
 import { useAppError } from '../composables/useAppError.js';
+import { getRole, getUser } from '../composables/useAuth.js';
 import { KPI_ICONS } from '../components/kpiIcons.js';
 import ScheduleInterviewModal from '../components/ScheduleInterviewModal.vue';
 import OfferModal from '../components/OfferModal.vue';
@@ -408,12 +438,96 @@ const offerCandidate = ref({ name: '', id: '' });
 const offerDemand = ref({ position: '', id: '' });
 const offerResumeId = ref(0);
 const offerBookId = ref('');
+
+// ── 入职创建账号弹窗 ──
+const showOnboardModal = ref(false);
+const onboardTarget = ref({ candidateId: '', name: '', position: '', bookId: '' });
+const onboardForm = reactive({ employeeNo: '', realName: '', mobile: '', email: '', roleCode: 'employee', deptId: '', positionId: '' });
+const onboardDeptOptions = ref([]);
+const onboardPosOptions = ref([]);
+const onboardError = ref('');
+const onboardCreatedPwd = ref('');
+const onboardSaving = ref(false);
+
+function openOnboardModal(candidateId, name, position, bookId) {
+  onboardTarget.value = { candidateId, name, position, bookId };
+  onboardForm.employeeNo = '';
+  onboardForm.realName = name || '';
+  onboardForm.mobile = '';
+  onboardForm.email = '';
+  onboardForm.roleCode = 'employee';
+  onboardForm.deptId = '';
+  onboardForm.positionId = '';
+  onboardError.value = '';
+  onboardCreatedPwd.value = '';
+  // 尝试从候选人详情获取手机/邮箱自动填充
+  if (candidateId) {
+    fetchCandidateDetailForOnboard(candidateId);
+  }
+  showOnboardModal.value = true;
+}
+
+async function fetchCandidateDetailForOnboard(candidateId) {
+  try {
+    const { fetchCandidateDetail } = await import('../api/talent.js');
+    const detail = await fetchCandidateDetail(candidateId);
+    if (detail) {
+      if (detail.mobile && detail.mobile !== '—') onboardForm.mobile = detail.mobile;
+      if (detail.email && detail.email !== '—') onboardForm.email = detail.email;
+    }
+  } catch (e) { /* 非关键路径 */ }
+}
+
+async function submitOnboard() {
+  if (!onboardForm.realName.trim()) { onboardError.value = '请输入真实姓名'; return; }
+  onboardSaving.value = true;
+  onboardError.value = '';
+  onboardCreatedPwd.value = '';
+  try {
+    const r = await confirmOnboard(onboardTarget.value.bookId, {
+      user: {
+        realName: onboardForm.realName.trim(),
+        mobile: onboardForm.mobile.trim(),
+        email: onboardForm.email.trim(),
+        roleCode: onboardForm.roleCode,
+        deptId: onboardForm.deptId || undefined,
+        positionId: onboardForm.positionId || undefined,
+        employeeNo: onboardForm.employeeNo || undefined,
+      },
+    });
+    if (r.user && r.user.initialPassword) {
+      onboardCreatedPwd.value = r.user.initialPassword;
+    }
+    toast.success(`${onboardForm.realName} 入职确认完成，账号已创建`);
+    setTimeout(() => {
+      showOnboardModal.value = false;
+      loadFromApi();
+    }, 2000);
+  } catch (err) {
+    handleError(err, 'RecruitInterview.submitOnboard');
+    onboardError.value = err?.response?.data?.message || err.message || '操作失败';
+  } finally {
+    onboardSaving.value = false;
+  }
+}
+
+async function loadOnboardOptions() {
+  try {
+    const [posData] = await Promise.all([fetchPositions()]);
+    onboardPosOptions.value = Array.isArray(posData) ? posData : [];
+    // 部门选项从职位数据推导或另外加载
+    const { fetchDepartments } = await import('../api/auth.js');
+    const deptData = await fetchDepartments();
+    onboardDeptOptions.value = Array.isArray(deptData) ? deptData : [];
+  } catch (e) { /* 非关键 */ }
+}
+
 const currentScope = ref('all');
 const activeTab = ref('list');
 const listStatus = ref('all');
 const mineStatus = ref('all');
-const user = localStorage.getItem('hr_user') || '张HR';
-const role = localStorage.getItem('hr_role') || 'hr';
+const user = getUser() || '用户';
+const role = getRole() || 'hr';
 const isInterviewerRole = role === 'interviewer' || role === 'temp_interviewer';
 
 const apiInterviewData = ref(null);
@@ -559,22 +673,28 @@ async function deleteSelectedInterviews(ids, reason) {
   }
 }
 
+function escAttr(s) { return String(s).replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
+
 function renderActions(item) {
-  const resumeBtn = '<button class="btn btn-outline btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:open-drawer\',{detail:\'' + item.name + '\'}))">简历</button>';
+  const name = escAttr(item.name);
+  const pos = escAttr(item.position || '');
+  const id = escAttr(String(item.id));
+  const offerNo = escAttr(item.offerNo || '');
+  const resumeBtn = '<button class="btn btn-outline btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:open-drawer\',{detail:\'' + name + '\'}))">简历</button>';
   switch (item.status) {
     case 'pending':
-      return resumeBtn + ' <button class="btn btn-primary btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:schedule\',{detail:\'' + item.name + '|' + item.position + '\'}))">发起面试</button>';
+      return resumeBtn + ' <button class="btn btn-primary btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:schedule\',{detail:\'' + name + '|' + pos + '\'}))">发起面试</button>';
     case 'scheduled':
-      return resumeBtn + ' <button class="btn btn-primary btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:complete\',{detail:\'' + item.id + '|' + item.name + '\'}))">完成面试</button> <button class="btn btn-text-danger btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:cancel\',{detail:\'' + item.id + '|' + item.name + '\'}))">取消</button>';
+      return resumeBtn + ' <button class="btn btn-primary btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:complete\',{detail:\'' + id + '|' + name + '\'}))">完成面试</button> <button class="btn btn-text-danger btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:cancel\',{detail:\'' + id + '|' + name + '\'}))">取消</button>';
     case 'evaluating':
-      return resumeBtn + ' <button class="btn btn-primary btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:evaluate\',{detail:\'' + item.id + '|' + item.name + '\'}))">填评价</button>';
+      return resumeBtn + ' <button class="btn btn-primary btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:evaluate\',{detail:\'' + id + '|' + name + '\'}))">填评价</button>';
     case 'offer':
       if (item.offerStatus === 1) {
-        return resumeBtn + ' <span style="font-size:11px;color:var(--c-sub)">Offer已发送（' + (item.offerNo || '') + '），等待候选人确认</span>';
+        return resumeBtn + ' <span style="font-size:11px;color:var(--c-sub)">Offer已发送（' + offerNo + '），等待候选人确认</span>';
       }
-      return resumeBtn + ' <button class="btn btn-outline btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:approval\',{detail:\'' + item.name + '\'}))">审批中</button> <button class="btn btn-success btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:offer\',{detail:\'' + item.name + '\'}))">发Offer</button>';
+      return resumeBtn + ' <button class="btn btn-outline btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:approval\',{detail:\'' + name + '\'}))">审批中</button> <button class="btn btn-success btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:offer\',{detail:\'' + name + '\'}))">发Offer</button>';
     case 'onboard':
-      return resumeBtn + ' <span style="font-size:11px;color:#22a06b">已录用，待入职</span>';
+      return resumeBtn + ' <button class="btn btn-success btn-sm" onclick="window.dispatchEvent(new CustomEvent(\'interview:onboard\',{detail:\'' + escAttr(item.candidateId || '') + '|' + name + '|' + pos + '|' + id + '\'}))">确认入职并创建账号</button>';
     default:
       if (item.offerStatus === 3) {
         return resumeBtn + ' <span style="font-size:11px;color:var(--c-reject)">候选人已拒绝 Offer</span>';
@@ -659,7 +779,9 @@ onMounted(() => {
   window.addEventListener('interview:cancel', handleCancel);
   window.addEventListener('interview:approval', handleApproval);
   window.addEventListener('interview:open-drawer', handleOpenDrawer);
+  window.addEventListener('interview:onboard', handleOnboard);
   loadFromApi();
+  loadOnboardOptions();
 });
 
 onUnmounted(() => {
@@ -848,6 +970,15 @@ function handleOffer(e) {
   offerResumeId.value = item.resumeId || 0;
   offerBookId.value = item.id || '';
   showOfferModal.value = true;
+}
+
+function handleOnboard(e) {
+  const parts = String(e.detail).split('|');
+  const candidateId = parts[0] || '';
+  const name = parts[1] || '';
+  const position = parts[2] || '';
+  const bookId = parts[3] || '';
+  openOnboardModal(candidateId, name, position, bookId);
 }
 
 function handleOpenDrawer(e) {
@@ -1559,4 +1690,5 @@ function onOfferSuccess(result) {
 .di-time { font-size: 14px; font-weight: 700; color: var(--c-primary); min-width: 48px; }
 .di-name { font-size: 14px; font-weight: 600; color: var(--c-text); }
 .di-pos { font-size: 12px; color: var(--c-sub); }
+.error-banner { padding: 10px 14px; border-radius: 8px; background: #FEF2F2; color: #991B1B; font-size: 13px; margin-bottom: 12px; border: 1px solid #FECACA; }
 </style>

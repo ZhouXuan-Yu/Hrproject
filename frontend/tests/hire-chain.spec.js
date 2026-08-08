@@ -106,6 +106,8 @@ test.beforeEach(async ({ page }) => {
       })),
     }),
   }));
+  await page.route('**/api/auth/positions**', (route) => route.fulfill({ json: ok([{id:1,name:'工程师'},{id:2,name:'产品经理'}]) }));
+  await page.route('**/api/auth/departments**', (route) => route.fulfill({ json: ok([{id:1,name:'技术部'},{id:2,name:'产品部'}]) }));
 });
 
 test('rejected interviews stay in done state and do not look onboarded', async ({ page }) => {

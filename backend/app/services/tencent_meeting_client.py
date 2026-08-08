@@ -39,7 +39,7 @@ _CREATE_MEETING_URI = "/v1/meetings"
 # ---------------------------------------------------------------------------
 # Mock mode — default True so dev environments work out of the box
 # ---------------------------------------------------------------------------
-MOCK_MODE = os.getenv("TENCENT_MEETING_MOCK_MODE", "true").strip().lower() in ("true", "1", "yes")
+MOCK_MODE = os.getenv("TENCENT_MEETING_MOCK_MODE", "false").strip().lower() in ("true", "1", "yes")
 
 # key_name in ApiKeyConfig → env var override
 _ENV_MAP = {
@@ -91,13 +91,11 @@ def create_meeting(topic: str, start_time, duration_minutes: int = 60) -> Dict[s
     failure raises so the caller can fall back to a locally-built URL.
     """
     if MOCK_MODE or not is_configured():
-        code = _random_code(10)
-        url = f"https://meeting.tencent.com/dm/{code}"
         logger.info(
-            "[MOCK] create_meeting topic=%s url=%s (mock_mode=%s configured=%s)",
-            topic, url, MOCK_MODE, is_configured(),
+            "[MOCK] create_meeting topic=%s — 模拟模式/未配置，不生成假链接 (mock_mode=%s configured=%s)",
+            topic, MOCK_MODE, is_configured(),
         )
-        return {"meeting_url": url, "meeting_code": code}
+        return {"meeting_url": "", "meeting_code": ""}
 
     creds = _get_credentials()
     start_ts = int(start_time)

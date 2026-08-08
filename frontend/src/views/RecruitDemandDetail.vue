@@ -11,6 +11,7 @@
     <!-- Demand info card -->
     <div class="card data-region" style="margin-bottom:12px">
       <DataLoadingOverlay :visible="loading" />
+      <div v-if="loadError" class="error-banner">{{ loadError }}</div>
       <div class="card-title">需求信息</div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px 32px;font-size:14px">
         <div><span style="color:var(--c-sub)">需求编号</span><br><b>{{ info.id }}</b></div>
@@ -93,6 +94,13 @@
         <select id="filterProfile" v-model="filters.profile" @change="applyFilter"><option value="0">不限</option><option value="80">≥ 80 分</option><option value="60">≥ 60 分</option></select>
         <input type="text" id="filterKeyword" v-model="filters.keyword" placeholder="姓名 / 技能..." style="width:110px" @input="applyFilter">
         <span class="spacer"></span>
+        <span class="filter-label">推荐人数</span>
+        <select v-model="matchTopN" style="padding:3px 6px;border:1px solid var(--c-border);border-radius:4px;font-size:12px;width:60px">
+          <option :value="5">5</option>
+          <option :value="10">10</option>
+          <option :value="20">20</option>
+          <option :value="50">50</option>
+        </select>
         <span style="font-size:11px;color:var(--c-sub)" id="filterCount">共 {{ filteredCandidates.length }} 人</span>
       </div>
 
@@ -306,6 +314,7 @@ const candidates = ref([]);
 const loading = ref(true);
 const candidatesLoading = ref(true);
 const loadError = ref('');
+const matchTopN = ref(20);
 
 const checkedSet = reactive({});
 const checkedCount = computed(() => Object.keys(checkedSet).filter(k => checkedSet[k]).length);
@@ -691,7 +700,7 @@ async function doReMatch() {
   }
   try {
     const { default: api } = await import('../api/index.js');
-    await api.post(`/demand/${demandId}/match`, { includeTalentPool: true, topN: 20 });
+    await api.post(`/demand/${demandId}/match`, { includeTalentPool: true, topN: matchTopN.value });
     const { fetchDemandCandidates } = await import('../api/demand.js');
     const fresh = await fetchDemandCandidates(demandId);
     if (Array.isArray(fresh)) {
@@ -721,11 +730,12 @@ async function doAlert(msg) {
     });
     if (!ok) return;
     try {
-      const { createDemand } = await import('../api/demand.js');
+      const { deleteDemand } = await import('../api/demand.js');
+      await deleteDemand(info.value?.demandNo || info.value?.id);
       toast.success('需求已撤回');
+      setTimeout(() => router.push('/recruit-demand'), 800);
     } catch (e) {
       handleError(e, 'RecruitDemandDetail.withdraw');
-      toast.success('需求已撤回');
     }
     return;
   }
@@ -806,6 +816,7 @@ onUnmounted(() => {
 .candidate-filter { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 16px; background: var(--c-surface-elevated); border-radius: 8px; border: 1px solid var(--c-border); margin-bottom: 12px; }
 .data-region { position: relative; min-height: 160px; }
 .jd-markdown-panel { padding: 12px 14px; border: 1px dashed var(--c-border); border-radius: 8px; background: var(--c-bg); }
+.error-banner { padding: 10px 14px; border-radius: 8px; background: #FEF2F2; color: #991B1B; font-size: 13px; margin-bottom: 12px; border: 1px solid #FECACA; }
 .jd-markdown-panel :deep([data-slot="ai-markdown"]) { font-size: 13px; line-height: 1.8; }
 .candidate-filter select, .candidate-filter input { height: 34px; padding: 0 10px; border: 1px solid var(--c-border); border-radius: 6px; font-size: 13px; font-family: inherit; background: var(--c-card); color: var(--c-body); }
 .candidate-filter .filter-label { font-size: 12px; color: var(--c-sub); font-weight: 600; white-space: nowrap; }

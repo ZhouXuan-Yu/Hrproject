@@ -236,8 +236,8 @@ def _parse_json_response(content: str) -> dict:
             except json.JSONDecodeError:
                 pass
         raise ValueError(
-            f"DeepSeek response is not valid JSON. "
-            f"Response (first 500 chars): {content[:500]}"
+            "DeepSeek response is not valid JSON. "
+            f"(length={len(content)})"
         )
 
 

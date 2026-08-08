@@ -10,6 +10,7 @@ Validations:
   - Closing auto-releases linked candidates
 """
 import logging
+from flask import g
 from app.utils.response import AppError
 from app.utils.enums import DemandStatus, DemandUrgency
 from app.utils.scoring import candidate_profile_score
@@ -37,14 +38,11 @@ DEMAND_TRANSITIONS = {
     5: [],           # cancelled: terminal
 }
 
-# Mapping from dept_id/position_id/user_id -> Chinese names
-DEPT_NAMES = {1: '技术部', 2: '产品部', 3: '运营部', 4: '数据部', 5: '财务部'}
-POS_NAMES = {1: '高级Java工程师', 2: '前端工程师', 3: '产品经理', 4: '运营总监', 5: '数据分析师'}
-USER_NAMES = {1: '刘博', 2: '张HR', 3: '陈总', 4: '周博', 5: '李面试官', 6: '王面试官', 7: '赵博'}
+from app.services.name_resolver import (
+    resolve_dept_name, resolve_position_name, resolve_user_name, resolve_dept_id,
+)
 
 EDU_LEVEL_LABELS = {1: '大专', 2: '本科', 3: '硕士', 4: '博士'}
-
-DEPT_IDS = {v: k for k, v in DEPT_NAMES.items()}
 
 _URGENCY_ALIAS = {
     '普通': 'normal', '紧急': 'high', '非常紧急': 'very',
@@ -251,9 +249,9 @@ def _live_pipeline_counts(demand_id):
 
 def _demand_to_dict(d):
     """Convert a RecruitDemand ORM object to API dict."""
-    pos_name = getattr(d, 'position_name', None) or POS_NAMES.get(d.position_id, str(d.position_id))
-    dept_name = getattr(d, 'dept_name', None) or DEPT_NAMES.get(d.dept_id, str(d.dept_id))
-    submitter = USER_NAMES.get(d.creator_id, str(d.creator_id))
+    pos_name = getattr(d, 'position_name', None) or resolve_position_name(d.position_id)
+    dept_name = getattr(d, 'dept_name', None) or resolve_dept_name(d.dept_id)
+    submitter = resolve_user_name(d.creator_id)
 
     # 实时流程计数（人才库加入 / 邮箱关联的候选人都会反映在这里）
     live = _live_pipeline_counts(d.id)
@@ -277,15 +275,18 @@ def _demand_to_dict(d):
         'linkedCount': live['linked'],
     }
 
-    if st == 1:  # approval — list only needs current progress, not completed timestamps after pass
+    # 审批进度 — 非草稿状态始终展示（审批完成的显示全部"已通过"，招聘中可以同时看到审批链和招聘进展）
+    if st == 1 or st == 2:  # approval / open — show real approval progress
         try:
             from app.services.approval_service import get_approval_progress
-            live = get_approval_progress(d.id)
-            result['approvalNodes'] = live if live else _default_approval_nodes(st)
+            nodes = get_approval_progress(d.id)
+            result['approvalNodes'] = nodes if nodes else _default_approval_nodes(st)
         except Exception:
             result['approvalNodes'] = d.audit_flow or _default_approval_nodes(st)
+    elif st != 0:  # other non-draft statuses (rejected/closed/cancelled)
+        result['approvalNodes'] = _default_approval_nodes(st)
     else:
-        result['approvalNodes'] = []
+        result['approvalNodes'] = []  # draft only
 
     if st == 2:  # open
         result.update({
@@ -300,19 +301,36 @@ def _demand_to_dict(d):
 
 
 def _default_approval_nodes(status):
+    """Fallback approval nodes when real records are unavailable."""
     if status == 0:  # draft
         return []
-    nodes = [
-        {'label': '部门负责人', 'state': 'done'},
+    _map = {
+        'done': '已通过',
+        'current': '审批中',
+        'pending': '待审批',
+    }
+    node_defs = [
+        {'label': '部门负责人', 'state': 'pending'},
         {'label': 'HR', 'state': 'pending'},
-        {'label': '高管', 'state': 'pending'},
+        {'label': '总监', 'state': 'pending'},
     ]
     if status == 2:  # approved/open
-        nodes[0]['state'] = 'done'
-        nodes[1]['state'] = 'done'
-        nodes[2]['state'] = 'done'
+        for n in node_defs:
+            n['state'] = 'done'
     elif status == 1:  # approval
-        nodes[0]['state'] = 'current'
+        node_defs[0]['state'] = 'current'
+    nodes = []
+    for n in node_defs:
+        nodes.append({
+            'label': n['label'],
+            'role': n['label'],
+            'level': 0,
+            'state': n['state'],
+            'status': _map.get(n['state'], n['state']),
+            'actor': None,
+            'date': None,
+            'opinion': None,
+        })
     return nodes
 
 
@@ -335,11 +353,20 @@ def submit_for_approval(demand_id):
     d.demand_status = 1  # approval
 
     # Initialize approval records (idempotent — create_demand may have done it already)
-    from app.services.approval_service import init_approval
+    from app.services.approval_service import init_approval, _notify_approver
     from app.models.demand import DemandApproval
     existing = DemandApproval.query.filter_by(demand_id=d.id, is_deleted=0).count()
     if existing == 0:
         init_approval(d.id)
+
+    # Notify the first approver (level-1: dept_head)
+    try:
+        first_level = DemandApproval.query.filter_by(
+            demand_id=d.id, approve_level=1, is_deleted=0).first()
+        if first_level:
+            _notify_approver(first_level)
+    except Exception:
+        pass  # notification is best-effort, never block submission
 
     # Build audit_flow snapshot
     from app.services.approval_service import get_approval_progress
@@ -361,12 +388,21 @@ def list_demands(params):
 
     try:
         from app.models.demand import RecruitDemand
+        from app.services.data_scope import apply_demand_scope
         _ensure_name_columns()
         q = RecruitDemand.query.filter(RecruitDemand.is_deleted == 0)
 
+        # Apply role-based data scope (dept_head→own dept, employee→own demands)
+        q = apply_demand_scope(q, RecruitDemand)
+
         if search:
+            from sqlalchemy import or_
             sl = f'%{search}%'
-            q = q.filter(RecruitDemand.demand_no.contains(search))
+            q = q.filter(or_(
+                RecruitDemand.demand_no.contains(search),
+                RecruitDemand.position_name.contains(search),
+                RecruitDemand.dept_name.contains(search),
+            ))
         if status and status != 'all':
             status_map = {'approval': 1, 'open': 2, 'draft': 0, 'closed': 4, 'rejected': 3, 'cancelled': 5}
             q = q.filter(RecruitDemand.demand_status == status_map.get(status))
@@ -396,7 +432,7 @@ def _mock_list_demands(params):
             'approvalNodes': [
                 {'label': '部门负责人', 'state': 'current'},
                 {'label': 'HR', 'state': 'pending'},
-                {'label': '高管', 'state': 'pending'},
+                {'label': '总监', 'state': 'pending'},
             ],
             'linkedCount': 0, 'directApply': 0, 'systemRecommend': 0,
             'internalMatch': 0, 'internalNames': [], 'interviewing': 0,
@@ -408,7 +444,7 @@ def _mock_list_demands(params):
             'approvalNodes': [
                 {'label': '部门负责人', 'state': 'done'},
                 {'label': 'HR', 'state': 'current'},
-                {'label': '高管', 'state': 'pending'},
+                {'label': '总监', 'state': 'pending'},
             ],
             'linkedCount': 0, 'directApply': 0, 'systemRecommend': 0,
             'internalMatch': 0, 'internalNames': [], 'interviewing': 0,
@@ -420,7 +456,7 @@ def _mock_list_demands(params):
             'approvalNodes': [
                 {'label': '部门负责人', 'state': 'done'},
                 {'label': 'HR', 'state': 'done'},
-                {'label': '高管', 'state': 'done'},
+                {'label': '总监', 'state': 'done'},
             ],
             'directApply': 4, 'systemRecommend': 5, 'internalMatch': 2,
             'internalNames': ['王工·92', '赵工·42'],
@@ -433,7 +469,7 @@ def _mock_list_demands(params):
             'approvalNodes': [
                 {'label': '部门负责人', 'state': 'done'},
                 {'label': 'HR', 'state': 'done'},
-                {'label': '高管', 'state': 'done'},
+                {'label': '总监', 'state': 'done'},
             ],
             'directApply': 1, 'systemRecommend': 0, 'internalMatch': 0,
             'internalNames': [], 'interviewing': 0, 'linkedCount': 0,
@@ -445,7 +481,7 @@ def _mock_list_demands(params):
             'approvalNodes': [
                 {'label': '部门负责人', 'state': 'done'},
                 {'label': 'HR', 'state': 'done'},
-                {'label': '高管', 'state': 'done'},
+                {'label': '总监', 'state': 'done'},
             ],
             'linkedCount': 0,
         },
@@ -488,6 +524,49 @@ def create_demand(data):
         dept_text = (data.get('dept') or '').strip()
         position_text = (data.get('position') or '').strip()
 
+        # ── Sync position & department to config page (demand is source of truth) ──
+        from app.models.iam import IamPosition, IamDept
+
+        resolved_dept_id = data.get('deptId') or resolve_dept_id(dept_text) or 1
+        resolved_position_id = data.get('positionId') or 1
+
+        if dept_text and not data.get('deptId'):
+            # Check if dept exists by name; create if not
+            existing_dept = IamDept.query.filter(
+                IamDept.dept_name == dept_text, IamDept.is_deleted == 0
+            ).first()
+            if existing_dept:
+                resolved_dept_id = existing_dept.dept_id
+            else:
+                max_did = db.session.query(db.func.max(IamDept.dept_id)).filter(
+                    IamDept.is_deleted == 0).scalar() or 1000
+                new_dept = IamDept(dept_id=max_did + 1, dept_name=dept_text, sort_num=0, status=1)
+                db.session.add(new_dept)
+                db.session.flush()
+                resolved_dept_id = new_dept.dept_id
+                log.info("Demand auto-created department: %s (id=%s)", dept_text, new_dept.dept_id)
+
+        if position_text and not data.get('positionId'):
+            # Check if position exists by name; create if not
+            existing_pos = IamPosition.query.filter(
+                IamPosition.position_name == position_text, IamPosition.is_deleted == 0
+            ).first()
+            if existing_pos:
+                resolved_position_id = existing_pos.position_id
+            else:
+                max_pid = db.session.query(db.func.max(IamPosition.position_id)).filter(
+                    IamPosition.is_deleted == 0).scalar() or 2000
+                new_pos = IamPosition(
+                    position_id=max_pid + 1,
+                    position_name=position_text,
+                    dept_id=resolved_dept_id,
+                    status=1,
+                )
+                db.session.add(new_pos)
+                db.session.flush()
+                resolved_position_id = new_pos.position_id
+                log.info("Demand auto-created position: %s (id=%s)", position_text, new_pos.position_id)
+
         entry_date = None
         raw_date = data.get('date') or data.get('expectEntryDate')
         if raw_date:
@@ -508,15 +587,15 @@ def create_demand(data):
         def build_demand(demand_no):
             return RecruitDemand(
                 demand_no=demand_no,
-                dept_id=data.get('deptId') or DEPT_IDS.get(dept_text) or 1,
+                dept_id=resolved_dept_id,
                 dept_name=dept_text or None,
-                position_id=data.get('positionId') or 1,
+                position_id=resolved_position_id,
                 position_name=position_text or None,
                 recruit_type=data.get('recruitType') or 1,
                 plan_headcount=data.get('hc') or data.get('planHeadcount') or 1,
                 demand_status=0,  # draft
                 urgency=_normalize_urgency(data.get('urgency')),
-                creator_id=data.get('creatorId') or 1,
+                creator_id=data.get('creatorId') or getattr(g, 'current_user_id', None) or 1,
                 hr_owner_id=data.get('hrOwnerId') or 1,
                 jd_content=data.get('description') or data.get('desc', ''),
                 salary_range=data.get('salary', ''),
@@ -589,8 +668,9 @@ def update_demand(demand_id, data):
         if 'dept' in data:
             dept_text = (data['dept'] or '').strip()
             d.dept_name = dept_text or None
-            if dept_text in DEPT_IDS:
-                d.dept_id = DEPT_IDS[dept_text]
+            resolved_id = resolve_dept_id(dept_text)
+            if resolved_id is not None:
+                d.dept_id = resolved_id
         if 'deptId' in data and data['deptId']:
             d.dept_id = data['deptId']
         if 'positionId' in data and data['positionId']:
@@ -680,7 +760,7 @@ def delete_demand(demand_id):
         if not d:
             raise AppError('NOT_FOUND', f'需求 {demand_id} 不存在')
 
-        if d.demand_status not in (0, 2, 3, 4, 5):
+        if d.demand_status not in (0, 1, 2, 3, 4, 5):
             raise AppError('INVALID_STATE', f'需求状态为{STATUS_LABELS.get(d.demand_status, "未知")}，不允许删除')
 
         if _has_active_interviews_or_offers(d.id):
@@ -704,9 +784,9 @@ def get_demand_detail(demand_id):
         _ensure_name_columns()
         d = RecruitDemand.query.filter_by(demand_no=demand_id, is_deleted=0).first()
         if d:
-            pos_name = getattr(d, 'position_name', None) or POS_NAMES.get(d.position_id, str(d.position_id))
-            dept_name = getattr(d, 'dept_name', None) or DEPT_NAMES.get(d.dept_id, str(d.dept_id))
-            submitter = USER_NAMES.get(d.creator_id, str(d.creator_id))
+            pos_name = getattr(d, 'position_name', None) or resolve_position_name(d.position_id)
+            dept_name = getattr(d, 'dept_name', None) or resolve_dept_name(d.dept_id)
+            submitter = resolve_user_name(d.creator_id)
 
             req_skills = d.required_skills or []
             plus_skills = d.plus_skills or []
@@ -763,7 +843,7 @@ def _mock_demand_detail():
         'approvalNodes': [
             {'actor': '刘博', 'role': '部门负责人', 'status': '已通过', 'date': '2026-07-12 14:30'},
             {'actor': '张HR', 'role': 'HR', 'status': '已通过', 'date': '2026-07-13 09:15'},
-            {'actor': '高管', 'role': '高管', 'status': '已通过', 'date': '2026-07-13 16:00'},
+            {'actor': '总监', 'role': '总监', 'status': '已通过', 'date': '2026-07-13 16:00'},
         ],
     }
 

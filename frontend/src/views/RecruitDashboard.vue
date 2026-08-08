@@ -2,19 +2,22 @@
   <WorkbenchLayout title="招聘看板" :breadcrumb="{ text: '招聘管理', href: '/recruit-dashboard' }">
     <template #topbar-actions>
       <span style="font-size:11px;color:var(--c-sub)">数据更新于 {{ lastUpdate }}</span>
-      <select v-model="selectedYear" @change="refreshData" style="padding:5px 10px;border:1px solid var(--c-border);border-radius:6px;font-size:13px">
+      <select v-model="selectedYear" @change="onFilterChange" style="padding:5px 10px;border:1px solid var(--c-border);border-radius:6px;font-size:13px">
         <option v-for="y in years" :key="y" :value="y">{{ y }}年</option>
       </select>
-      <select v-model="dimension" @change="refreshData" style="padding:5px 10px;border:1px solid var(--c-border);border-radius:6px;font-size:13px;margin-left:6px">
-        <option value="month">按月</option>
-        <option value="dept">按部门</option>
-        <option value="position">按岗位</option>
+      <select v-model="selectedDept" @change="onFilterChange" style="padding:5px 10px;border:1px solid var(--c-border);border-radius:6px;font-size:13px">
+        <option value="">全部部门</option>
+        <option v-for="d in deptOptions" :key="d.id" :value="d.id">{{ d.name }}</option>
+      </select>
+      <select v-model="selectedPosition" @change="onFilterChange" style="padding:5px 10px;border:1px solid var(--c-border);border-radius:6px;font-size:13px">
+        <option value="">全部岗位</option>
+        <option v-for="p in positionOptions" :key="p.id" :value="p.id">{{ p.name }}</option>
       </select>
     </template>
 
     <DataLoadingOverlay :visible="loading" />
 
-    <!-- Summary cards row -->
+    <!-- KPI cards row -->
     <div class="analytics-cards" v-if="!loading">
       <div class="ana-card" v-for="(c, i) in summaryCards" :key="i" :style="{ '--card-accent': c.color }">
         <div class="ana-card-val">{{ c.val }}</div>
@@ -23,35 +26,23 @@
       </div>
     </div>
 
-    <!-- Chart grid: 4 bar charts -->
+    <!-- 4 bar charts — monthly trends (unique to dashboard, not on homepage) -->
     <div class="chart-grid" v-if="!loading">
       <div class="chart-card" v-for="(chart, ci) in chartData" :key="ci">
         <div class="chart-title">{{ chart.title }}</div>
         <svg :viewBox="'0 0 ' + chartW + ' ' + chartH" class="chart-svg" role="img" :aria-label="chart.title">
-          <!-- Grid lines -->
-          <line v-for="n in 5" :key="'g' + n" :x1="gridLeft" :y1="gridTop + (n - 1) * yStep" :x2="gridRight" :y2="gridTop + (n - 1) * yStep" stroke="#f0f2f7" stroke-width="1" />
-          <!-- Y axis labels -->
-          <text v-for="n in 5" :key="'yl' + n" :x="gridLeft - 8" :y="gridTop + (n - 1) * yStep + 4" text-anchor="end" font-size="10" fill="#8C95A6">{{ yLabel(chart, n) }}</text>
-          <!-- Bars -->
-          <g v-for="(m, mi) in chart.months" :key="'bar' + mi">
-            <rect
-              v-for="(bar, bi) in m.bars"
-              :key="'b' + bi"
-              :x="barX(mi, bi, chart)"
-              :y="barY(bar.val, chart)"
-              :width="barW(chart)"
-              :height="Math.max(0, barH(bar.val, chart))"
-              :fill="bar.color"
-              :opacity="barH(bar.val, chart) > 0 ? 1 : 0"
-              rx="2"
-            >
-              <title>{{ bar.label || '' }} {{ m.label }}: {{ bar.val }}</title>
+          <line v-for="n in 5" :key="'g'+n" :x1="gridLeft" :y1="gridTop+(n-1)*yStep" :x2="gridRight" :y2="gridTop+(n-1)*yStep" stroke="#f0f2f7" stroke-width="1"/>
+          <text v-for="n in 5" :key="'yl'+n" :x="gridLeft-8" :y="gridTop+(n-1)*yStep+4" text-anchor="end" font-size="10" fill="#8C95A6">{{ yLabel(chart, n) }}</text>
+          <g v-for="(m, mi) in chart.months" :key="'bar'+mi">
+            <rect v-for="(bar, bi) in m.bars" :key="'b'+bi"
+              :x="barX(mi, bi, chart)" :y="barY(bar.val, chart)"
+              :width="barW(chart)" :height="Math.max(0, barH(bar.val, chart))"
+              :fill="bar.color" :opacity="barH(bar.val, chart) > 0 ? 1 : 0" rx="2">
+              <title>{{ bar.label }} {{ m.label }}: {{ bar.val }}</title>
             </rect>
           </g>
-          <!-- X axis labels -->
-          <text v-for="(m, mi) in chart.months" :key="'xl' + mi" :x="barCenter(mi, chart)" :y="chartH - 6" text-anchor="middle" font-size="10" fill="#8C95A6">{{ m.label }}</text>
+          <text v-for="(m, mi) in chart.months" :key="'xl'+mi" :x="barCenter(mi, chart)" :y="chartH-6" text-anchor="middle" font-size="10" fill="#8C95A6">{{ m.label }}</text>
         </svg>
-        <!-- Legend -->
         <div class="chart-legend" v-if="chart.legend">
           <span v-for="leg in chart.legend" :key="leg.label" class="legend-item">
             <i :style="{ background: leg.color }"></i>{{ leg.label }}
@@ -61,7 +52,7 @@
     </div>
 
     <div v-if="!loading" class="table-count" style="margin-top:8px">
-      共 4 个统计维度 · 数据源：{{ dimensionLabel }}
+      {{ selectedYear }}年 · 共 {{ summaryCards.length }} 项指标 · 数据更新于 {{ lastUpdate }}
     </div>
   </WorkbenchLayout>
 </template>
@@ -70,249 +61,151 @@
 import { ref, computed, onMounted } from 'vue';
 import WorkbenchLayout from '../layouts/WorkbenchLayout.vue';
 import DataLoadingOverlay from '../components/DataLoadingOverlay.vue';
+import { fetchKpi, fetchMonthlyStats } from '../api/dashboard.js';
+import { fetchPositions } from '../api/auth.js';
 
-// ── State ──
 const loading = ref(true);
-const selectedYear = ref(2026);
-const dimension = ref('month');
+const loadError = ref('');
+const apiKpis = ref([]);
+const monthlyData = ref([]);
+const selectedYear = ref(new Date().getFullYear());
+const selectedDept = ref('');
+const selectedPosition = ref('');
 const years = [2024, 2025, 2026, 2027];
 const lastUpdate = ref('—');
+const deptOptions = ref([]);
+const positionOptions = ref([]);
 
-// ── Chart layout constants ──
-const chartW = 520;
-const chartH = 200;
-const gridLeft = 50;
-const gridRight = 500;
-const gridTop = 16;
-const gridBottom = 170;
+// Chart layout
+const chartW = 520, chartH = 200;
+const gridLeft = 50, gridRight = 500, gridTop = 16, gridBottom = 170;
 const yStep = (gridBottom - gridTop) / 4;
 const barGroupW = (gridRight - gridLeft) / 12;
 
-// ── Mock data ──
-const MONTH_LABELS = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
-
-function genMockMonths() {
-  return MONTH_LABELS.map((label, i) => {
-    const base = 5 + i * 1.5;
-    return {
-      label,
-      plan: Math.round(base + Math.random() * 4),
-      actual: Math.round((base + Math.random() * 4) * (0.6 + Math.random() * 0.4)),
-      resumes: Math.round(20 + i * 8 + Math.random() * 30),
-      interviews: Math.round(8 + i * 3 + Math.random() * 10),
-      passed: Math.round(3 + i * 1.5 + Math.random() * 5),
-    };
-  });
-}
-
-const mockData = ref(genMockMonths());
-
-const dimensionLabel = computed(() => {
-  const map = { month: '按月统计', dept: '按部门统计', position: '按岗位统计' };
-  return map[dimension.value] || '按月统计';
-});
-
-// ── Summary cards ──
+// KPI
+const KPI_COLORS = ['#4F6EF7', '#F59E0B', '#8B5CF6', '#06B6D4', '#22C55E'];
 const summaryCards = computed(() => {
-  const d = mockData.value;
-  const totalPlan = d.reduce((s, m) => s + m.plan, 0);
-  const totalActual = d.reduce((s, m) => s + m.actual, 0);
-  const totalResumes = d.reduce((s, m) => s + m.resumes, 0);
-  const totalInterviews = d.reduce((s, m) => s + m.interviews, 0);
-  const totalPassed = d.reduce((s, m) => s + m.passed, 0);
-  const interviewRate = totalResumes > 0 ? Math.round((totalInterviews / totalResumes) * 100) : 0;
-  const passRate = totalInterviews > 0 ? Math.round((totalPassed / totalInterviews) * 100) : 0;
-  return [
-    { label: '计划招聘', val: totalPlan + '人', sub: selectedYear.value + '年目标', color: '#4F6EF7' },
-    { label: '投递简历', val: totalResumes + '份', sub: '较去年 +12%', color: '#F59E0B' },
-    { label: '面试总数', val: totalInterviews + '场', sub: '面试率 ' + interviewRate + '%', color: '#8B5CF6' },
-    { label: '面试通过', val: totalPassed + '人', sub: '通过率 ' + passRate + '%', color: '#06B6D4' },
-    { label: '实际到岗', val: totalActual + '人', sub: '完成率 ' + Math.round((totalActual / totalPlan) * 100) + '%', color: '#22C55E' },
-  ];
+  const kpis = apiKpis.value || [];
+  return kpis.slice(0, 4).map((k, i) => ({
+    label: k.label || '—', val: k.val != null ? k.val : '—',
+    sub: k.trend || '', color: KPI_COLORS[i % KPI_COLORS.length],
+  }));
 });
 
-// ── Chart data ──
+// Bar charts from real monthly data
 const chartData = computed(() => {
-  const d = mockData.value;
+  const months = monthlyData.value || [];
+  if (!months.length) return [];
+
+  const maxResume = Math.max(...months.map(m => m.resumes || 0), 1);
+  const maxInterview = Math.max(...months.map(m => m.interviews || 0), 1);
+  const maxHire = Math.max(...months.map(m => m.hires || 0), 1);
+
   return [
     {
-      title: '计划 vs 实际招聘',
-      legend: [{ label: '计划', color: '#CBD5E1' }, { label: '实际', color: '#4F6EF7' }],
-      maxVal: Math.max(...d.map(m => Math.max(m.plan, m.actual))) + 2,
-      months: d.map(m => ({
-        label: m.label,
-        bars: [
-          { val: m.plan, color: '#CBD5E1', label: '计划' },
-          { val: m.actual, color: '#4F6EF7', label: '实际' },
-        ],
-      })),
-    },
-    {
-      title: '每月投递简历数',
-      legend: [{ label: '投递', color: '#F59E0B' }],
-      maxVal: Math.max(...d.map(m => m.resumes)) + 5,
-      months: d.map(m => ({
-        label: m.label,
-        bars: [{ val: m.resumes, color: '#F59E0B', label: '投递' }],
-      })),
+      title: '每月简历入库',
+      maxVal: maxResume + Math.ceil(maxResume * 0.2),
+      legend: [{ label: '简历', color: '#4F6EF7' }],
+      months: months.map(m => ({ label: m.label, bars: [{ val: m.resumes || 0, color: '#4F6EF7', label: '简历' }] })),
     },
     {
       title: '每月面试场次',
-      legend: [{ label: '面试', color: '#8B5CF6' }],
-      maxVal: Math.max(...d.map(m => m.interviews)) + 3,
-      months: d.map(m => ({
-        label: m.label,
-        bars: [{ val: m.interviews, color: '#8B5CF6', label: '面试' }],
-      })),
+      maxVal: maxInterview + Math.ceil(maxInterview * 0.2),
+      legend: [{ label: '面试', color: '#F59E0B' }],
+      months: months.map(m => ({ label: m.label, bars: [{ val: m.interviews || 0, color: '#F59E0B', label: '面试' }] })),
     },
     {
-      title: '每月面试通过数',
-      legend: [{ label: '通过', color: '#22C55E' }],
-      maxVal: Math.max(...d.map(m => m.passed)) + 2,
-      months: d.map(m => ({
+      title: '每月入职人数',
+      maxVal: maxHire + Math.ceil(maxHire * 0.2),
+      legend: [{ label: '入职', color: '#22C55E' }],
+      months: months.map(m => ({ label: m.label, bars: [{ val: m.hires || 0, color: '#22C55E', label: '入职' }] })),
+    },
+    {
+      title: '招聘漏斗对比（简历→面试→入职）',
+      maxVal: Math.max(maxResume, maxInterview, maxHire) + 2,
+      legend: [
+        { label: '简历', color: '#CBD5E1' },
+        { label: '面试', color: '#F59E0B' },
+        { label: '入职', color: '#22C55E' },
+      ],
+      months: months.map(m => ({
         label: m.label,
-        bars: [{ val: m.passed, color: '#22C55E', label: '通过' }],
+        bars: [
+          { val: m.resumes || 0, color: '#CBD5E1', label: '简历' },
+          { val: m.interviews || 0, color: '#F59E0B', label: '面试' },
+          { val: m.hires || 0, color: '#22C55E', label: '入职' },
+        ],
       })),
     },
   ];
 });
 
-// ── Chart helpers ──
-function yLabel(chart, n) {
-  const max = chart.maxVal || 10;
-  const val = max - ((n - 1) * max) / 4;
-  return Math.round(val);
-}
+// Chart helpers
+function yLabel(chart, n) { const max = chart.maxVal || 10; return Math.round(max - ((n-1)*max)/4); }
+function barX(mi, bi, chart) { const n = chart.months[0]?.bars?.length || 1; const each = (barGroupW-4)/n; return gridLeft + mi*barGroupW + 2 + bi*each + 1; }
+function barW(chart) { const n = chart.months[0]?.bars?.length || 1; return Math.max(2, (barGroupW-4)/n - 2); }
+function barY(val, chart) { const max = chart.maxVal || 1; return gridBottom - (val/max)*(gridBottom-gridTop); }
+function barH(val, chart) { const max = chart.maxVal || 1; return (val/max)*(gridBottom-gridTop); }
+function barCenter(mi, chart) { return gridLeft + mi*barGroupW + barGroupW/2; }
 
-function barX(monthIdx, barIdx, chart) {
-  const barsPerGroup = chart.months[0]?.bars?.length || 1;
-  const gap = 2;
-  const totalBarW = barGroupW - gap * 2;
-  const eachW = totalBarW / barsPerGroup;
-  return gridLeft + monthIdx * barGroupW + gap + barIdx * eachW + 1;
-}
-
-function barW(chart) {
-  const barsPerGroup = chart.months[0]?.bars?.length || 1;
-  const gap = 2;
-  const totalBarW = barGroupW - gap * 2;
-  return Math.max(2, totalBarW / barsPerGroup - 2);
-}
-
-function barY(val, chart) {
-  const max = chart.maxVal || 1;
-  return gridBottom - (val / max) * (gridBottom - gridTop);
-}
-
-function barH(val, chart) {
-  const max = chart.maxVal || 1;
-  return (val / max) * (gridBottom - gridTop);
-}
-
-function barCenter(monthIdx, chart) {
-  const barsPerGroup = chart.months[0]?.bars?.length || 1;
-  return gridLeft + monthIdx * barGroupW + barGroupW / 2;
-}
-
-// ── Lifecycle ──
-function refreshData() {
+async function refreshData() {
+  loadError.value = '';
   loading.value = true;
-  mockData.value = genMockMonths();
+  try {
+    const params = { year: selectedYear.value };
+    if (selectedDept.value) params.dept_id = selectedDept.value;
+    if (selectedPosition.value) params.position_id = selectedPosition.value;
+    const [kpiResult, monthlyResult] = await Promise.allSettled([
+      fetchKpi(params),
+      fetchMonthlyStats(params),
+    ]);
+    apiKpis.value = kpiResult.status === 'fulfilled' ? (Array.isArray(kpiResult.value) ? kpiResult.value : []) : [];
+    if (monthlyResult.status === 'fulfilled') {
+      monthlyData.value = monthlyResult.value?.months || monthlyResult.value?.data?.months || [];
+    }
+  } catch (e) {
+    loadError.value = '数据加载失败';
+    console.warn('[Dashboard] fetch failed:', e);
+  }
+  lastUpdate.value = new Date().toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' });
   loading.value = false;
-  lastUpdate.value = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+}
+
+function onFilterChange() {
+  refreshData();
+}
+
+async function loadFilterOptions() {
+  try {
+    const { fetchDepartments } = await import('../api/config.js');
+    deptOptions.value = Array.isArray(await fetchDepartments()) ? await fetchDepartments() : [];
+  } catch { deptOptions.value = []; }
+  try {
+    positionOptions.value = Array.isArray(await fetchPositions()) ? await fetchPositions() : [];
+  } catch { positionOptions.value = []; }
 }
 
 onMounted(() => {
+  loadFilterOptions();
   refreshData();
 });
 </script>
 
 <style scoped>
-/* Summary cards */
-.analytics-cards {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 14px;
-  margin-bottom: 20px;
-}
-.ana-card {
-  background: var(--c-card, #fff);
-  border: 1px solid var(--c-border, #E1E6EF);
-  border-radius: 10px;
-  padding: 16px;
-  position: relative;
-  overflow: hidden;
-}
-.ana-card::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 3px;
-  background: var(--card-accent);
-}
-.ana-card-val {
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--c-text, #172033);
-  font-variant-numeric: tabular-nums;
-}
-.ana-card-label {
-  font-size: 13px;
-  color: var(--c-sub, #5B6475);
-  margin-top: 2px;
-}
-.ana-card-sub {
-  font-size: 11px;
-  color: var(--c-muted, #8C95A6);
-  margin-top: 2px;
-}
-
-/* Chart grid */
-.chart-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
-}
-.chart-card {
-  background: var(--c-card, #fff);
-  border: 1px solid var(--c-border, #E1E6EF);
-  border-radius: 10px;
-  padding: 16px;
-}
-.chart-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--c-text, #172033);
-  margin-bottom: 8px;
-}
-.chart-svg {
-  width: 100%;
-  height: auto;
-}
-.chart-legend {
-  display: flex;
-  gap: 16px;
-  margin-top: 6px;
-  font-size: 12px;
-  color: var(--c-sub, #5B6475);
-}
-.legend-item {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-.legend-item i {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 2px;
-}
-
-@media (max-width: 1024px) {
-  .analytics-cards { grid-template-columns: repeat(3, 1fr); }
-  .chart-grid { grid-template-columns: 1fr; }
-}
-@media (max-width: 640px) {
-  .analytics-cards { grid-template-columns: repeat(2, 1fr); }
-}
+.analytics-cards { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:20px; perspective:800px; }
+.ana-card { background:var(--c-card,#fff); border:1px solid var(--c-border,#E1E6EF); border-radius:10px; padding:16px; position:relative; overflow:hidden; transition:transform .25s,box-shadow .25s; }
+.ana-card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; background:var(--card-accent); }
+.ana-card:hover { box-shadow:0 12px 32px rgba(23,32,51,.1); }
+.ana-card-val { font-size:22px; font-weight:700; color:var(--c-text,#172033); font-variant-numeric:tabular-nums; }
+.ana-card-label { font-size:13px; color:var(--c-sub,#5B6475); margin-top:2px; }
+.ana-card-sub { font-size:11px; color:var(--c-muted,#8C95A6); margin-top:2px; }
+.chart-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:16px; }
+.chart-card { background:var(--c-card,#fff); border:1px solid var(--c-border,#E1E6EF); border-radius:10px; padding:16px; }
+.chart-title { font-size:14px; font-weight:600; color:var(--c-text,#172033); margin-bottom:8px; }
+.chart-svg { width:100%; height:auto; }
+.chart-legend { display:flex; gap:16px; margin-top:6px; font-size:12px; color:var(--c-sub,#5B6475); }
+.legend-item { display:flex; align-items:center; gap:5px; }
+.legend-item i { display:inline-block; width:10px; height:10px; border-radius:2px; }
+.table-count { font-size:12px; color:var(--c-muted,#8C95A6); }
+@media (max-width:768px) { .analytics-cards{grid-template-columns:repeat(2,1fr)} .chart-grid{grid-template-columns:1fr} }
 </style>
