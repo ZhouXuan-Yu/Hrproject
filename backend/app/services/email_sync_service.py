@@ -20,8 +20,15 @@ from email.utils import parseaddr
 
 log = logging.getLogger(__name__)
 
-# Cap per sync run to avoid hammering the LLM / mailbox on first sync
-_MAX_EMAILS_PER_SYNC = 50
+# Configurable batch size — if there are more unread emails than this,
+# we process the oldest ones first (oldest → newest) so nothing is
+# permanently skipped. Set via EMAIL_SYNC_BATCH_SIZE env var.
+def _sync_batch_size():
+    try:
+        from flask import current_app
+        return int(current_app.config.get('EMAIL_SYNC_BATCH_SIZE', 200))
+    except Exception:
+        return 200
 
 
 # ===========================================================================
@@ -370,17 +377,28 @@ def sync_mail_account(account_id):
         if status != 'OK':
             raise RuntimeError(f'IMAP search failed: {status}')
 
-        msg_ids = data[0].split()[-_MAX_EMAILS_PER_SYNC:]
-        result['new_emails'] = len(msg_ids)
-        log.info("Mailbox %s: %d unread email(s) to process", acct_name, len(msg_ids))
+        all_unseen = data[0].split()
+        total_unseen = len(all_unseen)
+        # Process from oldest to newest so old emails don't get skipped forever
+        batch_size = _sync_batch_size()
+        to_process = all_unseen[:batch_size][::-1]  # take first N, reverse to oldest-first
+        result['new_emails'] = len(to_process)
+        result['total_unseen'] = total_unseen
+        log.info("Mailbox %s: processing %d/%d unread (oldest first, batch=%d)",
+                 acct_name, len(to_process), total_unseen, batch_size)
 
-        for num in msg_ids:
+        for num in to_process:
             detail = _process_one_message(conn, num, account, resume_service)
             if detail:
                 result['details'].append(detail)
                 if detail.get('ingested'):
                     result['resumes_ingested'] += 1
                     result['candidates'].append(detail.get('candidate'))
+            # Mark as read after processing
+            try:
+                conn.store(num, '+FLAGS', '\\Seen')
+            except Exception:
+                pass
 
         account.last_sync_time = datetime.now()
         db.session.commit()

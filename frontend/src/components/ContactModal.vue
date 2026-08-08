@@ -51,14 +51,20 @@
                 <span class="ct-contact-value">{{ contact.email }}</span>
                 <button class="btn btn-text btn-sm" @click="copyText(contact.email, '邮箱')">复制</button>
               </div>
-              <div class="ct-contact-hint">来自简历识别提取，点击「写邮件并记录」唤起系统邮件客户端。</div>
+              <div class="ct-contact-hint">来自简历识别提取，点击「发送并记录」会通过后端 SMTP 真实发送。</div>
+              <textarea v-model="draftText" class="ct-draft" rows="5" placeholder="填写或粘贴要发送给候选人的邮件内容"></textarea>
             </template>
             <div class="ct-contact-empty" v-else>简历中未识别到邮箱，可查看简历原件手动补录。</div>
           </div>
           <div class="ct-contact-card" v-else>
             <div class="ct-contact-hint">
-              飞书沟通请在飞书客户端中搜索候选人姓名发起，系统仅辅助记录联系动作。
+              飞书发送会优先按候选人邮箱/手机号检索 open_id；也可先在配置页完成飞书应用配置。
             </div>
+            <textarea v-model="draftText" class="ct-draft" rows="5" placeholder="填写或粘贴要通过飞书发送给候选人的内容"></textarea>
+          </div>
+          <div v-if="sendResult.visible" class="ct-send-result" :class="{ ok: sendResult.sent, fail: !sendResult.sent }">
+            <b>{{ sendResult.sent ? '发送成功' : '发送失败' }}</b>
+            <span>{{ sendResult.message }}</span>
           </div>
         </div>
 
@@ -77,11 +83,9 @@
           <template v-if="!isBatch && selectedChannel === 'phone' && contact.mobile">
             <a class="btn btn-primary btn-sm ct-action-link" :href="`tel:${contact.mobile}`" @click="recordAction('电话')">拨打并记录</a>
           </template>
-          <template v-else-if="!isBatch && selectedChannel === 'email' && contact.email">
-            <a class="btn btn-primary btn-sm ct-action-link" :href="`mailto:${contact.email}`" @click="recordAction('邮件')">写邮件并记录</a>
-          </template>
+          <button v-else-if="sendResult.visible" class="btn btn-primary btn-sm" @click="close">确定</button>
           <button v-else class="btn btn-primary btn-sm" :disabled="isSubmitting" @click="submit">
-            {{ isBatch ? '记录批量联系' : '记录联系' }}
+            {{ isBatch ? '记录批量联系' : (selectedChannel === 'phone' ? '记录联系' : '发送并记录') }}
           </button>
         </div>
       </div>
@@ -91,7 +95,7 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue';
-import { recordTalentContact, batchContactCandidates, fetchCandidateContact } from '../api/talent.js';
+import { recordTalentContact, batchContactCandidates, fetchCandidateContact, sendTalentContact } from '../api/talent.js';
 import { useToast } from '../composables/useToast.js';
 
 const props = defineProps({
@@ -103,12 +107,14 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['close', 'done']);
-const toast = useToast();
+const { toast } = useToast();
 
 const selectedChannel = ref('phone');
 const isSubmitting = ref(false);
 const contact = ref({ mobile: '', email: '' });
 const contactLoading = ref(false);
+const draftText = ref('');
+const sendResult = ref({ visible: false, sent: false, message: '' });
 
 const channels = [
   { key: 'phone', label: '电话', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>' },
@@ -133,8 +139,7 @@ watch(() => props.visible, async (v) => {
   contactLoading.value = true;
   contact.value = { mobile: '', email: '' };
   try {
-    const res = await fetchCandidateContact(props.candidateId);
-    const data = (res && res.data) ? res.data : res;
+    const data = await fetchCandidateContact(props.candidateId);
     contact.value = { mobile: data?.mobile || '', email: data?.email || '' };
     // 默认选中第一个可用渠道
     if (!contact.value.mobile && contact.value.email) selectedChannel.value = 'email';
@@ -145,6 +150,8 @@ watch(() => props.visible, async (v) => {
   } finally {
     contactLoading.value = false;
   }
+  draftText.value = `${props.candidateName || '候选人'}您好，关于您应聘岗位的后续沟通，想和您确认一下近期安排。`;
+  sendResult.value = { visible: false, sent: false, message: '' };
 });
 
 async function copyText(text, label) {
@@ -160,7 +167,7 @@ function close() {
   if (!isSubmitting.value) emit('close');
 }
 
-// 电话/邮件：外部动作由 tel:/mailto: 链接触发，这里同步记录联系
+// 电话：外部动作由 tel: 链接触发，这里同步记录联系
 async function recordAction(methodLabel) {
   try {
     await recordTalentContact(props.candidateId, methodLabel);
@@ -177,6 +184,23 @@ async function submit() {
   try {
     if (props.isBatch) {
       await batchContactCandidates(props.selected, methodLabel);
+    } else if (selectedChannel.value === 'email' || selectedChannel.value === 'feishu') {
+      const result = await sendTalentContact({
+        candidateId: props.candidateId,
+        channel: selectedChannel.value,
+        method: methodLabel,
+        draft: draftText.value,
+        subject: 'XX公司招聘沟通',
+      });
+      const ok = !!(result?.sent || result?.send?.sent);
+      sendResult.value = {
+        visible: true,
+        sent: ok,
+        message: ok
+          ? `${methodLabel}已发送至 ${result?.send?.recipient || contact.value.email || props.candidateName}`
+          : (result?.send?.message || result?.message || '请检查邮箱/飞书配置'),
+      };
+      return;
     } else {
       await recordTalentContact(props.candidateId, methodLabel);
     }
@@ -215,6 +239,10 @@ async function submit() {
 .ct-contact-hint { margin-top: 8px; font-size: 12px; color: var(--c-sub); line-height: 1.5; }
 .ct-contact-empty { font-size: 13px; color: var(--c-warn); }
 .ct-loading { font-size: 12px; color: var(--c-sub); }
+.ct-draft { width: 100%; margin-top: 10px; padding: 9px 10px; border: 1px solid var(--c-border); border-radius: 8px; resize: vertical; font-size: 13px; line-height: 1.7; box-sizing: border-box; font-family: inherit; color: var(--c-text); background: var(--c-card); }
+.ct-send-result { margin-top: 10px; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--c-border); display: flex; gap: 8px; align-items: center; font-size: 12px; line-height: 1.5; }
+.ct-send-result.ok { color: var(--c-done); border-color: rgba(34,197,94,.25); background: rgba(34,197,94,.08); }
+.ct-send-result.fail { color: var(--c-reject); border-color: rgba(239,68,68,.25); background: rgba(239,68,68,.08); }
 .ct-action-link { text-decoration: none; }
 .ct-actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; padding: 12px 20px; border-top: 1px solid var(--e-border-soft, #EFF3F8); }
 .btn { display: inline-flex; align-items: center; gap: 5px; padding: 6px 14px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; }

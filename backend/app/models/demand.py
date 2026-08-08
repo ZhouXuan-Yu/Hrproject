@@ -18,8 +18,8 @@ class RecruitDemand(BaseModel):
     __tablename__ = 't_hr_recruit_demand'
 
     demand_no = Column(String(32), unique=True, nullable=False, comment='业务单号 DM2026070001')
-    dept_id = Column(BigInteger, nullable=False, comment='发起部门ID')
-    position_id = Column(BigInteger, nullable=False, comment='招聘岗位ID')
+    dept_id = Column(BigInteger, nullable=False, index=True, comment='发起部门ID')
+    position_id = Column(BigInteger, nullable=False, index=True, comment='招聘岗位ID')
     recruit_type = Column(Integer, nullable=False, comment='1社招 2校招 3实习 4内推')
     plan_headcount = Column(Integer, nullable=False, comment='计划招聘人数')
     filled_count = Column(Integer, nullable=False, default=0, comment='已入职人数')
@@ -53,7 +53,7 @@ class RecruitDemand(BaseModel):
 class DemandApproval(BaseModel):
     __tablename__ = 't_hr_demand_approval'
 
-    demand_id = Column(BigInteger, nullable=False, comment='关联需求ID')
+    demand_id = Column(BigInteger, nullable=False, index=True, comment='关联需求ID')
     approve_user_id = Column(BigInteger, nullable=True, comment='审批人用户ID')
     approve_level = Column(Integer, nullable=True, comment='审批层级 1/2/3')
     approve_result = Column(Integer, nullable=False, comment='1待审批 2通过 3驳回')

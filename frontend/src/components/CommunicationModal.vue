@@ -21,6 +21,9 @@
 
         <!-- Body -->
         <div class="comm-body">
+          <!-- Contact error banner -->
+          <div v-if="contactError" class="contact-error-banner">{{ contactError }}</div>
+
           <!-- Channel selector -->
           <div class="form-section">
             <h4 class="section-title">选择联系方式</h4>
@@ -35,6 +38,26 @@
                 <span class="channel-icon" v-html="ch.icon"></span>
                 <span class="channel-label">{{ ch.label }}</span>
               </label>
+            </div>
+            <div class="contact-channel-detail">
+              <div v-if="channel === 'phone'">
+                <span class="contact-label">电话号码</span>
+                <b>{{ contactInfo.mobile || '未填写' }}</b>
+              </div>
+              <div v-else-if="channel === 'email'">
+                <span class="contact-label">邮箱</span>
+                <b>{{ contactInfo.email || '未填写' }}</b>
+                <button class="btn btn-outline btn-sm" :disabled="!contactInfo.email || draftLoading || sending" @click="sendCurrentChannel">
+                  {{ sending && channel === 'email' ? '发送中...' : (sent.email ? '已发送' : '发送') }}
+                </button>
+              </div>
+              <div v-else>
+                <span class="contact-label">飞书</span>
+                <b>{{ contactInfo.feishu || contactInfo.mobile || '未绑定飞书' }}</b>
+                <button class="btn btn-outline btn-sm" :disabled="draftLoading || sending" @click="sendCurrentChannel">
+                  {{ sending && channel === 'feishu' ? '发送中...' : (sent.feishu ? '已发送' : '发送') }}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -80,6 +103,10 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
             此内容由AI生成，请人工审核确认后使用。实际联系需通过电话/邮件/飞书由HR手动完成。
           </div>
+          <div v-if="sendResult.visible" class="send-result" :class="{ ok: sendResult.sent, fail: !sendResult.sent }">
+            <b>{{ sendResult.sent ? '发送成功' : '发送失败' }}</b>
+            <span>{{ sendResult.message }}</span>
+          </div>
         </div>
 
         <!-- Footer -->
@@ -90,7 +117,7 @@
             {{ copied ? '已复制' : '复制话术' }}
           </button>
           <button class="btn btn-primary" @click="confirmContact">
-            记录联系
+            {{ sendResult.visible ? '确定' : '记录联系' }}
           </button>
         </div>
       </div>
@@ -101,6 +128,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
 import { runCommunicationDraft } from '../api/ai.js';
+import { fetchCandidateContact, sendTalentContact } from '../api/talent.js';
 import { useToast } from '../composables/useToast.js';
 
 const props = defineProps({
@@ -117,6 +145,11 @@ const draftText = ref('');
 const draftLoading = ref(false);
 const draftError = ref('');
 const copied = ref(false);
+const contactInfo = ref({ mobile: '', email: '', feishu: '' });
+const contactError = ref('');
+const sent = ref({ email: false, feishu: false });
+const sending = ref(false);
+const sendResult = ref({ visible: false, sent: false, message: '' });
 let draftSeq = 0;
 const { toast } = useToast();
 
@@ -164,6 +197,64 @@ async function generateDraft() {
   }
 }
 
+async function loadContactInfo() {
+  const id = props.candidate?.id || '';
+  contactInfo.value = { mobile: '', email: '', feishu: '' };
+  contactError.value = '';
+  if (!id) return;
+  try {
+    const info = await fetchCandidateContact(id);
+    contactInfo.value = {
+      mobile: info?.mobile || '',
+      email: info?.email || '',
+      feishu: info?.feishu || '',
+    };
+  } catch (e) {
+    console.warn('[CommunicationModal] contact info failed:', e);
+    contactError.value = '联系方式加载失败：' + (e.message || '未知错误');
+  }
+}
+
+async function sendCurrentChannel() {
+  if (!draftText.value) await generateDraft();
+  if (!props.candidate?.id) {
+    toast.error('候选人未关联真实档案，无法发送');
+    return;
+  }
+  sending.value = true;
+  try {
+    const result = await sendTalentContact({
+      candidateId: props.candidate.id,
+      channel: channel.value,
+      method: channelLabels[channel.value] || channel.value,
+      draft: draftText.value,
+      subject: `${props.demand?.position || '招聘岗位'} 沟通`,
+      position: props.demand?.position || '',
+      demandId: props.demand?.id || '',
+      feishu: contactInfo.value.feishu || '',
+    });
+    const ok = !!(result?.sent || result?.send?.sent);
+    const message = result?.send?.message || result?.message || '';
+    if (channel.value === 'email') sent.value.email = ok;
+    if (channel.value === 'feishu') sent.value.feishu = ok;
+    sendResult.value = {
+      visible: true,
+      sent: ok,
+      message: ok
+        ? `${channelLabels[channel.value] || '消息'}已发送至 ${result?.send?.recipient || contactInfo.value.email || contactInfo.value.feishu || '候选人'}`
+        : (message || '请检查邮箱/飞书配置'),
+    };
+    if (ok) {
+      toast.success((channelLabels[channel.value] || '消息') + '已真实发送');
+    } else {
+      toast.error('发送失败：' + (message || '请检查邮箱/飞书配置'));
+    }
+  } catch (e) {
+    toast.error('发送失败：' + (e.message || '未知错误'));
+  } finally {
+    sending.value = false;
+  }
+}
 async function copyDraft() {
   if (!draftText.value) return;
   try {
@@ -197,7 +288,11 @@ function resetForm() {
   purpose.value = 'initial';
   draftText.value = '';
   draftError.value = '';
+  contactError.value = '';
   copied.value = false;
+  sent.value = { email: false, feishu: false };
+  sendResult.value = { visible: false, sent: false, message: '' };
+  sending.value = false;
 }
 
 watch(
@@ -205,6 +300,7 @@ watch(
   async (v) => {
     if (v) {
       resetForm();
+      await loadContactInfo();
       // Auto-generate draft on open
       await generateDraft();
     }
@@ -352,6 +448,13 @@ watch(
 .channel-card.active .channel-icon { color: var(--e-primary, #4F6EF7); }
 .channel-label { font-size: 13px; font-weight: 600; color: var(--e-text, #172033); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+.contact-channel-detail {
+  margin-top: 10px; padding: 10px 12px; border: 1px solid var(--e-border-soft, #EFF3F8);
+  border-radius: 8px; background: var(--e-surface-soft, #F9FAFC); font-size: 13px;
+}
+.contact-channel-detail > div { display: flex; align-items: center; gap: 10px; }
+.contact-label { color: var(--e-muted, #5B6475); font-weight: 600; }
+.contact-channel-detail b { color: var(--e-text, #172033); margin-right: auto; }
 
 /* ===== Form elements ===== */
 .form-select { height: 36px; padding: 0 10px; border: 1px solid var(--e-border, #E1E6EF); border-radius: 6px; font-size: 13px; font-family: inherit; background: var(--e-surface, #fff); color: var(--e-text, #172033); }
@@ -386,12 +489,35 @@ watch(
   margin-top: 2px;
 }
 .ai-disclaimer svg { flex-shrink: 0; margin-top: 1px; color: #D97706; }
+.send-result {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--e-border, #E1E6EF);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.send-result b { font-size: 13px; }
+.send-result.ok {
+  color: var(--c-done);
+  border-color: rgba(34, 197, 94, 0.25);
+  background: rgba(34, 197, 94, 0.08);
+}
+.send-result.fail {
+  color: var(--c-reject);
+  border-color: rgba(239, 68, 68, 0.25);
+  background: rgba(239, 68, 68, 0.08);
+}
 
 /* ===== Skeleton loading ===== */
 .draft-loading { display: flex; flex-direction: column; gap: 8px; padding: 12px; }
 .skeleton-line { height: 14px; border-radius: 4px; background: linear-gradient(90deg, #E1E6EF 25%, #F0F2F5 50%, #E1E6EF 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
 @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 .draft-error { color: var(--e-reject, #EF4444); font-size: 12px; margin-bottom: 8px; padding: 8px 12px; background: #FEF2F2; border-radius: 6px; }
+.contact-error-banner { color: var(--c-reject, #EF4444); font-size: 12px; margin-bottom: 12px; padding: 8px 12px; background: #FEF2F2; border: 1px solid #FECACA; border-radius: 6px; }
 
 /* ===== Actions footer ===== */
 .comm-actions {

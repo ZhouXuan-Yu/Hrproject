@@ -14,20 +14,20 @@
     <aside class="sidebar" id="sidebar" role="navigation" aria-label="招聘模块导航">
       <div class="logo">
         <div class="logo-icon">HR</div>
-        <div class="logo-text">招聘管理系统<span>Recruitment v0.1</span></div>
+        <div class="logo-text">招聘管理系统</div>
       </div>
       <nav v-if="visibleMenus.length">
         <div class="nav-main-menu open">
           <div class="nav-main-label" @click="toggleNav">招聘管理 <span class="nav-arrow">▾</span></div>
           <div class="nav-flyout">
-            <a
+            <RouterLink
               v-for="item in visibleMenus"
               :key="item.id"
-              :href="item.href"
+              :to="item.href"
               class="nav-flyout-item"
               :class="{ active: item.id === routeId || (routeId === 'recruit-demand-detail' && item.id === 'recruit-demand') }"
               :aria-current="item.id === routeId ? 'page' : undefined"
-            ><span class="nav-dot"></span>{{ item.label }}</a>
+            ><span class="nav-dot"></span>{{ item.label }}</RouterLink>
           </div>
         </div>
       </nav>
@@ -49,7 +49,7 @@
       <header class="topbar" role="banner" v-if="title">
         <h1>{{ title }}</h1>
         <div class="breadcrumb" v-if="breadcrumb">
-          <a :href="breadcrumb.href">{{ breadcrumb.text }}</a> / {{ title }}
+          <RouterLink :to="breadcrumb.href">{{ breadcrumb.text }}</RouterLink> / {{ title }}
         </div>
         <div class="spacer"></div>
         <div class="topbar-actions">

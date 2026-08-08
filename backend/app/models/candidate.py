@@ -36,21 +36,21 @@ class Candidate(BaseModel):
 class Resume(BaseModel):
     __tablename__ = 't_hr_resume'
 
-    candidate_id = Column(BigInteger, nullable=False, comment='关联候选人ID')
-    resume_file_id = Column(BigInteger, nullable=True, comment='简历附件ID files.id')
+    candidate_id = Column(BigInteger, nullable=False, index=True, comment='关联候选人ID')
+    resume_file_id = Column(BigInteger, nullable=True, index=True, comment='简历附件ID files.id')
     storage_time = Column(DateTime, nullable=False, comment='简历入库时间')
     base_score = Column(DECIMAL(4, 1), nullable=False, default=0, comment='时效分')
     work_exp_text = Column(Text, nullable=True, comment='工作经历摘要')
     extract_json = Column(JSON, nullable=True, comment='AI解析完整结构化数据')
     touch_json = Column(JSON, nullable=True, comment='触达/邀约/储备记录')
-    source_channel_id = Column(BigInteger, nullable=True, comment='来源渠道ID')
-    mail_account_id = Column(BigInteger, nullable=True, comment='采集邮箱ID')
+    source_channel_id = Column(BigInteger, nullable=True, index=True, comment='来源渠道ID')
+    mail_account_id = Column(BigInteger, nullable=True, index=True, comment='采集邮箱ID')
 
 
 class CandidateTagRel(BaseModel):
     __tablename__ = 't_hr_candidate_tag_rel'
 
-    candidate_id = Column(BigInteger, nullable=False, comment='候选人ID')
-    tag_id = Column(BigInteger, nullable=False, comment='标签ID')
+    candidate_id = Column(BigInteger, nullable=False, index=True, comment='候选人ID')
+    tag_id = Column(BigInteger, nullable=False, index=True, comment='标签ID')
     tag_source = Column(Integer, nullable=False, comment='1系统自动 2HR手动 3JD自动匹配')
     valid_end = Column(Date, nullable=True, comment='证书/技能过期时间')

@@ -34,36 +34,66 @@
     </aside>
 
     <main class="login-side" id="loginMain">
-      <div class="login-box">
+      <div class="login-box" v-if="!showChangePwd && !showForgotPwd">
         <div class="mobile-brand"><div class="brand-mark">HR</div><span>智能招聘系统</span></div>
         <h2>登录</h2>
-        <div class="sub">选择演示角色后进入系统</div>
+        <div class="sub">输入您的账号和密码</div>
 
-        <span class="role-label">演示角色</span>
-        <div class="roles" ref="roleContainer">
-          <button v-for="role in roles" :key="role.key"
-            type="button"
-            class="role-card"
-            :class="{ sel: selectedRole === role.key }"
-            :data-role="role.key"
-            @click="selRole(role.key)"
-          >
-            <span class="icon">{{ role.icon }}</span>
-            <span class="role-name">{{ role.name }}</span>
-            <span class="role-note">{{ role.note }}</span>
+        <div class="form-group"><label for="username">账号</label><input type="text" id="username" v-model="username" placeholder="输入账号" autocomplete="username"></div>
+        <div class="form-group" style="position:relative"><label for="password">密码</label>
+          <input :type="showPwd ? 'text' : 'password'" id="password" v-model="password" placeholder="输入密码" autocomplete="current-password">
+          <button type="button" class="pwd-toggle" @click="showPwd = !showPwd" :aria-label="showPwd ? '隐藏密码' : '显示密码'" tabindex="-1">
+            <svg v-if="!showPwd" viewBox="0 0 24 24" style="width:18px;height:18px;stroke:#8C95A6;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><path d="m14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+            <svg v-else viewBox="0 0 24 24" style="width:18px;height:18px;stroke:#8C95A6;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
           </button>
         </div>
 
-        <div class="form-group"><label for="username">账号</label><input type="text" id="username" v-model="username" placeholder="输入账号" autocomplete="username"></div>
-        <div class="form-group"><label for="password">密码</label><input type="password" id="password" v-model="password" placeholder="输入密码" autocomplete="current-password"></div>
+        <div v-if="loginError" class="login-error">{{ loginError }}</div>
 
         <div class="login-options">
-          <label><input type="checkbox" id="remember"> 30 天内记住我</label>
-          <a href="#" @click.prevent>忘记密码？</a>
+          <label><input type="checkbox" id="remember" v-model="rememberMe"> 30 天内记住我</label>
+          <a href="#" @click.prevent="forgotUsername = username; forgotStep = 1; forgotMsg = ''; showForgotPwd = true">忘记密码？</a>
         </div>
 
-        <button class="btn-login" @click="login">登录</button>
-        <div class="login-foot">原型演示，点击登录即可进入</div>
+        <button class="btn-login" :disabled="loggingIn" @click="login">{{ loggingIn ? '登录中...' : '登录' }}</button>
+        <div class="login-foot" v-if="!loginError">输入工号或用户名登录 · 没有账号？请联系HR管理员</div>
+      </div>
+
+      <!-- Force password change -->
+      <div class="login-box" v-else-if="showChangePwd">
+        <div class="mobile-brand"><div class="brand-mark">HR</div><span>智能招聘系统</span></div>
+        <h2>修改密码</h2>
+        <div class="sub">首次登录或密码被重置后，必须先修改密码才能进入系统</div>
+        <div class="form-group"><label for="newPwd">新密码</label><input type="password" id="newPwd" v-model="newPassword" placeholder="至少6位" autocomplete="new-password"></div>
+        <div class="form-group"><label for="confirmPwd">确认新密码</label><input type="password" id="confirmPwd" v-model="confirmPassword" placeholder="再次输入新密码" autocomplete="new-password"></div>
+        <div v-if="changePwdError" class="login-error">{{ changePwdError }}</div>
+        <div v-if="changePwdOk" class="login-error" style="color:var(--c-done);border-color:var(--c-done)">{{ changePwdOk }}</div>
+        <button class="btn-login" :disabled="changingPwd" @click="doChangePassword">{{ changingPwd ? '修改中...' : '确认修改' }}</button>
+      </div>
+
+      <!-- Forgot password -->
+      <div class="login-box" v-else-if="showForgotPwd">
+        <div class="mobile-brand"><div class="brand-mark">HR</div><span>智能招聘系统</span></div>
+        <h2>找回密码</h2>
+        <div class="sub">{{ forgotStep === 1 ? '输入用户名获取验证码' : '输入验证码并设置新密码' }}</div>
+
+        <template v-if="forgotStep === 1">
+          <div class="form-group"><label for="forgotUser">用户名</label><input type="text" id="forgotUser" v-model="forgotUsername" placeholder="输入您的登录用户名" @keyup.enter="forgotPassword"></div>
+        </template>
+        <template v-else>
+          <div class="form-group"><label>验证码已发送至</label><div class="sub" style="margin-top:2px">{{ forgotMsg }}</div></div>
+          <div class="form-group"><label for="forgotCode">验证码</label><input type="text" id="forgotCode" v-model="forgotCode" placeholder="6位数字验证码" maxlength="6" autocomplete="one-time-code"></div>
+          <div class="form-group"><label for="forgotNewPwd">新密码</label><input type="password" id="forgotNewPwd" v-model="forgotNewPwd" placeholder="至少6位" autocomplete="new-password"></div>
+          <div class="form-group"><label for="forgotConfirmPwd">确认新密码</label><input type="password" id="forgotConfirmPwd" v-model="forgotConfirmPwd" placeholder="再次输入" autocomplete="new-password"></div>
+        </template>
+
+        <div v-if="forgotMsg && forgotStep === 1" :class="forgotMsgOk ? 'login-error' : 'login-error'" :style="forgotMsgOk ? {color:'var(--c-done)',borderColor:'var(--c-done)'} : {}">{{ forgotMsg }}</div>
+        <div v-if="forgotMsg && forgotStep === 2" :class="forgotMsgOk ? 'login-error' : 'login-error'" :style="forgotMsgOk ? {color:'var(--c-done)',borderColor:'var(--c-done)'} : {}">{{ forgotMsg }}</div>
+
+        <button class="btn-login" :disabled="forgotSending" @click="forgotPassword" style="margin-bottom:8px">
+          {{ forgotSending ? (forgotStep === 1 ? '发送中...' : '验证中...') : (forgotStep === 1 ? '获取验证码' : '重置密码') }}
+        </button>
+        <a href="#" @click.prevent="backToLogin" style="font-size:13px;color:var(--c-primary)">← 返回登录</a>
       </div>
     </main>
   </section>
@@ -72,14 +102,140 @@
 <script setup>
 import { ref, reactive, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { login as apiLogin } from '../api/auth.js';
+import { login as apiLogin, changePassword as apiChangePwd, forgotPassword as apiForgotPwd, verifyResetCode as apiVerifyReset } from '../api/auth.js';
+import { setAuth, getRoleLanding } from '../composables/useAuth.js';
+import { prefetchWorkbenchData } from '../services/dataPrefetch.js';
 
 const router = useRouter();
 const loginStage = ref(null);
-const selectedRole = ref('admin');
-const username = ref('admin');
-const password = ref('123456');
+const username = ref('');
+const password = ref('');
+const rememberMe = ref(false);
+const loginError = ref('');
+const loggingIn = ref(false);
+const showPwd = ref(false);
 const interactionMode = ref('');
+const showChangePwd = ref(false);
+const showForgotPwd = ref(false);
+const newPassword = ref('');
+const confirmPassword = ref('');
+const changePwdError = ref('');
+const changePwdOk = ref('');
+const changingPwd = ref(false);
+const forgotStep = ref(1); // 1=enter username, 2=enter code+password
+const forgotUsername = ref('');
+const forgotCode = ref('');
+const forgotNewPwd = ref('');
+const forgotConfirmPwd = ref('');
+const forgotMsg = ref('');
+const forgotMsgOk = ref(false);
+const forgotSending = ref(false);
+const forgotChannel = ref('');
+
+async function forgotPassword() {
+  forgotMsg.value = ''; forgotMsgOk.value = false;
+  if (forgotStep.value === 1) {
+    // Step 1: request code
+    if (!forgotUsername.value.trim()) { forgotMsg.value = '请输入用户名'; forgotMsgOk.value = false; return; }
+    forgotSending.value = true;
+    try {
+      const r = await apiForgotPwd(forgotUsername.value.trim());
+      forgotMsg.value = r.message || '';
+      forgotMsgOk.value = r.sent === true;
+      if (r.sent) {
+        forgotChannel.value = r.channel || '';
+        forgotStep.value = 2;
+      }
+    } catch (e) { forgotMsg.value = e.message || '请求失败'; forgotMsgOk.value = false; }
+    finally { forgotSending.value = false; }
+  } else {
+    // Step 2: verify code + set new password
+    if (!forgotCode.value.trim()) { forgotMsg.value = '请输入验证码'; forgotMsgOk.value = false; return; }
+    if (forgotNewPwd.value !== forgotConfirmPwd.value) { forgotMsg.value = '两次密码不一致'; forgotMsgOk.value = false; return; }
+    if (forgotNewPwd.value.length < 6) { forgotMsg.value = '新密码至少6位'; forgotMsgOk.value = false; return; }
+    forgotSending.value = true;
+    try {
+      const r = await apiVerifyReset(forgotUsername.value.trim(), forgotCode.value.trim(), forgotNewPwd.value);
+      forgotMsg.value = r.message || '密码重置成功，请登录';
+      forgotMsgOk.value = true;
+      // Reset state, go back to login
+      setTimeout(() => {
+        showForgotPwd.value = false;
+        forgotStep.value = 1;
+        forgotCode.value = '';
+        forgotNewPwd.value = '';
+        forgotConfirmPwd.value = '';
+        forgotMsg.value = '';
+        username.value = forgotUsername.value;
+        password.value = '';
+      }, 2000);
+    } catch (e) { forgotMsg.value = e.message || '验证失败'; forgotMsgOk.value = false; }
+    finally { forgotSending.value = false; }
+  }
+}
+
+function backToLogin() {
+  showForgotPwd.value = false;
+  forgotStep.value = 1;
+  forgotMsg.value = '';
+}
+
+async function doRegister() {
+  regMsg.value = ''; regOk.value = false;
+  if (regStep.value === 1) {
+    if (!regEmail.value.trim() || !regEmail.value.includes('@')) { regMsg.value = '请输入有效的邮箱'; return; }
+    regLoading.value = true;
+    try {
+      const r = await sendRegisterCode(regEmail.value.trim());
+      regMsg.value = r.message || '验证码已发送';
+      regOk.value = true;
+      regStep.value = 2;
+    } catch (e) { regMsg.value = e.message || '发送失败'; }
+    finally { regLoading.value = false; }
+  } else {
+    if (!regCode.value.trim()) { regMsg.value = '请输入验证码'; return; }
+    if (!regName.value.trim()) { regMsg.value = '请输入姓名'; return; }
+    if (!regPwd.value || regPwd.value.length < 6) { regMsg.value = '密码至少6位'; return; }
+    if (regPwd.value !== regConfirmPwd.value) { regMsg.value = '两次密码不一致'; return; }
+    regLoading.value = true;
+    try {
+      const r = await apiRegister({
+        email: regEmail.value.trim(), code: regCode.value.trim(),
+        realName: regName.value.trim(), mobile: regMobile.value.trim(),
+        password: regPwd.value,
+      });
+      regOk.value = true;
+      regMsg.value = (r.message || '注册成功') + '，即将跳转...';
+      setTimeout(() => {
+        showRegister.value = false;
+        regStep.value = 1;
+        username.value = r.user?.username || '';
+        password.value = '';
+      }, 2000);
+    } catch (e) { regMsg.value = e.message || '注册失败'; }
+    finally { regLoading.value = false; }
+  }
+}
+
+async function doChangePassword() {
+  changePwdError.value = '';
+  changePwdOk.value = '';
+  if (!newPassword.value) { changePwdError.value = '请输入新密码'; return; }
+  if (newPassword.value.length < 6) { changePwdError.value = '新密码至少6位'; return; }
+  if (newPassword.value !== confirmPassword.value) { changePwdError.value = '两次输入的密码不一致'; return; }
+  changingPwd.value = true;
+  try {
+    await apiChangePwd(password.value, newPassword.value);
+    changePwdOk.value = '密码修改成功，即将跳转...';
+    setTimeout(() => {
+      showChangePwd.value = false;
+      router.push(getRoleLanding());
+      setTimeout(() => prefetchWorkbenchData(), 300);
+    }, 1500);
+  } catch (e) {
+    changePwdError.value = e.message || '修改失败';
+  } finally { changingPwd.value = false; }
+}
 
 const cssVars = reactive({
   '--mx': '50%', '--my': '50%',
@@ -88,56 +244,41 @@ const cssVars = reactive({
   '--beam-x': '0px'
 });
 
-const roles = [
-  { key: 'admin', icon: 'A', name: '管理员', note: '全部功能与系统配置' },
-  { key: 'hr', icon: 'HR', name: 'HR 专员', note: '招聘全流程操作' },
-  { key: 'dept_head', icon: 'D', name: '部门负责人', note: '本部门需求审批' },
-  { key: 'employee', icon: 'E', name: '基层员工', note: '提交与查看本人需求' },
-  { key: 'interviewer', icon: 'I', name: '面试官', note: '面试评价与查看' },
-  { key: 'temp_interviewer', icon: 'T', name: '临时面试官', note: '仅本次分配场次' },
-  { key: 'no_recruit', icon: 'N', name: '无招聘权限', note: '侧边栏隐藏' }
-];
-
-function selRole(key) {
-  selectedRole.value = key;
-}
-
 async function login() {
-  sessionStorage.removeItem('hr_temp_interviewer');
+  loginError.value = '';
+  if (!username.value.trim()) { loginError.value = '请输入账号'; return; }
+  if (!password.value) { loginError.value = '请输入密码'; return; }
 
-  // Try backend auth API
+  loggingIn.value = true;
   try {
-    const result = await apiLogin(username.value, selectedRole.value);
-    if (result?.token) {
-      localStorage.setItem('hr_token', result.token);
-    }
+    const result = await apiLogin(username.value.trim(), password.value, rememberMe.value);
+    if (result?.token) localStorage.setItem('hr_token', result.token);
     if (result?.user) {
-      localStorage.setItem('hr_user', result.user);
-      localStorage.setItem('hr_role', result.user.role || selectedRole.value);
-    } else {
-      localStorage.setItem('hr_user', username.value || '用户');
-      localStorage.setItem('hr_role', selectedRole.value);
+      localStorage.setItem('hr_role', result.user.role);
+      localStorage.setItem('hr_user', result.user.name || result.user.role);
+      setAuth(result.user.name || result.user.role, result.user.role);
     }
+    // Force password change on first login or after admin reset
+    if (result?.user?.mustChangePassword) {
+      showChangePwd.value = true;
+      return; // Don't redirect yet — user must change password first
+    }
+    router.push(getRoleLanding(result.user.role));
+    setTimeout(() => prefetchWorkbenchData(), 300);
   } catch (err) {
-    console.warn('Backend auth unavailable, using localStorage fallback', err);
-    localStorage.setItem('hr_user', username.value || '用户');
-    if (selectedRole.value === 'temp_interviewer') {
-      localStorage.setItem('hr_role', 'interviewer');
-      sessionStorage.setItem('hr_temp_interviewer', 'true');
+    const msg = err?.response?.data?.error?.message || err?.message || '登录失败，请检查网络连接';
+    // Show user-friendly error
+    if (msg.includes('用户名或密码错误')) {
+      loginError.value = '用户名或密码错误';
+    } else if (msg.includes('请输入')) {
+      loginError.value = msg;
     } else {
-      localStorage.setItem('hr_role', selectedRole.value);
+      loginError.value = '登录失败，请稍后重试';
+      console.warn('Login error:', err);
     }
+  } finally {
+    loggingIn.value = false;
   }
-
-  // temp_interviewer override for session-scoped role
-  if (selectedRole.value === 'temp_interviewer') {
-    sessionStorage.setItem('hr_temp_interviewer', 'true');
-    if (!localStorage.getItem('hr_role')) {
-      localStorage.setItem('hr_role', 'interviewer');
-    }
-  }
-
-  router.push('/recruit-dashboard');
 }
 
 // Mouse tracking for radar animation
@@ -285,6 +426,7 @@ onUnmounted(() => {
 .login-options a:hover{text-decoration:underline}
 .btn-login{width:100%;height:46px;border:0;border-radius:8px;color:#FFFFFF;background:#4F6EF7;font-size:14px;font-weight:900;cursor:pointer;box-shadow:none;transition:transform .16s ease,background .16s ease;font-family:inherit}
 .btn-login:hover{transform:translateY(-1px);background:#3D54D4;box-shadow:0 18px 34px rgba(79,110,247,.28)}
+.login-error{margin:0 0 17px;padding:10px 14px;border-radius:8px;background:#FEF2F2;color:#991B1B;font-size:13px;border:1px solid #FECACA}
 .login-foot{margin-top:16px;text-align:center;color:#8C95A6;font-size:12px}
 @media(max-width:980px){
   .login-stage{grid-template-columns:1fr}
@@ -297,6 +439,7 @@ onUnmounted(() => {
   .role-card{min-height:64px}
   .login-options{align-items:flex-start;flex-direction:column}
 }
+.pwd-toggle { position: absolute; right: 10px; bottom: 8px; background: none; border: none; cursor: pointer; padding: 2px; display: flex; }
 @media(prefers-reduced-motion:reduce){
   .brand-panel::before,.radar-scene,.talent-radar,.lens-deck,.focus-beam,.sensor,.pupil,.role-card,.btn-login{transition:none!important;transform:none!important}
 }

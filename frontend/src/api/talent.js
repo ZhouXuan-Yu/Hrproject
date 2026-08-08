@@ -2,9 +2,9 @@
 import { api } from './index.js';
 
 export async function fetchTalent(params = {}) {
-  const qs = new URLSearchParams({ pageSize: 100, ...params }).toString();
+  const qs = new URLSearchParams({ pageSize: 20, ...params }).toString();
   const r = await api.get(`/talent/list${qs ? '?' + qs : ''}`);
-  // success_list 契约：r.data 即候选人数组（external tab），r.total 总数
+  // success_list 契约：r.data 即候选人数组，r.total 总数
   return { ext: Array.isArray(r.data) ? r.data : [], total: r.total ?? 0 };
 }
 
@@ -43,6 +43,11 @@ export async function fetchCandidateContact(candidateId) {
   return r.data;
 }
 
+export async function sendTalentContact(payload) {
+  const r = await api.post('/talent/contact', payload);
+  return r.data;
+}
+
 export async function fetchIngestLog(limit = 10) {
   const r = await api.get(`/talent/ingest-log?limit=${limit}`);
   return r.data;
@@ -58,24 +63,32 @@ export async function batchContactCandidates(names, method = '系统记录') {
   return r.data;
 }
 
-export async function uploadResumeFile(file) {
+export async function uploadResumeFile(file, position = '', note = '') {
   const fd = new FormData();
   fd.append('file', file);
-  const r = await api.post('/talent/upload-resume', fd, {
-    headers: { 'Content-Type': 'multipart/form-data' },
+  if (position) fd.append('position', position);
+  if (note) fd.append('note', note);
+  // FormData uploads can't go through api.post() — it JSON-stringifies the body.
+  // Use raw fetch so the browser auto-sets Content-Type with the correct boundary.
+  const resp = await fetch('/api/talent/upload-resume', {
+    method: 'POST',
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    body: fd,
   });
-  return r.data;
+  if (!resp.ok) {
+    const json = await resp.json().catch(() => ({}));
+    const msg = json?.error?.message || `上传失败 (${resp.status})`;
+    throw new Error(msg);
+  }
+  const json = await resp.json();
+  return json.data;
 }
 
 export async function fetchResumeFile(resumeId) {
   // 文件下载不能用 api 封装（它强制 resp.json()，会把二进制解析坏），
-  // 这里直接用原生 fetch 拿 Blob。
-  const token = localStorage.getItem('hr_token');
+  // 这里直接用原生 fetch。认证通过 httpOnly cookie 自动携带。
   const resp = await fetch(`/api/talent/resume-file/${resumeId}`, {
-    headers: {
-      'X-Requested-With': 'XMLHttpRequest',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
   });
   if (!resp.ok) {
     let msg = `下载失败 (${resp.status})`;

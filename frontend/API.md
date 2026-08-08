@@ -212,7 +212,7 @@ Response 200:
       "approvalNodes": [
         { "label": "部门负责人", "state": "current" },
         { "label": "HR",        "state": "pending" },
-        { "label": "财务总监",   "state": "pending" }
+        { "label": "高管",       "state": "pending" }
       ],
       "linkedCount": 0
     }
@@ -313,7 +313,7 @@ Response 200:
   "approvalNodes": [
     { "actor": "刘博",  "role": "部门负责人", "status": "已通过", "date": "2026-07-12 14:30" },
     { "actor": "张HR",  "role": "HR",        "status": "已通过", "date": "2026-07-13 09:15" },
-    { "actor": "陈总",  "role": "财务总监",   "status": "已通过", "date": "2026-07-13 16:00" }
+    { "actor": "高管",  "role": "高管",       "status": "已通过", "date": "2026-07-13 16:00" }
   ]
 }
 ```

@@ -66,7 +66,7 @@ def _safe_deepseek_json(system_prompt: str, user_input: str, fallback: dict,
         log.warning("DeepSeek JSON call failed, using fallback: %s", exc)
         fallback["disclaimer"] = DISCLAIMER
         fallback["_fallback"] = True
-        fallback["_fallback_reason"] = str(exc)[:200]
+        fallback["_fallback_reason"] = "AI 服务暂时不可用，已切换本地引擎"
         return fallback
 
 
@@ -155,40 +155,59 @@ def run_workflow(workflow):
 # Workflow: jd-generate
 # ===========================================================================
 
-JD_GENERATE_SYSTEM = """你是资深 HR 招聘专家，擅长撰写清晰、完整、有吸引力的岗位描述（JD）。
-
-根据用户提供的岗位基本信息，生成结构化的 JD。
+JD_GENERATE_SYSTEM = """你是企业招聘流程中的岗位说明分析助手，根据用户提供的岗位基本信息生成结构化 JD。
 
 【输出格式 —— 最高优先级】
-- 只输出一个 JSON 对象，不要输出任何其他内容
-- 不要使用 Markdown 代码围栏（``` 或 ```json）
-- 不要在 JSON 前后添加任何解释、标题、注释或额外文字
+- 只输出一个 JSON 对象
+- 不要使用 Markdown 代码围栏
 - 输出的第一个字符必须是 {，最后一个字符必须是 }
 
-JSON 结构（严格遵守字段名和嵌套结构）：
+JSON 结构：
 {
-  "jd_text": "完整JD文本（Markdown 格式，包含岗位概述、职责、要求、加分项、任职资格）",
+  "jd_text": "JD 全文（Markdown）",
   "responsibilities": ["职责1", "职责2", "职责3", "职责4", "职责5"],
-  "required_skills": [
-    {"name": "技能名称", "weight": "必须", "description": "技能要求说明"},
-    {"name": "技能名称", "weight": "优先", "description": "技能要求说明"}
-  ],
-  "plus_skills": [
-    {"name": "加分技能名称", "description": "说明"}
-  ],
-  "qualifications": {
-    "education": "学历要求",
-    "experience": "经验要求",
-    "industry": "行业背景偏好",
-    "soft": "软技能要求"
-  }
+  "required_skills": [{"name":"技能","weight":"必须","description":"说明"}],
+  "plus_skills": [{"name":"加分技能","description":"说明"}],
+  "qualifications": {"education":"学历","experience":"经验","industry":"行业","soft":"软技能"}
 }
 
-内容要求：
-- jd_text 使用专业、规范的招聘语言
-- 职责以行动动词开头（负责...、参与...、主导...）
-- 技能使用行业通用名称，required_skills 的 weight 只能是 "必须" 或 "优先"
-- required_skills 和 plus_skills 必须是对象数组，不能是字符串数组
+【jd_text 格式要求 —— 严格执行】
+jd_text 必须使用 Markdown 格式，结构如下：
+
+## 岗位概述
+一段话概括
+
+## 岗位职责
+1. 负责...
+2. 参与...
+3. 主导...
+
+## 任职要求
+- 学历：xxx
+- 经验：xxx
+- 技能：xxx（必须/优先）
+
+## 加分项
+- xxx
+
+## 任职资格
+- 学历：xxx
+- 经验：xxx
+
+注意：
+- 职责用 1. 2. 3. 编号
+- 技能和资格用 - 列表
+- 禁止"平台广阔"等空泛套话
+- 薪资必须与用户输入一致，jd_text中不要写具体薪资数字
+
+【薪资匹配规则 —— 最高优先级，违反视为错误】
+根据用户输入的薪资范围，严格匹配岗位级别和职责：
+- 5K-10K → 初级/助理，经验要求 0-2年，职责为执行层面工作
+- 10K-20K → 中级工程师，经验要求 2-4年
+- 20K-35K → 高级工程师，经验要求 4-7年
+- 35K+ → 专家/架构师，经验要求 7年以上
+严禁出现"低薪配高经验"（如5K要求5年经验），这比格式错误更严重。
+
 - 所有字段用中文"""
 
 
@@ -197,13 +216,37 @@ def _run_jd_generate(body: dict) -> dict:
     position = body.get("position", "")
     department = body.get("department", "")
     level = body.get("level", "")
+    salary = body.get("salary", "")
+    work_city = body.get("workCity", "")
+    edu_min = body.get("eduMin", "")
+    exp_min = body.get("expMin", "")
+    headcount = body.get("headcount", 1)
     requirements = body.get("requirements", "")
     style = body.get("style", "standard")
+    from app.services.config_service import get_ai_knowledge_context
+    knowledge_context = get_ai_knowledge_context()
 
+    salary_hint = ""
+    if salary:
+        salary_hint = f"【薪资约束：{salary}】请严格根据此薪资生成匹配的岗位说明。薪资决定级别：5K-10K=初级0-2年，10K-20K=中级2-4年，20K-35K=高级4-7年，35K+=专家。不可脱离薪资编造。"
+
+    user_input = f"""{salary_hint}
+岗位：{position} | 部门：{department} | 薪资：{salary} | HC：{headcount}人
+学历要求：{edu_min if edu_min else '不限'} | 经验要求：{exp_min if exp_min else '不限'} | 城市：{work_city if work_city else '不限'}
+补充说明：{requirements if requirements else '无'}
+公司背景：{json.dumps(knowledge_context, ensure_ascii=False) if knowledge_context else '无'}"""
+
+    # Old json.dumps kept for fallback but simplified
     user_input = json.dumps({
+        "knowledge_base": knowledge_context,
         "position": position,
         "department": department,
         "level": level,
+        "salary": salary,
+        "workCity": work_city,
+        "eduMin": edu_min,
+        "expMin": exp_min,
+        "headcount": headcount,
         "requirements": requirements,
         "style": style,
     }, ensure_ascii=False)
@@ -290,7 +333,7 @@ def _run_resume_search(body: dict) -> dict:
     parsed = _safe_deepseek_json(RESUME_SEARCH_SYSTEM, user_input, parsed_fallback,
                                   temperature=0.2, max_tokens=1000)
 
-    # Step 2: Search candidate store / mock data
+    # Step 2: Search candidate store
     results = _search_candidates(parsed, limit)
 
     return {
@@ -302,30 +345,32 @@ def _run_resume_search(body: dict) -> dict:
 
 
 def _search_candidates(parsed: dict, limit: int) -> list:
-    """Search mock candidate store with structured query terms."""
-    # Try DB first, fall back to mock
+    """Search candidate store with structured query terms."""
     try:
-        from app.services.demand_service import list_all_candidates
-        candidates = list_all_candidates({})
-        if candidates:
+        from app.models.candidate import Candidate
+        candidates_raw = Candidate.query.filter_by(is_deleted=0)\
+            .order_by(Candidate.updated_at.desc()).limit(200).all()
+        if candidates_raw:
+            candidates = [_candidate_to_brief_dict(c) for c in candidates_raw]
             return _rank_candidates(candidates, parsed, limit)
     except Exception as exc:
-        log.warning("DB search failed, using mock: %s", exc)
+        log.warning("DB search failed; returning empty candidate results: %s", exc)
 
-    # Mock fallback
-    mock = [
-        {"id": "C2026070012", "name": "张三", "skills": ["Java", "Spring Boot", "MySQL", "Redis", "微服务"],
-         "edu": "本科", "school": "211", "workYears": 5, "company": "阿里巴巴"},
-        {"id": "C2026070011", "name": "李四", "skills": ["Python", "TensorFlow", "PyTorch", "Docker"],
-         "edu": "硕士", "school": "985", "workYears": 3, "company": "腾讯"},
-        {"id": "C2026070007", "name": "王五", "skills": ["Go", "Kubernetes", "Docker", "微服务", "Redis"],
-         "edu": "硕士", "school": "普通", "workYears": 3, "company": "字节跳动"},
-        {"id": "C2026070010", "name": "郑一", "skills": ["React", "TypeScript", "Node.js", "Vue"],
-         "edu": "本科", "school": "985", "workYears": 4, "company": "美团"},
-        {"id": "C2026070009", "name": "孙九", "skills": ["Java", "Spring Cloud", "Kafka", "Elasticsearch", "Linux"],
-         "edu": "本科", "school": "211", "workYears": 6, "company": "百度"},
-    ]
-    return _rank_candidates(mock, parsed, limit)
+    return []
+
+
+def _candidate_to_brief_dict(cand) -> dict:
+    """Minimal candidate dict for AI ranking."""
+    edu_labels = {1: '大专', 2: '本科', 3: '硕士', 4: '博士'}
+    return {
+        "id": cand.candidate_no or str(cand.id),
+        "name": cand.candidate_name,
+        "edu": edu_labels.get(cand.edu_level, '—'),
+        "workYears": cand.work_years or 0,
+        "work_years": cand.work_years or 0,
+        "skills": [],
+        "company": '',
+    }
 
 
 def _rank_candidates(candidates: list, parsed: dict, limit: int) -> list:
@@ -367,10 +412,18 @@ def _rank_candidates(candidates: list, parsed: dict, limit: int) -> list:
             reasons.append(f"学历符合: {c.get('edu')}")
 
         if reasons:
+            # Split total score into portrait (experience+education) and match (skills+company)
+            portrait = min(50 + (10 if min_years and c_years >= min_years else 0)
+                           + (10 if edu_req and any(e in c_edu for e in edu_req) else 0), 80)
+            match_s = min(score - (portrait - 50), 95)
+            if match_s < 0:
+                match_s = score - 20
             scored.append({
                 "id": c.get("id", c.get("name", "")),
                 "name": c.get("name", ""),
                 "score": min(score, 95),
+                "portraitScore": portrait,
+                "matchScore": max(50, match_s),
                 "match_reasons": reasons,
                 "skills": c.get("skills", []),
                 "workYears": c_years,
@@ -446,11 +499,12 @@ def _run_match(body: dict) -> dict:
 
 
 def _resolve_candidate(candidate_id: str) -> dict:
-    """Resolve candidate data by ID."""
+    """Resolve candidate data by candidate_no or primary key."""
     try:
         from app.models.candidate import Candidate
-        from app import db
-        cand = db.session.get(Candidate, candidate_id)
+        cand = Candidate.query.filter_by(candidate_no=candidate_id, is_deleted=0).first()
+        if not cand and candidate_id.isdigit():
+            cand = Candidate.query.filter_by(id=int(candidate_id), is_deleted=0).first()
         if cand:
             return {
                 "name": cand.candidate_name,
@@ -463,34 +517,16 @@ def _resolve_candidate(candidate_id: str) -> dict:
     except Exception as exc:
         log.warning("DB lookup for candidate %s failed: %s", candidate_id, exc)
 
-    # Mock fallback
-    mock_store = {
-        "C2026070012": {"name": "张三", "edu": "本科", "school": "211",
-                        "workYears": 5, "bigCompany": 1, "company": "阿里巴巴",
-                        "skills": ["Java", "Spring Boot", "MySQL", "Redis", "微服务"]},
-        "C2026070011": {"name": "李四", "edu": "硕士", "school": "985",
-                        "workYears": 3, "bigCompany": 1, "company": "腾讯",
-                        "skills": ["Python", "TensorFlow", "PyTorch"]},
-        "C2026070007": {"name": "王五", "edu": "硕士", "school": "普通",
-                        "workYears": 3, "bigCompany": 0, "company": "字节跳动",
-                        "skills": ["Go", "K8s", "Docker", "Redis"]},
-        "C2026070010": {"name": "郑一", "edu": "本科", "school": "985",
-                        "workYears": 4, "bigCompany": 1, "company": "美团",
-                        "skills": ["React", "TypeScript", "Node.js"]},
-        "C2026070009": {"name": "孙九", "edu": "本科", "school": "211",
-                        "workYears": 6, "bigCompany": 1, "company": "百度",
-                        "skills": ["Java", "Spring Cloud", "Kafka", "ES"]},
-    }
-    return mock_store.get(candidate_id, {"name": candidate_id, "skills": [],
-                                          "edu": "本科", "workYears": 3})
+    return {"name": candidate_id, "skills": []}
 
 
 def _resolve_demand(demand_id: str) -> dict:
-    """Resolve demand data by ID."""
+    """Resolve demand data by demand_no or primary key."""
     try:
         from app.models.demand import RecruitDemand
-        from app import db
-        demand = db.session.get(RecruitDemand, demand_id)
+        demand = RecruitDemand.query.filter_by(demand_no=demand_id, is_deleted=0).first()
+        if not demand and demand_id.isdigit():
+            demand = RecruitDemand.query.filter_by(id=int(demand_id), is_deleted=0).first()
         if demand:
             return {
                 "position": demand.position_id,
@@ -597,7 +633,7 @@ def _run_interview_questions(body: dict) -> dict:
     try:
         from app.services.ai_engine import generate_questions as local_questions
         jd_text = demand_data.get("jd_content", "")
-        round_map = {"initial": 1, "technical": 2, "final": 3}
+        round_map = {"initial": 1, "first": 1, "technical": 2, "second": 2, "final": 3, "third": 3}
         round_num = round_map.get(round_label, 1)
         local_qs = local_questions(jd_text, candidate_data, round=round_num)
         fallback = {
@@ -672,8 +708,11 @@ def _run_communication_draft(body: dict) -> dict:
     channel = body.get("channel", "email")
     purpose = body.get("purpose", "contact")
     context = body.get("context", {})
+    from app.services.config_service import get_ai_knowledge_context
+    knowledge_context = get_ai_knowledge_context()
 
     user_input = json.dumps({
+        "knowledge_base": knowledge_context,
         "candidate_name": candidate_name,
         "channel": channel,
         "purpose": purpose,
@@ -688,6 +727,15 @@ def _run_communication_draft(body: dict) -> dict:
 
 def _communication_fallback(name: str, channel: str, purpose: str, ctx: dict) -> dict:
     """Generate a reasonable communication draft without AI."""
+    # Normalize purpose values from frontend
+    _purpose_map = {
+        "first_contact": "contact",
+        "interview_invite": "interview_invite",
+        "offer_notice": "offer",
+        "follow_up": "follow_up",
+    }
+    purpose = _purpose_map.get(purpose, purpose)
+
     drafts = {
         ("email", "contact"): {
             "draft": f"{name} 您好，\n\n"
@@ -846,7 +894,7 @@ def _report_fallback(report_type: str) -> dict:
                        "已接受其他offer（30%）、通勤/地点问题（20%）",
             "insights": [
                 "薪资对标P75的Offer接受率达85%",
-                "高管亲自沟通的Offer接受率更高",
+                "总监亲自沟通的Offer接受率更高",
                 "Offer发放到回复平均3.2天",
             ],
             "anomalies": [

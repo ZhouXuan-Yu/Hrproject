@@ -25,6 +25,15 @@
             </div>
           </div>
 
+          <!-- Draft error (Offer created but send failed) -->
+          <div v-if="draftError" class="offer-draft-error">
+            <div class="draft-error-msg">{{ draftError }}</div>
+            <div class="draft-error-actions">
+              <button class="btn btn-primary btn-sm" @click="retrySend()">重试发送</button>
+              <button class="btn btn-ghost btn-sm" @click="draftError = ''">关闭提示</button>
+            </div>
+          </div>
+
           <!-- Salary structure -->
           <div class="form-section">
             <h4 class="section-title">薪资结构</h4>
@@ -117,6 +126,8 @@ const props = defineProps({
 const emit = defineEmits(['close', 'success']);
 
 const submitting = ref(false);
+const draftError = ref('');
+const draftOfferId = ref(null);
 const { toast } = useToast();
 
 const form = reactive({
@@ -137,6 +148,22 @@ const isValid = computed(() => {
 
 function handleClose() {
   emit('close');
+}
+
+async function retrySend() {
+  if (!draftOfferId.value) return;
+  submitting.value = true;
+  draftError.value = '';
+  try {
+    const sendResp = await api.post(`/hire/offer/${encodeURIComponent(draftOfferId.value)}/send`);
+    const sd = sendResp.data || {};
+    submitting.value = false;
+    emit('success', { id: draftOfferId.value, name: props.candidate?.name, emailSent: sd.emailSent, emailMsg: sd.emailMsg });
+    resetForm();
+  } catch (sendErr) {
+    submitting.value = false;
+    draftError.value = `重试发送失败：${sendErr.message || '未知错误'}（草稿 ID：${draftOfferId.value}）`;
+  }
 }
 
 function resetForm() {
@@ -206,10 +233,9 @@ async function handleSubmit() {
       } catch (sendErr) {
         console.warn('[OfferModal] send failed:', sendErr);
         submitting.value = false;
-        // Offer 已存在为草稿，明确告知用户后续在哪里继续
-        toast.warning(`Offer 已保存为草稿（${data.id}），但发送失败：${sendErr.message || '未知错误'}。可在 Offer 列表中重新发送`);
-        emit('close');
-        resetForm();
+        // Keep modal open so user can see/recover the draft ID
+        draftOfferId.value = data.id;
+        draftError.value = `Offer 已保存为草稿（${data.id}），但发送失败：${sendErr.message || '未知错误'}`;
         return;
       }
     }
@@ -283,6 +309,25 @@ watch(
   background: var(--e-surface, #FFFFFF);
   box-shadow: var(--e-shadow-modal, 0 24px 80px rgba(15,23,42,0.2));
   animation: slideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ===== Draft error banner ===== */
+.offer-draft-error {
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border-radius: 8px;
+  background: #FEF2F2;
+  border: 1px solid #FECACA;
+}
+.draft-error-msg {
+  color: #991B1B;
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+.draft-error-actions {
+  display: flex;
+  gap: 8px;
 }
 
 /* ===== Header ===== */

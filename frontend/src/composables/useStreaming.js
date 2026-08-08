@@ -39,8 +39,8 @@ export function useStreaming() {
     let response = null;
     for (let attempt = 0; attempt <= CONNECT_RETRY_DELAYS.length; attempt++) {
       try {
-        const role = localStorage.getItem('hr_role') || 'admin';
-        const url = `${baseUrl}/${workflow}?role=${role}`;
+        // Auth is via httpOnly cookie — no need to inject role into URL
+        const url = `${baseUrl}/${workflow}`;
 
         response = await fetch(url, {
           method: 'POST',

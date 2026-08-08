@@ -12,10 +12,14 @@ import pytest
 
 
 class TestFeishuVcMock:
-    """create_vc_meeting() in MOCK_MODE returns a deterministic-shaped fake URL."""
+    """create_vc_meeting() in MOCK_MODE returns a valid-shaped fake vc.feishu.cn URL."""
 
-    def test_mock_returns_fake_vc_url(self, app):
+    def test_mock_returns_fake_vc_url(self, app, monkeypatch):
+        monkeypatch.setenv('FEISHU_MOCK_MODE', 'true')
         from app.services import feishu_client
+        # re-import to pick up env change
+        import importlib
+        importlib.reload(feishu_client)
         assert feishu_client.MOCK_MODE is True
         vc = feishu_client.create_vc_meeting('面试-张三-后端', '1785000000', duration_minutes=60)
         assert re.fullmatch(r'https://vc\.feishu\.cn/j/\d{9}', vc['meeting_url'])
@@ -63,3 +67,18 @@ class TestInterviewMeetingUrl:
                             meetingUrl='https://zoom.us/j/1234567890', round=1)
         assert data['meetingUrl'] == 'https://zoom.us/j/1234567890'
         assert data['book_id']
+
+
+def test_interview_mail_template_renders_meeting_url_aliases(app):
+    """Regression: custom templates may use {meeting_url} instead of {{meetingUrl}}."""
+    from app.services.confirm_service import _render_text
+
+    rendered = _render_text(
+        '面试链接A：{meeting_url}\n面试链接B：{{meetingUrl}}\n面试链接C：{{会议链接}}',
+        {'meeting_url': 'https://vc.feishu.cn/j/123456789'},
+    )
+
+    assert '{meeting_url}' not in rendered
+    assert '{{meetingUrl}}' not in rendered
+    assert '{{会议链接}}' not in rendered
+    assert rendered.count('https://vc.feishu.cn/j/123456789') == 3

@@ -1,7 +1,7 @@
 """Talent service: candidate pool from DB with mock fallback."""
 import logging
 from app.utils.response import AppError
-from app.utils.scoring import profile_grade, match_color
+from app.utils.scoring import profile_grade, match_color, candidate_profile_score
 from app.extensions import db
 
 log = logging.getLogger(__name__)
@@ -28,9 +28,24 @@ DEPTS = {1: '技术部', 2: '产品部', 3: '运营部', 4: '数据部', 5: '财
 POSES = {1: '高级Java', 2: '前端', 3: '产品经理', 4: '运营总监', 5: '数据分析师'}
 
 
+def _resolve_company(c):
+    """Resolve candidate's most recent company from resume extract_json."""
+    try:
+        from app.models.candidate import Resume
+        resume = (Resume.query.filter_by(candidate_id=c.id, is_deleted=0)
+                  .order_by(Resume.storage_time.desc()).first())
+        if resume and resume.extract_json:
+            company = resume.extract_json.get('recent_company', '') or ''
+            if company.strip():
+                return company.strip()
+    except Exception:
+        pass
+    return '—'
+
+
 def _candidate_to_dict(c):
     """Convert Candidate ORM object to API dict."""
-    score = float(c.static_ability_score or 0)
+    score = candidate_profile_score(c)
     grade = profile_grade(score)
     cls = match_color(score)
     edu = EDU_LABELS.get(c.edu_level or 0, '本科')
@@ -42,11 +57,12 @@ def _candidate_to_dict(c):
         'id': c.candidate_no,
         'name': c.candidate_name,
         'portraitClass': cls,
+        'profileScore': int(score),
         'portrait': f'{grade} · {int(score)}' if score > 0 else '—',
         'edu': edu,
         'years': years,
         'skills': skills,
-        'company': skills[0] if skills else '—',
+        'company': _resolve_company(c),
         'source': c.source_channel or '邮箱',
         'inDate': (c.created_at.strftime('%m-%d') if c.created_at else '—'),
         'status': c.status or 'available',
@@ -282,8 +298,16 @@ def list_talent(params):
                 edu_map = {'本科': 2, '硕士': 3, '博士': 4, '大专': 1}
                 q = q.filter(Candidate.edu_level == edu_map.get(edu))
 
+            sort = params.get('sort', 'default')
+            if sort == 'profile_desc':
+                q = q.order_by(Candidate.static_ability_score.desc(), Candidate.id.desc())
+            elif sort == 'time_desc':
+                q = q.order_by(Candidate.created_at.desc(), Candidate.id.desc())
+            else:
+                q = q.order_by(Candidate.id.desc())
+
             total = q.count()
-            rows = q.order_by(Candidate.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+            rows = q.offset((page - 1) * page_size).limit(page_size).all()
             if rows:
                 data = [_candidate_to_dict(r) for r in rows]
                 _attach_linked_demands(data, rows)
@@ -471,15 +495,17 @@ def get_candidate_detail(candidate_id):
                     'recentCompany': ext.get('recent_company', ''),
                     'storageTime': resume.storage_time.strftime('%Y-%m-%d %H:%M') if resume.storage_time else '—',
                 }
+            score = candidate_profile_score(c)
             return {
                 'id': c.candidate_no,
                 'name': c.candidate_name,
-                'portraitClass': match_color(float(c.static_ability_score or 0)),
-                'portrait': f'{profile_grade(float(c.static_ability_score or 0))} · {int(c.static_ability_score or 0)}',
+                'portraitClass': match_color(score),
+                'profileScore': int(score),
+                'portrait': f'{profile_grade(score)} · {int(score)}',
                 'edu': EDU_LABELS.get(c.edu_level or 0, '—'),
                 'years': f'{c.work_years or 0}年',
                 'skills': _get_skills_for(c.candidate_no),
-                'company': _get_skills_for(c.candidate_no)[0] if _get_skills_for(c.candidate_no) else '—',
+                'company': _resolve_company(c),
                 'source': c.source_channel or '—',
                 'inDate': c.created_at.strftime('%Y-%m-%d') if c.created_at else '—',
                 'status': c.status or 'available',
@@ -523,15 +549,34 @@ def get_candidate_contact(candidate_id):
         return {'id': candidate_id, 'name': str(candidate_id), 'mobile': '13800001111',
                 'email': f'{candidate_id}@example.com'.lower()}
     try:
-        from app.models.candidate import Candidate
+        from app.models.candidate import Candidate, Resume
         c = Candidate.query.filter_by(candidate_no=candidate_id, is_deleted=0).first()
+        if not c and candidate_id.isdigit():
+            c = Candidate.query.filter_by(id=int(candidate_id), is_deleted=0).first()
         if not c:
             return None
+
+        mobile = c.mobile or ''
+        email = c.email or ''
+
+        # Fallback: try Resume.extract_json for contact info when Candidate fields are empty
+        if not mobile or not email:
+            resume = (Resume.query
+                      .filter_by(candidate_id=c.id, is_deleted=0)
+                      .order_by(Resume.storage_time.desc())
+                      .first())
+            if resume and isinstance(resume.extract_json, dict):
+                extract = resume.extract_json
+                if not mobile:
+                    mobile = extract.get('phone') or extract.get('mobile') or ''
+                if not email:
+                    email = extract.get('email') or ''
+
         return {
-            'id': c.candidate_no,
+            'id': c.candidate_no or str(c.id),
             'name': c.candidate_name,
-            'mobile': c.mobile or '',
-            'email': c.email or '',
+            'mobile': mobile,
+            'email': email,
         }
     except Exception as exc:
         log.warning('get_candidate_contact DB failed: %s', exc)
@@ -675,3 +720,109 @@ def _mock_list_talent(params):
                 or sl in str(d.get('skills', '')).lower()
                 or sl in d.get('company', '').lower()]
     return data, len(data)
+
+
+# ── Data export & hard delete (PIPL / GDPR compliance) ──────────────────
+
+
+def export_candidate_data(candidate_no):
+    """Return all stored data about a candidate as a structured JSON export."""
+    from app.models.candidate import Candidate, Resume, CandidateTagRel
+    from app.models.infrastructure import TagDict
+    from app.models.process import RecruitProcess
+
+    c = Candidate.query.filter_by(candidate_no=candidate_no, is_deleted=0).first()
+    if not c:
+        raise AppError('NOT_FOUND', f'候选人 {candidate_no} 不存在')
+
+    candidate = {
+        'candidate_no': c.candidate_no,
+        'name': c.candidate_name,
+        'mobile': c.mobile,
+        'email': c.email,
+        'edu_level': c.edu_level,
+        'school_level': c.school_level,
+        'work_years': c.work_years,
+        'source_channel': c.source_channel,
+        'status': c.status,
+        'note': c.note,
+        'created_at': c.created_at.isoformat() if c.created_at else None,
+    }
+
+    resumes = Resume.query.filter_by(candidate_id=c.id, is_deleted=0)\
+        .order_by(Resume.storage_time.desc()).all()
+    resume_list = [{
+        'resume_id': r.id,
+        'storage_time': r.storage_time.isoformat() if r.storage_time else None,
+        'work_exp_text': r.work_exp_text,
+        'extract_json': r.extract_json,
+    } for r in resumes]
+
+    tags = db.session.query(TagDict.tag_name).join(
+        CandidateTagRel, CandidateTagRel.tag_id == TagDict.id
+    ).filter(
+        CandidateTagRel.candidate_id == c.id,
+        CandidateTagRel.is_deleted == 0,
+        TagDict.is_deleted == 0,
+    ).all()
+    tag_list = [t[0] for t in tags]
+
+    processes = RecruitProcess.query.filter_by(candidate_id=c.id, is_deleted=0).all()
+    process_list = [{
+        'process_no': p.process_no,
+        'demand_id': p.demand_id,
+        'status': p.process_status,
+        'created_at': p.created_at.isoformat() if p.created_at else None,
+    } for p in processes]
+
+    return {
+        'candidate': candidate,
+        'resumes': resume_list,
+        'tags': tag_list,
+        'processes': process_list,
+        'exported_at': __import__('datetime').datetime.now().isoformat(),
+    }
+
+
+def hard_delete_candidate(candidate_no):
+    """Permanently delete a candidate and all related records (cascade).
+
+    Deletes: CandidateTagRel, ResumeMatch, Resume, RecruitProcess,
+    InterviewSlot/Book references, and the Candidate row itself.
+    This is NOT soft-delete — data is unrecoverable.
+    """
+    from app.models.candidate import Candidate, Resume, CandidateTagRel
+    from app.models.process import RecruitProcess, ResumeMatch
+    from app.models.interview import InterviewBook, InterviewSlot
+    from app.extensions import db as _db
+
+    c = Candidate.query.filter_by(candidate_no=candidate_no, is_deleted=0).first()
+    if not c:
+        raise AppError('NOT_FOUND', f'候选人 {candidate_no} 不存在')
+
+    deleted = {'candidate': c.candidate_name, 'candidate_no': c.candidate_no, 'items': []}
+
+    tag_rels = CandidateTagRel.query.filter_by(candidate_id=c.id).all()
+    for t in tag_rels:
+        _db.session.delete(t)
+    deleted['items'].append(f'tags:{len(tag_rels)}')
+
+    resumes = Resume.query.filter_by(candidate_id=c.id).all()
+    for r in resumes:
+        ResumeMatch.query.filter_by(resume_id=r.id).delete()
+        InterviewBook.query.filter_by(resume_id=r.id).update({'resume_id': None})
+        InterviewSlot.query.filter_by(resume_id=r.id).update({'resume_id': None})
+        _db.session.delete(r)
+    deleted['items'].append(f'resumes:{len(resumes)}')
+
+    processes = RecruitProcess.query.filter_by(candidate_id=c.id).all()
+    for p in processes:
+        _db.session.delete(p)
+    deleted['items'].append(f'processes:{len(processes)}')
+
+    _db.session.delete(c)
+    _db.session.commit()
+
+    log.info("Hard deleted candidate %s (%s): %s", candidate_no, c.candidate_name,
+             ', '.join(deleted['items']))
+    return deleted

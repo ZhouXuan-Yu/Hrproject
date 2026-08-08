@@ -6,8 +6,12 @@
       <button class="btn btn-text-danger btn-sm" @click="doAlert('确认撤回该需求？')">撤回</button>
     </template>
 
+    <StatCardRow :cards="statCards" />
+
     <!-- Demand info card -->
-    <div class="card" style="margin-bottom:12px">
+    <div class="card data-region" style="margin-bottom:12px">
+      <DataLoadingOverlay :visible="loading" />
+      <div v-if="loadError" class="error-banner">{{ loadError }}</div>
       <div class="card-title">需求信息</div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px 32px;font-size:14px">
         <div><span style="color:var(--c-sub)">需求编号</span><br><b>{{ info.id }}</b></div>
@@ -30,7 +34,14 @@
       </div>
       <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--c-border)">
         <div style="font-size:13px;font-weight:700;margin-bottom:6px;color:var(--c-text)">岗位描述 <span style="font-weight:400;font-size:11px;color:var(--c-sub)">— 解析辅助</span></div>
-        <div style="font-size:14px;color:var(--c-body);line-height:1.8;background:var(--c-bg);padding:12px 14px;border-radius:6px;border:1px dashed var(--c-border)">{{ info.description }}</div>
+        <div v-if="jdMarkdownContent" class="jd-markdown-panel">
+          <AiMarkdown :content="jdMarkdownContent" />
+        </div>
+        <EmptyState
+          v-else
+          title="暂无岗位描述"
+          description="该需求尚未保存岗位描述，无法生成 Markdown 解析内容"
+        />
       </div>
       <div style="margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div>
@@ -66,7 +77,7 @@
       <!-- 8-filter bar -->
       <div class="candidate-filter" style="margin-bottom:12px">
         <span class="filter-label">来源</span>
-        <select id="filterSource" v-model="filters.source" @change="applyFilter"><option value="all">全部</option><option value="direct">直接投递</option><option value="external">人才库检索</option><option value="internal">内部员工</option></select>
+        <select id="filterSource" v-model="filters.source" @change="applyFilter"><option value="all">全部</option><option value="mail">邮箱采集</option><option value="boss">Boss直聘</option><option value="liepin">猎聘</option><option value="refer">内推</option><option value="upload">手动上传</option><option value="pool">人才库</option><option value="internal">内部员工</option></select>
         <span class="filter-label">匹配分</span>
         <select id="filterScore" v-model="filters.score" @change="applyFilter"><option value="0">不限</option><option value="80">≥ 80 分</option><option value="60">≥ 60 分</option></select>
         <span class="filter-label">匹配</span>
@@ -83,13 +94,21 @@
         <select id="filterProfile" v-model="filters.profile" @change="applyFilter"><option value="0">不限</option><option value="80">≥ 80 分</option><option value="60">≥ 60 分</option></select>
         <input type="text" id="filterKeyword" v-model="filters.keyword" placeholder="姓名 / 技能..." style="width:110px" @input="applyFilter">
         <span class="spacer"></span>
+        <span class="filter-label">推荐人数</span>
+        <select v-model="matchTopN" style="padding:3px 6px;border:1px solid var(--c-border);border-radius:4px;font-size:12px;width:60px">
+          <option :value="5">5</option>
+          <option :value="10">10</option>
+          <option :value="20">20</option>
+          <option :value="50">50</option>
+        </select>
         <span style="font-size:11px;color:var(--c-sub)" id="filterCount">共 {{ filteredCandidates.length }} 人</span>
       </div>
 
-      <div class="table-wrap" style="overflow-x:auto">
+      <div class="table-wrap data-region" style="overflow-x:auto">
+        <DataLoadingOverlay :visible="candidatesLoading" />
         <table v-if="filteredCandidates.length > 0" id="candidateTable" style="min-width:860px"><thead><tr>
           <th style="width:36px"><input type="checkbox" id="checkAll" @change="toggleAll"></th>
-          <th>姓名</th><th>画像分</th><th>匹配分</th><th>来源</th><th>入库时长</th><th>状态</th><th>操作</th>
+          <th>姓名</th><th>画像分</th><th>匹配分</th><th>来源</th><th>入库时长</th><th>状态</th><th>操作</th><th>加入状态</th>
         </tr></thead><tbody>
           <tr v-for="c in filteredCandidates" :key="c.name" :class="rowClass(c)">
             <td><input type="checkbox" class="row-check" v-model="checkedSet[c.name]" @change="onCheck"></td>
@@ -119,15 +138,19 @@
                       title="匹配分较低，建议谨慎评估后再推进">建议不推荐</span>
               </template>
             </td>
+            <td>
+              <StatusBadge v-if="isCandidateJoined(c)" type="done">已加入需求</StatusBadge>
+              <span v-else style="font-size:12px;color:var(--c-sub)">未加入</span>
+            </td>
           </tr>
         </tbody></table>
         <EmptyState
-          v-else-if="candidates.length > 0"
+          v-else-if="!candidatesLoading && candidates.length > 0"
           title="筛选无匹配候选人"
           description="当前筛选条件下没有匹配的候选人，请调整筛选条件"
         />
         <EmptyState
-          v-else
+          v-else-if="!candidatesLoading"
           title="暂无候选人"
           description="该需求暂无匹配的候选人，可尝试重新匹配或从人才库导入"
           action-label="重新匹配"
@@ -170,7 +193,7 @@
     />
 
     <!-- Candidate Detail Drawer -->
-    <div v-if="drawerCandidate" class="drawer-overlay" @click.self="drawerCandidate = null">
+    <div v-if="drawerCandidate" class="drawer-overlay open demand-match-drawer-overlay" @click.self="drawerCandidate = null">
       <div class="drawer-panel">
         <div class="drawer-header">
           <h3>{{ drawerCandidate.name }}</h3>
@@ -183,8 +206,52 @@
             <div><span>匹配分</span><b>{{ drawerData.matchScore || '--' }}</b></div>
             <div><span>综合分</span><b>{{ drawerData.comprehensiveScore || '--' }}</b></div>
           </div>
-          <div v-if="drawerData.matchReason"><span>匹配理由</span><p>{{ drawerData.matchReason }}</p></div>
-          <div v-if="drawerData.matchDetail"><span>详细分析</span><p>{{ drawerData.matchDetail }}</p></div>
+          <div v-if="drawerData.matchReason" class="analysis-block">
+            <span>匹配理由</span>
+            <p>{{ formatAnalysisText(drawerData.matchReason) }}</p>
+          </div>
+          <div v-if="drawerData.matchDetail" class="analysis-block">
+            <span>详细分析</span>
+            <p>{{ formatAnalysisText(drawerData.matchDetail) }}</p>
+          </div>
+          <div v-if="profileComponentCards.length" class="analysis-block">
+            <span>画像构成</span>
+            <div class="profile-component-grid">
+              <div v-for="item in profileComponentCards" :key="item.key" class="profile-component-card">
+                <div class="profile-component-head">
+                  <em>{{ item.label }}</em>
+                  <b>{{ item.scoreText }}</b>
+                </div>
+                <div class="profile-component-bar">
+                  <span :style="{ width: item.percent + '%' }"></span>
+                </div>
+                <p>{{ item.detail }}</p>
+              </div>
+            </div>
+          </div>
+          <div v-else class="analysis-block">
+            <span>基础分析</span>
+            <div class="analysis-grid">
+              <div><em>来源</em><b>{{ drawerData.sourceLabel || '--' }}</b></div>
+              <div><em>状态</em><b>{{ drawerData.status || drawerData.statusLabel || '--' }}</b></div>
+              <div><em>学历</em><b>{{ drawerData.edu || '--' }}</b></div>
+              <div><em>经验</em><b>{{ drawerData.years || '--' }}</b></div>
+            </div>
+          </div>
+          <div v-if="drawerData.breakdown?.comprehensive" class="analysis-block">
+            <span>综合推荐</span>
+            <div class="recommend-card">
+              <div><em>推荐公式</em><b>{{ drawerData.breakdown.comprehensive.formula }}</b></div>
+              <div><em>综合分</em><b>{{ drawerData.breakdown.comprehensive.score ?? drawerData.comprehensiveScore ?? '--' }}</b></div>
+              <div v-if="drawerData.breakdown.comprehensive.decayApplied">
+                <em>时效衰减</em><b>已应用，系数 {{ drawerData.breakdown.comprehensive.decayRate }}</b>
+              </div>
+            </div>
+          </div>
+          <div v-if="drawerData.hardFilter" class="analysis-block">
+            <span>硬性条件</span>
+            <p>{{ drawerData.hardFilter.passed ? '已通过硬性条件筛选' : ('未通过：' + drawerData.hardFilter.reason) }}</p>
+          </div>
           <div><span>来源</span><p>{{ drawerData.sourceLabel || '--' }}</p></div>
           <div><span>学历/年限</span><p>{{ drawerData.edu || '--' }} / {{ drawerData.years || '--' }}</p></div>
         </div>
@@ -193,6 +260,11 @@
         </div>
       </div>
     </div>
+    <ConfirmDialog
+      v-bind="confirmDialog"
+      @confirm="onConfirmDialogConfirm"
+      @cancel="onConfirmDialogCancel"
+    />
   </WorkbenchLayout>
 </template>
 
@@ -202,27 +274,96 @@ import { useRoute } from 'vue-router';
 import WorkbenchLayout from '../layouts/WorkbenchLayout.vue';
 import ScheduleInterviewModal from '../components/ScheduleInterviewModal.vue';
 import CommunicationModal from '../components/CommunicationModal.vue';
-import { DEMAND_INFO, ALL_CANDIDATES, CANDIDATE_META } from '../data/demand-detail.js';
 import AiSkeleton from '../components/ai/AiSkeleton.vue';
+import AiMarkdown from '../components/ai/AiMarkdown.vue';
 import { fetchDemandDetail, fetchDemandCandidates, linkCandidateToDemand } from '../api/demand.js';
 import { useToast } from '../composables/useToast.js';
 import { useAppError } from '../composables/useAppError.js';
+import { useConfirmDialog } from '../composables/useConfirmDialog.js';
 import EmptyState from '../components/EmptyState.vue';
+import DataLoadingOverlay from '../components/DataLoadingOverlay.vue';
+import ConfirmDialog from '../components/ConfirmDialog.vue';
+import StatusBadge from '../components/StatusBadge.vue';
+import StatCardRow from '../components/StatCardRow.vue';
+import { KPI_ICONS } from '../components/kpiIcons.js';
 
 const { toast } = useToast();
 const { handleError } = useAppError();
+const { confirmDialog, askConfirm, onConfirmDialogConfirm, onConfirmDialogCancel } = useConfirmDialog();
 const route = useRoute();
 
-// 需求管理页通过 ?id=DM... 传入目标需求；无参数时回退默认（直达链接/测试场景）
-const info = ref({ ...DEMAND_INFO, id: route.query.id || DEMAND_INFO.id });
-const candidates = ref([...ALL_CANDIDATES]);
+const emptyDemandInfo = {
+  id: route.query.id || '',
+  position: '--',
+  dept: '--',
+  hc: 0,
+  urgency: '--',
+  salary: '--',
+  date: '--',
+  submitter: '--',
+  submitDate: '--',
+  channels: [],
+  progress: { hired: 0, total: 0, pct: 0 },
+  description: '',
+  requiredSkills: [],
+  plusSkills: [],
+  approvalNodes: [],
+};
+const info = ref({ ...emptyDemandInfo });
+const candidates = ref([]);
+const loading = ref(true);
+const candidatesLoading = ref(true);
+const loadError = ref('');
+const matchTopN = ref(20);
 
 const checkedSet = reactive({});
 const checkedCount = computed(() => Object.keys(checkedSet).filter(k => checkedSet[k]).length);
+const joinedCandidateSet = reactive({});
+
+function candidateKey(c) {
+  return c?.id || c?.candidateId || c?.candidateNo || c?.name || '';
+}
+
+function isCandidateJoined(c) {
+  const key = candidateKey(c);
+  return !!(
+    (key && joinedCandidateSet[key]) ||
+    c?.joined ||
+    c?.joinedDemand ||
+    c?.linked ||
+    c?.linkedDemand ||
+    c?.processId ||
+    c?.process_id
+  );
+}
+
+function markCandidateJoined(name) {
+  const c = candidates.value.find(item => item.name === name);
+  if (!c) return;
+  const key = candidateKey(c);
+  if (key) joinedCandidateSet[key] = true;
+  c.joined = true;
+  c.joinedDemand = info.value.id;
+}
+
+const statCards = computed(() => {
+  const list = candidates.value || [];
+  const cnt = (statuses) => list.filter(c => statuses.includes(c.processStatus)).length;
+  return [
+    { key: 'total', label: '候选人', value: list.length, hint: '已加入需求', icon: KPI_ICONS.users },
+    { key: 'interview', label: '面试中', value: cnt([1, 2, 3]), hint: '邀约/一面/二面', icon: KPI_ICONS.calendar },
+    { key: 'offer', label: '已发Offer', value: cnt([5, 6]), hint: '待确认/已接受', icon: KPI_ICONS.check },
+    { key: 'onboard', label: '待入职', value: cnt([6]), hint: '已接受待报到', icon: KPI_ICONS.userCheck },
+  ];
+});
 
 const drawerCandidate = ref(null);
 const drawerLoading = ref(false);
 const drawerData = ref(null);
+const profileComponentCards = computed(() => {
+  const components = drawerData.value?.breakdown?.profile?.components || {};
+  return Object.entries(components).map(([key, value]) => buildProfileComponentCard(key, value));
+});
 
 const showScheduleModal = ref(false);
 const showCommModal = ref(false);
@@ -236,11 +377,101 @@ const filters = reactive({
   age: 'all', edu: 'all', years: 'all', profile: '0', keyword: ''
 });
 
+const PROFILE_COMPONENT_LABELS = {
+  education: '学历背景',
+  schoolTier: '院校层级',
+  workYears: '工作年限',
+  bigCompany: '大厂经历',
+  certificates: '证书资质',
+};
+
+function formatAnalysisText(value) {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function clampPercent(score, max) {
+  const s = Number(score) || 0;
+  const m = Number(max) || 0;
+  if (!m) return 0;
+  return Math.max(0, Math.min(100, Math.round((s / m) * 100)));
+}
+
+function profileComponentDetail(key, value = {}) {
+  if (key === 'education') return value.label ? `学历：${value.label}` : '未识别到学历信息';
+  if (key === 'schoolTier') return value.label && value.label !== '—' ? `院校层级：${value.label}` : '未识别到重点院校标签';
+  if (key === 'workYears') return `工作年限：${value.years ?? 0} 年`;
+  if (key === 'bigCompany') return value.hasBigCompany ? '有大厂/知名企业经历' : '未识别到大厂经历';
+  if (key === 'certificates') return `证书数量：${value.count ?? 0} 项`;
+  return formatAnalysisText(value);
+}
+
+function buildProfileComponentCard(key, value) {
+  const item = value && typeof value === 'object' ? value : { score: value, max: 0 };
+  const score = Number(item.score) || 0;
+  const max = Number(item.max) || 0;
+  return {
+    key,
+    label: PROFILE_COMPONENT_LABELS[key] || key,
+    scoreText: max ? `${score}/${max}` : String(score || '--'),
+    percent: clampPercent(score, max),
+    detail: profileComponentDetail(key, item),
+  };
+}
+
+const jdMarkdownContent = computed(() => buildJdMarkdown(info.value));
+
+function splitDescription(text) {
+  return String(text || '')
+    .split(/[。；;\n]/)
+    .map(item => item.trim())
+    .filter(Boolean);
+}
+
+function looksLikeMarkdown(text) {
+  return /(^|\n)\s{0,3}(#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```|\|.+\|)/.test(text || '');
+}
+
+function buildJdMarkdown(data) {
+  const raw = String(data.description || '').trim();
+  const required = (data.requiredSkills || []).filter(Boolean);
+  const plus = (data.plusSkills || []).filter(Boolean);
+  if (!raw && !required.length && !plus.length) return '';
+  if (raw && looksLikeMarkdown(raw)) return raw;
+
+  const lines = [
+    `## ${data.position && data.position !== '--' ? data.position : '岗位描述'}`,
+    '',
+  ];
+  if (data.dept && data.dept !== '--') lines.push(`- **部门**：${data.dept}`);
+  if (data.hc) lines.push(`- **招聘人数**：${data.hc} 人`);
+  if (data.salary && data.salary !== '--') lines.push(`- **薪资范围**：${data.salary}`);
+  if (data.date && data.date !== '--') lines.push(`- **期望到岗**：${data.date}`);
+
+  if (raw) {
+    lines.push('', '### 职责解析');
+    splitDescription(raw).forEach(item => lines.push(`- ${item}`));
+  }
+  if (required.length) {
+    lines.push('', '### 必备技能');
+    required.forEach(item => lines.push(`- ${item}`));
+  }
+  if (plus.length) {
+    lines.push('', '### 加分项');
+    plus.forEach(item => lines.push(`- ${item}`));
+  }
+  return lines.join('\n');
+}
+
 const filteredCandidates = computed(() => {
   let list = candidates.value.filter(c => {
-    const meta = CANDIDATE_META[c.name] || {};
-    const edu = c.edu || meta.edu || '本科';
-    const years = c.years || meta.years || '3-5';
+    const edu = c.edu || '本科';
+    const years = c.years || '3-5';
     if (filters.source !== 'all' && c.source !== filters.source) return false;
     if (filters.match === 'matched' && !c.matchScore) return false;
     if (filters.match === 'unmatched' && c.matchScore) return false;
@@ -256,7 +487,7 @@ const filteredCandidates = computed(() => {
     if (filters.keyword) {
       const kw = filters.keyword.toLowerCase();
       const name = (c.name || '').toLowerCase();
-      const skills = (c.skills || []).some(s => s.toLowerCase().indexOf(kw) >= 0);
+      const skills = (c.skills || []).some(s => String(s).toLowerCase().indexOf(kw) >= 0);
       if (name.indexOf(kw) < 0 && !skills) return false;
     }
     return true;
@@ -322,15 +553,36 @@ function clearSelection() {
 async function openDrawer(c) {
   drawerCandidate.value = c;
   drawerLoading.value = true;
-  drawerData.value = null;
+  drawerData.value = {
+    profileScore: c.profileScore,
+    matchScore: c.matchScore,
+    comprehensiveScore: c.comprehensiveScore || c.matchScore,
+    matchReason: c.matchReason || '',
+    matchDetail: c.matchDetail || '',
+    sourceLabel: c.sourceLabel,
+    edu: c.edu,
+    years: c.years,
+  };
   try {
-    const demandId = info.value.id || 'DM2026070005';
+    const demandId = info.value.id;
+    if (!demandId) {
+      toast.error('当前需求未加载完成，无法查看候选人详情');
+      return;
+    }
     const { default: api } = await import('../api/index.js');
-    const r = await api.post(`/demand/${demandId}/match`, {
-      candidateIds: [c.name],
-      topN: 1,
-    });
-    drawerData.value = r.data?.candidates?.[0] || r.data?.allCandidates?.[0] || null;
+    const r = await api.get(`/demand/${demandId}/candidates/${encodeURIComponent(c.name)}/detail`);
+    const summary = r.data?.summary || {};
+    const match = r.data?.breakdown?.match || {};
+    drawerData.value = {
+      ...drawerData.value,
+      profileScore: summary.profileScore ?? c.profileScore,
+      matchScore: summary.matchScore ?? c.matchScore,
+      comprehensiveScore: summary.comprehensiveScore ?? c.matchScore,
+      matchReason: match.reason || c.matchReason || '',
+      matchDetail: match.detail || c.matchDetail || '',
+      breakdown: r.data?.breakdown || null,
+      hardFilter: r.data?.hardFilter || null,
+    };
   } catch (e) {
     console.warn('[DemandDetail] match API failed:', e);
   } finally {
@@ -354,27 +606,32 @@ async function batchContact() {
 async function addToDemand() {
   const names = Object.keys(checkedSet).filter(k => checkedSet[k]);
   if (!names.length) { toast.warning('请先勾选候选人'); return; }
-  const demandId = info.value.id || 'DM2026070005';
-  const key = 'demand_' + demandId + '_linked';
-  const linked = (() => { try { return JSON.parse(localStorage.getItem(key)) || []; } catch(e) { return []; } })();
+  const demandId = info.value.id;
+  if (!demandId) {
+    toast.error('当前需求未加载完成，无法加入需求');
+    return;
+  }
 
-  let apiSuccess = false;
+  let ok = 0, fail = 0;
   for (const name of names) {
     try {
-      await linkCandidateToDemand(demandId, name);
-      apiSuccess = true;
+      const result = await linkCandidateToDemand(demandId, name);
+      if (result && result.linked === false) {
+        fail++;
+        continue;
+      }
+      markCandidateJoined(name);
+      ok++;
     } catch (e) {
       console.warn('[RecruitDemandDetail] linkCandidateToDemand failed for', name, e);
+      fail++;
     }
   }
 
-  names.forEach(n => { if (linked.indexOf(n) < 0) linked.push(n); });
-  localStorage.setItem(key, JSON.stringify(linked));
-
-  if (apiSuccess) {
-    toast.success('已将 ' + names.length + ' 位候选人加入需求「' + (info.value.position || '高级Java工程师') + '」');
+  if (ok) {
+    toast.success('已将 ' + ok + ' 位候选人加入需求「' + (info.value.position || demandId) + '」' + (fail ? '，失败 ' + fail + ' 位' : ''));
   } else {
-    toast.info('已将 ' + names.length + ' 位候选人加入需求（离线模式，已缓存到本地）');
+    toast.error('加入需求失败，请检查后端服务和云端数据库连接');
   }
   clearSelection();
 }
@@ -382,7 +639,11 @@ async function addToDemand() {
 async function batchMoveDemand() {
   const names = Object.keys(checkedSet).filter(k => checkedSet[k]);
   if (!names.length) { toast.warning('请先勾选候选人'); return; }
-  const demandId = info.value.id || 'DM2026070005';
+  const demandId = info.value.id;
+  if (!demandId) {
+    toast.error('当前需求未加载完成，无法移出需求');
+    return;
+  }
   let ok = 0, fail = 0;
   for (const name of names) {
     try {
@@ -432,10 +693,14 @@ function batchToast(label) {
 }
 
 async function doReMatch() {
-  const demandId = info.value.id || 'DM2026070005';
+  const demandId = info.value.id;
+  if (!demandId) {
+    toast.error('当前需求未加载完成，无法重新匹配');
+    return;
+  }
   try {
     const { default: api } = await import('../api/index.js');
-    await api.post(`/demand/${demandId}/match`, { applyHardFilter: true, topN: 20 });
+    await api.post(`/demand/${demandId}/match`, { includeTalentPool: true, topN: matchTopN.value });
     const { fetchDemandCandidates } = await import('../api/demand.js');
     const fresh = await fetchDemandCandidates(demandId);
     if (Array.isArray(fresh)) {
@@ -456,13 +721,21 @@ async function doAlert(msg) {
     return;
   }
   if (msg.indexOf('确认撤回该需求？') >= 0) {
-    if (!window.confirm('确认撤回该需求？')) return;
+    const ok = await askConfirm({
+      title: '撤回需求',
+      message: '确认撤回该需求？',
+      detail: '撤回后该需求会从当前审批流程中退出，请确认没有需要保留的审批动作。',
+      type: 'warning',
+      confirmText: '撤回',
+    });
+    if (!ok) return;
     try {
-      const { createDemand } = await import('../api/demand.js');
+      const { deleteDemand } = await import('../api/demand.js');
+      await deleteDemand(info.value?.demandNo || info.value?.id);
       toast.success('需求已撤回');
+      setTimeout(() => router.push('/recruit-demand'), 800);
     } catch (e) {
       handleError(e, 'RecruitDemandDetail.withdraw');
-      toast.success('需求已撤回');
     }
     return;
   }
@@ -500,15 +773,29 @@ async function handleDetailInterview(e) {
 }
 
 async function loadFromApi() {
+  loading.value = true;
+  candidatesLoading.value = true;
+  loadError.value = '';
   try {
-    const demandId = info.value.id || 'DM2026070005';
+    const demandId = info.value.id;
+    if (!demandId) {
+      candidates.value = [];
+      return;
+    }
     const [detail, candidateList] = await Promise.all([
       fetchDemandDetail(demandId),
       fetchDemandCandidates(demandId)
     ]);
     if (detail) Object.assign(info.value, detail);
-    if (candidateList) candidates.value = candidateList;
-  } catch (e) { console.warn('[Detail] API fallback to mock:', e.message); }
+    candidates.value = Array.isArray(candidateList) ? candidateList : [];
+  } catch (e) {
+    loadError.value = e.message || '需求详情加载失败';
+    candidates.value = [];
+    console.warn('[Detail] API fetch failed:', e.message);
+  } finally {
+    loading.value = false;
+    candidatesLoading.value = false;
+  }
 }
 
 onMounted(() => {
@@ -527,6 +814,10 @@ onUnmounted(() => {
 
 <style scoped>
 .candidate-filter { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 16px; background: var(--c-surface-elevated); border-radius: 8px; border: 1px solid var(--c-border); margin-bottom: 12px; }
+.data-region { position: relative; min-height: 160px; }
+.jd-markdown-panel { padding: 12px 14px; border: 1px dashed var(--c-border); border-radius: 8px; background: var(--c-bg); }
+.error-banner { padding: 10px 14px; border-radius: 8px; background: #FEF2F2; color: #991B1B; font-size: 13px; margin-bottom: 12px; border: 1px solid #FECACA; }
+.jd-markdown-panel :deep([data-slot="ai-markdown"]) { font-size: 13px; line-height: 1.8; }
 .candidate-filter select, .candidate-filter input { height: 34px; padding: 0 10px; border: 1px solid var(--c-border); border-radius: 6px; font-size: 13px; font-family: inherit; background: var(--c-card); color: var(--c-body); }
 .candidate-filter .filter-label { font-size: 12px; color: var(--c-sub); font-weight: 600; white-space: nowrap; }
 .candidate-filter .spacer { flex: 1; }
@@ -536,7 +827,9 @@ onUnmounted(() => {
 .row-reserve { opacity: 0.6; }
 .match-expired { opacity: 0.65; }
 .drawer-overlay { position:fixed; inset:0; background:rgba(0,0,0,.25); z-index:1000; display:flex; justify-content:flex-end; }
+.demand-match-drawer-overlay { justify-content: center; align-items: center; background: rgba(15,23,42,.38); }
 .drawer-panel { width:420px; max-width:90vw; height:100%; background:var(--c-card); overflow-y:auto; padding:24px; box-shadow:-4px 0 24px rgba(0,0,0,.1); }
+.demand-match-drawer-overlay .drawer-panel { width: 760px; max-width: 92vw; height: auto; max-height: 86vh; border-radius: 10px; box-shadow: 0 24px 80px rgba(15,23,42,.2); }
 .drawer-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; }
 .drawer-header h3 { font-size:18px; margin:0; }
 .drawer-kpis { display:flex; gap:16px; margin-bottom:20px; }
@@ -546,4 +839,23 @@ onUnmounted(() => {
 .drawer-body > div { margin-bottom:16px; }
 .drawer-body > div > span { font-size:11px; color:var(--c-sub); display:block; margin-bottom:4px; }
 .drawer-body p { font-size:13px; color:var(--c-body); line-height:1.7; }
+.analysis-grid { display:grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap:8px; }
+.analysis-grid > div { padding:10px; border:1px solid var(--c-border); border-radius:8px; background:var(--c-bg); }
+.analysis-grid em { display:block; font-style:normal; font-size:11px; color:var(--c-sub); margin-bottom:4px; }
+.analysis-grid b { font-size:14px; color:var(--c-text); font-variant-numeric:tabular-nums; }
+.profile-component-grid { display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:10px; }
+.profile-component-card { padding:12px; border:1px solid var(--c-border); border-radius:8px; background:var(--c-bg); }
+.profile-component-head { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.profile-component-head em { font-style:normal; font-size:12px; font-weight:700; color:var(--c-text); }
+.profile-component-head b { font-size:13px; color:var(--c-primary); font-variant-numeric:tabular-nums; }
+.profile-component-bar { height:6px; margin:8px 0; border-radius:99px; overflow:hidden; background:var(--c-border-light); }
+.profile-component-bar span { display:block; height:100%; border-radius:inherit; background:var(--c-primary); }
+.profile-component-card p { margin:0; font-size:12px; color:var(--c-sub); line-height:1.6; }
+.recommend-card { display:grid; grid-template-columns: 1.5fr .7fr 1fr; gap:8px; }
+.recommend-card > div { padding:10px; border:1px solid var(--c-border); border-radius:8px; background:var(--c-bg); }
+.recommend-card em { display:block; font-style:normal; font-size:11px; color:var(--c-sub); margin-bottom:4px; }
+.recommend-card b { display:block; font-size:13px; color:var(--c-text); line-height:1.5; }
+@media (max-width: 720px) {
+  .analysis-grid, .profile-component-grid, .recommend-card { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 </style>

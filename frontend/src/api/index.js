@@ -4,7 +4,7 @@
 const BASE = '/api'
 const DEFAULT_TIMEOUT_MS = 30000
 const MAX_RETRIES = 2
-const CACHE_TTL_MS = 30000
+const CACHE_TTL_MS = 5 * 60 * 1000
 
 // ── In-flight dedup map ───────────────────────────────────────────────────
 const pendingRequests = new Map()
@@ -85,7 +85,7 @@ async function request(path, options = {}) {
   const url = `${BASE}${path}`
   const method = options.method || 'GET'
   const timeout = options.timeout || DEFAULT_TIMEOUT_MS
-  const cacheKey = getCacheKey(url, { method, params: options.params })
+  const cacheKey = getCacheKey(url, { method, params: options.params || {} })
 
   // ── GET response cache check ──
   if (method === 'GET' && options.cache !== false) {
@@ -93,8 +93,8 @@ async function request(path, options = {}) {
     if (cached) return cached
   }
 
-  // ── POST request deduplication ──
-  if (method === 'POST') {
+  // ── Request deduplication ──
+  if (method === 'GET' || method === 'POST') {
     const pending = pendingRequests.get(cacheKey)
     if (pending) return pending
   }
@@ -106,18 +106,11 @@ async function request(path, options = {}) {
     ...options.headers,
   }
 
-  // Bearer token auth
+  // Auth: httpOnly cookie is sent automatically by the browser.
+  // For transitional compat, also send Authorization header if token is in localStorage.
   const token = localStorage.getItem('hr_token')
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
-  }
-
-  // In dev mode, forward the current role as query param for auth
-  const role = localStorage.getItem('hr_role')
-  let finalUrl = url
-  if (role && !url.includes('role=')) {
-    const sep = url.includes('?') ? '&' : '?'
-    finalUrl = `${url}${sep}role=${role}`
   }
 
   // ── Execute with retry ──
@@ -136,7 +129,7 @@ async function request(path, options = {}) {
     delete config.params
     delete config.silent
 
-    return fetch(finalUrl, config)
+    return fetch(url, config)
       .finally(() => clearTimeout(timeoutId))
   }
 
@@ -156,7 +149,7 @@ async function request(path, options = {}) {
       })()
 
       // Store pending promise for dedup
-      if (method === 'POST') {
+      if (method === 'GET' || method === 'POST') {
         pendingRequests.set(cacheKey, requestPromise)
         requestPromise.finally(() => pendingRequests.delete(cacheKey))
       }
@@ -202,15 +195,23 @@ async function request(path, options = {}) {
 // ── Response handler ──────────────────────────────────────────────────────
 async function handleResponse(resp, method, path, options = {}) {
   const silent = options.silent === true
-  // 401 / 403 — clear stale token on real auth error
-  if ((resp.status === 401 || resp.status === 403) && localStorage.getItem('hr_token')) {
-    if (resp.status === 401) {
-      localStorage.removeItem('hr_token')
+  // 401 — redirect to login
+  if (resp.status === 401) {
+    if (window.location.pathname !== '/login') {
+      window.location.href = '/login'
     }
-    let message = resp.status === 401 ? '请重新登录' : '无权限访问'
-    const err = new Error(message)
-    err.code = resp.status === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN'
-    err.status = resp.status
+    const err = new Error('请重新登录')
+    err.code = 'UNAUTHORIZED'
+    err.status = 401
+    if (!silent) dispatchApiError(err)
+    throw err
+  }
+
+  // 403 — forbidden
+  if (resp.status === 403) {
+    const err = new Error('无权限访问')
+    err.code = 'FORBIDDEN'
+    err.status = 403
     if (!silent) dispatchApiError(err)
     throw err
   }

@@ -8,26 +8,40 @@ bp = Blueprint('talent', __name__)
 @bp.route('/list')
 def get_list():
     """GET /api/talent/list — paginated talent pool."""
+    from app.services.cache_service import cached
     from app.services.talent_service import list_talent
-    data, total = list_talent(request.args)
+
+    def load():
+        data, total = list_talent(request.args)
+        return {'items': data, 'total': total}
+
+    result = cached('talent:list', request.args, load, ttl=30)
     page = int(request.args.get('page', 1))
     page_size = int(request.args.get('pageSize', 20))
-    return success_list(data, total, page, page_size)
+    return success_list(result['items'], result['total'], page, page_size)
 
 
 @bp.route('/<candidate_id>/note', methods=['PATCH'])
 def update_note(candidate_id):
     """PATCH /api/talent/{id}/note — update candidate note."""
+    from app.services.cache_service import invalidate_many
     from app.services.talent_service import update_note
     result = update_note(candidate_id, request.get_json(silent=True) or {})
+    invalidate_many('talent:list', 'talent:detail', 'demand:candidates')
     return success(result)
 
 
 @bp.route('/match')
 def get_match():
     """GET /api/talent/match — internal employee match results."""
+    from app.services.cache_service import cached
     from app.services.talent_service import get_match_results
-    result = get_match_results(request.args.get('demandId', ''))
+    result = cached(
+        'talent:match',
+        request.args,
+        lambda: get_match_results(request.args.get('demandId', '')),
+        ttl=30,
+    )
     return success(result)
 
 
@@ -47,22 +61,35 @@ def create_match():
 @bp.route('/candidate/<candidate_id>')
 def get_candidate(candidate_id):
     """GET /api/talent/candidate/{id} — single candidate detail."""
+    from app.services.cache_service import cached
     from app.services.talent_service import get_candidate_detail
-    data = get_candidate_detail(candidate_id)
+    data = cached(
+        'talent:detail',
+        {'candidate_id': candidate_id},
+        lambda: get_candidate_detail(candidate_id),
+        ttl=30,
+    )
     return success(data)
 
 
 @bp.route('/employee/<employee_id>')
 def get_employee(employee_id):
     """GET /api/talent/employee/{id} — single employee detail."""
+    from app.services.cache_service import cached
     from app.services.talent_service import get_employee_detail
-    data = get_employee_detail(employee_id)
+    data = cached(
+        'talent:employee',
+        {'employee_id': employee_id},
+        lambda: get_employee_detail(employee_id),
+        ttl=60,
+    )
     return success(data)
 
 
 @bp.route('/link', methods=['POST'])
 def link_to_demand():
     """POST /api/talent/link — link candidates to demand."""
+    from app.services.cache_service import invalidate_many
     from app.services.demand_service import link_candidate_to_demand
     body = request.get_json(silent=True) or {}
     demand_id = body.get('demandId') or ''
@@ -73,12 +100,21 @@ def link_to_demand():
     for name in names:
         r = link_candidate_to_demand(demand_id, name)
         results.append({'name': name, **r})
+    invalidate_many(
+        'talent:list', 'talent:detail', 'talent:match',
+        'demand:list', 'demand:detail', 'demand:candidates',
+        'dashboard:kpi', 'dashboard:funnel', 'dashboard:dept-progress', 'dashboard:channel',
+    )
     return success({'linked': len(results), 'total': len(names), 'candidates': results})
 
 
 @bp.route('/resume-file/<resume_id>')
 def download_resume_file(resume_id):
-    """GET /api/talent/resume-file/{resume_id} — 下载/预览简历原件。"""
+    """GET /api/talent/resume-file/{resume_id} — 下载/预览简历原件。
+    Restricted to HR-level roles; interviewers view resumes in the UI preview only.
+    """
+    if g.current_role not in {'admin', 'hr', 'director', 'dept_head'}:
+        raise AppError('FORBIDDEN', '无权下载简历原件')
     import os
     from flask import send_file, current_app
     from app.models.candidate import Resume
@@ -108,6 +144,7 @@ def upload_resume():
 
     文件经文本提取（pdfplumber/python-docx）→ DeepSeek 结构化解析 → 去重入库。
     """
+    from app.services.cache_service import invalidate_many
     from app.services.resume_service import ingest_resume, SUPPORTED_EXTENSIONS
     import os
 
@@ -124,20 +161,38 @@ def upload_resume():
     if len(file_bytes) > 20 * 1024 * 1024:
         raise AppError('BAD_REQUEST', '文件大小不能超过 20MB')
 
+    position = (request.form.get('position') or '').strip()
+    note = (request.form.get('note') or '').strip()
+
     try:
-        result = ingest_resume(file_bytes, file.filename, source_channel='手动上传')
+        result = ingest_resume(file_bytes, file.filename, source_channel='手动上传',
+                               target_position=position)
+        if note and result.get('candidate_no'):
+            from app.models.candidate import Candidate
+            c = Candidate.query.filter_by(candidate_no=result['candidate_no'], is_deleted=0).first()
+            if c:
+                c.note = note
+                from app.extensions import db
+                db.session.commit()
     except ValueError as exc:
         raise AppError('BAD_REQUEST', str(exc))
 
+    invalidate_many(
+        'talent:list', 'talent:detail', 'talent:match',
+        'demand:candidates', 'talent:ingest-log',
+        'dashboard:kpi', 'dashboard:funnel', 'dashboard:dept-progress', 'dashboard:channel',
+    )
     return success(result)
 
 
 @bp.route('/ingest-log')
 def get_ingest_log():
     """GET /api/talent/ingest-log — recent resume ingestion records for pipeline view."""
+    from app.services.cache_service import cached
     from app.services.talent_service import get_ingest_log as _log
     limit = request.args.get('limit', 10)
-    return success({'items': _log(limit)})
+    data = cached('talent:ingest-log', request.args, lambda: {'items': _log(limit)}, ttl=10)
+    return success(data)
 
 
 _TYPE_LABELS = {'invite': '面试邀请', 'offer': '录用通知', 'entry': '入职指引',
@@ -167,36 +222,136 @@ def get_mail_log():
 
 @bp.route('/candidate/<candidate_id>/contact-info')
 def get_candidate_contact_info(candidate_id):
-    """GET /api/talent/candidate/<id>/contact-info — full mobile/email for contact action."""
+    """GET /api/talent/candidate/<id>/contact-info — full mobile/email for contact action.
+    Restricted to HR-level roles; interviewers see masked info in candidate detail instead.
+    """
+    if g.current_role not in {'admin', 'hr', 'director', 'dept_head'}:
+        raise AppError('FORBIDDEN', '无权查看候选人完整联系方式')
     from app.services.talent_service import get_candidate_contact
     from app.services.config_service import append_audit_log
     data = get_candidate_contact(candidate_id)
     if data is None:
         raise AppError('NOT_FOUND', f'候选人不存在: {candidate_id}')
-    append_audit_log('系统', '人才库', '查看联系方式',
+    operator = getattr(g, 'real_name', None) or g.current_username or '系统'
+    append_audit_log(operator, '人才库', '查看联系方式',
                      f"查看候选人 {data.get('name', candidate_id)} 的联系方式")
     return success(data)
 
 
 @bp.route('/contact', methods=['POST'])
 def contact_candidate():
-    """POST /api/talent/contact — record candidate contact action."""
-    from app.services.talent_service import update_note
+    """POST /api/talent/contact - record and optionally send candidate contact."""
+    from app.services.cache_service import invalidate_many
+    from app.services.talent_service import update_note, get_candidate_contact
     body = request.get_json(silent=True) or {}
     candidate_id = body.get('candidateId') or ''
     names = body.get('names') or []
-    method = body.get('method', '系统记录')
+    method = body.get('method', 'system_record')
+    channel = (body.get('channel') or method or '').lower()
+    draft = (body.get('draft') or '').strip()
+    subject = (body.get('subject') or '').strip()
 
     if names:
-        results = []
-        for name in names:
-            note_text = f'【联系记录】HR通过{method}发起联系'
-            results.append({'name': name, 'note': note_text})
-        return success({'recorded': True, 'count': len(results), 'contacts': results})
+        contacts = [{'name': name, 'note': f'[contact] HR via {method}'} for name in names]
+        invalidate_many('talent:list', 'talent:detail')
+        return success({'recorded': True, 'count': len(contacts), 'contacts': contacts})
 
     if candidate_id:
-        note_text = f'【联系记录】HR通过{method}发起联系'
-        update_note(candidate_id, note_text)
-        return success({'recorded': True, 'contact': {'id': candidate_id, 'note': note_text}})
+        contact = get_candidate_contact(candidate_id)
+        if contact is None:
+            raise AppError('NOT_FOUND', f'candidate not found: {candidate_id}')
 
-    raise AppError('BAD_REQUEST', '缺少 candidateId 或 names 参数')
+        send_result = {'attempted': False, 'sent': False, 'message': 'recorded only'}
+        if 'email' in channel or 'mail' in channel:
+            if not contact.get('email'):
+                send_result = {'attempted': True, 'sent': False, 'message': 'candidate email is empty'}
+            elif not draft:
+                send_result = {'attempted': True, 'sent': False, 'message': 'draft is empty'}
+            else:
+                import html
+                from app.services.mail_sender import send_mail
+                account_id = _sender_account_id_for_candidate(candidate_id)
+                title = subject or f"Recruiting follow-up - {body.get('position') or body.get('demandPosition') or ''}".strip()
+                html_body = '<div style="font-family:sans-serif;line-height:1.8">' + html.escape(draft).replace('\n', '<br>') + '</div>'
+                ok, msg = send_mail(contact['email'], title, html_body,
+                                    text_body=draft, account_id=account_id, mail_type='other')
+                send_result = {'attempted': True, 'sent': bool(ok), 'message': msg, 'recipient': contact['email']}
+        elif 'feishu' in channel or '飞书' in channel:
+            if not draft:
+                send_result = {'attempted': True, 'sent': False, 'message': 'draft is empty'}
+            else:
+                open_id = (body.get('openId') or body.get('feishu') or '').strip()
+                try:
+                    from app.services.feishu_client import search_user, send_text_message
+                    if not open_id:
+                        found = search_user(contact.get('email') or contact.get('mobile') or contact.get('name') or candidate_id)
+                        open_id = found.get('open_id') or ''
+                    if not open_id:
+                        send_result = {'attempted': True, 'sent': False, 'message': 'feishu open_id not found'}
+                    else:
+                        r = send_text_message(open_id, draft)
+                        send_result = {
+                            'attempted': True,
+                            'sent': bool(r.get('success')),
+                            'message': r.get('error') or 'sent',
+                            'messageId': r.get('message_id'),
+                            'recipient': open_id,
+                        }
+                except Exception as exc:
+                    send_result = {'attempted': True, 'sent': False, 'message': str(exc)}
+
+        note_text = f"[contact] HR via {method}; sent={send_result.get('sent')}; msg={send_result.get('message')}"
+        update_note(candidate_id, {'note': note_text})
+        invalidate_many('talent:list', 'talent:detail', 'talent:mail-log')
+        return success({'recorded': True, 'sent': send_result.get('sent'),
+                        'send': send_result, 'contact': {'id': candidate_id, 'note': note_text}})
+
+    raise AppError('BAD_REQUEST', 'missing candidateId or names')
+
+
+def _sender_account_id_for_candidate(candidate_no):
+    try:
+        from app.models.candidate import Candidate, Resume
+        c = Candidate.query.filter_by(candidate_no=candidate_no, is_deleted=0).first()
+        if not c and candidate_no.isdigit():
+            c = Candidate.query.filter_by(id=int(candidate_no), is_deleted=0).first()
+        if not c:
+            return None
+        r = (Resume.query.filter_by(candidate_id=c.id, is_deleted=0)
+             .order_by(Resume.storage_time.desc()).first())
+        return r.mail_account_id if r and r.mail_account_id else None
+    except Exception:
+        return None
+
+
+# ── Data export & hard delete (PIPL / GDPR) ──
+
+
+@bp.route('/candidate/<candidate_id>/export')
+def export_candidate(candidate_id):
+    """GET /api/talent/candidate/<id>/export — full data export (right to access)."""
+    from app.services.talent_service import export_candidate_data
+    from app.services.config_service import append_audit_log
+    data = export_candidate_data(candidate_id)
+    append_audit_log('系统', '人才库', '导出数据',
+                     f"导出候选人 {data.get('candidate', {}).get('name', candidate_id)} 的全部数据")
+    return success(data)
+
+
+@bp.route('/candidate/<candidate_id>/hard', methods=['DELETE'])
+def hard_delete_candidate(candidate_id):
+    """DELETE /api/talent/candidate/<id>/hard — permanent erasure (right to delete).
+
+    Requires admin role (enforced by blueprint role guard on /api/talent/*).
+    This irreversibly removes the candidate and all associated records.
+    """
+    from app.services.talent_service import hard_delete_candidate
+    from app.services.cache_service import invalidate_many
+    from app.services.config_service import append_audit_log
+    result = hard_delete_candidate(candidate_id)
+    append_audit_log('系统', '人才库', '彻底删除',
+                     f"彻底删除候选人 {result.get('candidate', candidate_id)} 及关联数据: {', '.join(result.get('items', []))}")
+    invalidate_many('talent:list', 'talent:detail', 'talent:match',
+                    'demand:list', 'demand:candidates',
+                    'dashboard:kpi', 'dashboard:funnel')
+    return success(result)

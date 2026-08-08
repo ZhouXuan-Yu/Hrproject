@@ -209,16 +209,11 @@ def get_sync_preview():
 
 @bp.route('/email-accounts/sync', methods=['POST'])
 def sync_all_email_accounts():
-    """POST /api/config/email-accounts/sync — 手动刷新：异步同步所有启用邮箱。
-
-    立即返回 accepted（无 Celery 时代码依然自洽）；前端提示"同步已开始，稍后刷新"。
-    """
+    """POST /api/config/email-accounts/sync — 手动刷新并等待同步结果。"""
     try:
-        mode, task_id = _enqueue_sync()
-        return success({
-            'accepted': True, 'mode': mode, 'taskId': task_id,
-            'message': '同步已开始，请稍后刷新查看结果',
-        })
+        from app.services.email_sync_service import sync_all_accounts
+        result = sync_all_accounts(respect_freq=False)
+        return success(result)
     except Exception as exc:
         log.error("sync_all_email_accounts failed: %s", exc, exc_info=True)
         import traceback
@@ -310,12 +305,51 @@ def update_notify_template(template_id):
     return success(result)
 
 
+@bp.route('/notify-templates/<template_id>', methods=['DELETE'])
+def delete_notify_template(template_id):
+    """DELETE /api/config/notify-templates/{template_id}"""
+    from app.services.config_service import delete_notify_template, append_audit_log
+    result = delete_notify_template(template_id)
+    if result.get('deleted'):
+        append_audit_log('系统', '配置', '删除模板', f"删除模板 #{template_id}")
+    return success(result)
+
+
+@bp.route('/knowledge-base')
+def get_knowledge_base():
+    """GET /api/config/knowledge-base - AI company knowledge base."""
+    from app.services.config_service import get_knowledge_base as _get
+    return success(_get())
+
+
+@bp.route('/knowledge-base', methods=['PUT'])
+def update_knowledge_base():
+    """PUT /api/config/knowledge-base - upsert AI company knowledge base."""
+    from app.services.config_service import update_knowledge_base as _update, append_audit_log
+    result = _update(request.get_json(silent=True) or {})
+    if result.get('updated'):
+        append_audit_log('system', 'config', 'update_ai_knowledge_base',
+                         'Updated company profile and AI context')
+    return success(result)
+
+
 @bp.route('/role-permissions')
 def get_role_permissions():
     """GET /api/config/role-permissions"""
     from app.services.config_service import get_role_permissions
     data = get_role_permissions()
     return success(data)
+
+
+@bp.route('/role-permissions', methods=['PUT'])
+def update_role_permissions():
+    """PUT /api/config/role-permissions — admin updates which menus each role can see."""
+    from app.services.config_service import update_role_permissions, append_audit_log
+    result = update_role_permissions(request.get_json(silent=True) or {})
+    if result.get('updated'):
+        append_audit_log('系统', '配置', '更新角色权限',
+                         f"更新了 {', '.join(result.get('roles', []))} 的菜单权限")
+    return success(result)
 
 
 @bp.route('/audit-logs')

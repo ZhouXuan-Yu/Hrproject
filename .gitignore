@@ -24,7 +24,15 @@ backend/*.db
 
 # --- Environment & secrets ---
 backend/.env
-backend/.env.*
+backend/.env.local
+backend/.env.production
+backend/.env.development
+# .env.example is intentionally NOT ignored — it is the documented template
+!backend/.env.example
+
+# --- Secrets (scripts) ---
+backend/scripts/.pwd_secret
+backend/scripts/pwd_hex.txt
 
 # --- Logs ---
 backend/logs/
@@ -37,6 +45,20 @@ backend/logs/
 *.swo
 .DS_Store
 Thumbs.db
+
+# --- Internal dev docs (not for public repo) ---
+Memory.md
+memory1.md
+Learning.md
+Wiki.md
+CLAUDE.md
+findings.md
+progress.md
+task_plan.md
+frontend/Memory.md
+frontend/Learning.md
+frontend/Wiki.md
+frontend/Claude.md
 
 # --- Claude internal state ---
 .claude/.auto-push-counter

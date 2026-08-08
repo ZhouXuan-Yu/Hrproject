@@ -61,22 +61,25 @@ def _check_salary_within_budget(offer, salary_json):
         salary_str = demand.salary_range
         import re
         numbers = re.findall(r'\d+', salary_str.replace('K', '000').replace('k', '000'))
-        if len(numbers) < 2:
-            return True  # Can't parse budget range
+        if not numbers:
+            return True  # Can't parse any number
 
         budget_min = float(numbers[0])
-        budget_max = float(numbers[1])
+        # Single value (e.g. '20K+', '20K'): only enforce minimum
+        budget_max = float(numbers[1]) if len(numbers) >= 2 else None
 
         # Determine the offered base salary
         offered = float(salary_json.get('baseSalary', salary_json.get('totalPackage', 0)))
         if offered <= 0:
             return True  # Not a numeric salary
 
-        if offered < budget_min * 0.8 or offered > budget_max * 1.2:
-            log.warning(
-                "Offer salary %.2f outside budget range [%.2f, %.2f] for demand %s",
-                offered, budget_min, budget_max, offer.demand_id,
-            )
+        if offered < budget_min * 0.8:
+            log.warning("Offer salary %.2f below budget min %.2f for demand %s",
+                        offered, budget_min, offer.demand_id)
+            return False
+        if budget_max is not None and offered > budget_max * 1.2:
+            log.warning("Offer salary %.2f above budget max %.2f for demand %s",
+                        offered, budget_max, offer.demand_id)
             return False
 
         return True
@@ -88,23 +91,44 @@ def _check_salary_within_budget(offer, salary_json):
 def _check_duplicate_offer(resume_id, demand_id):
     """Check if the candidate already has an active offer for this demand.
 
+    Checks both by resume_id AND by candidate_id (via Resume join).
+    A candidate may have multiple resume records — we catch duplicates across all of them.
+
     Returns (ok, existing_offer_no): ok=True 表示无重复可创建；
     ok=False 时 existing_offer_no 为已有进行中 Offer 的编号。
     """
     try:
         from app.models.hire import Offer
+        from app.models.candidate import Resume
+
+        # 1) Same resume + demand
         existing = Offer.query.filter(
             Offer.resume_id == resume_id,
             Offer.demand_id == demand_id,
-            Offer.offer_status.in_([0, 1]),  # draft or sent
+            Offer.offer_status.in_([0, 1]),
             Offer.is_deleted == 0,
         ).first()
         if existing:
-            log.warning(
-                "Duplicate offer detected: resume_id=%s, demand_id=%s, existing_offer=%s",
-                resume_id, demand_id, existing.offer_no,
-            )
+            log.warning("Duplicate offer (same resume): resume_id=%s demand=%s -> %s",
+                        resume_id, demand_id, existing.offer_no)
             return False, existing.offer_no
+
+        # 2) Same candidate (different resume) + same demand
+        resume = Resume.query.filter_by(id=resume_id, is_deleted=0).first()
+        if resume and resume.candidate_id:
+            existing_by_cand = Offer.query.join(
+                Resume, Offer.resume_id == Resume.id
+            ).filter(
+                Resume.candidate_id == resume.candidate_id,
+                Offer.demand_id == demand_id,
+                Offer.offer_status.in_([0, 1]),
+                Offer.is_deleted == 0,
+                Resume.is_deleted == 0,
+            ).first()
+            if existing_by_cand:
+                log.warning("Duplicate offer (same candidate): candidate_id=%s demand=%s -> %s",
+                            resume.candidate_id, demand_id, existing_by_cand.offer_no)
+                return False, existing_by_cand.offer_no
     except Exception as exc:
         log.warning("Duplicate offer check failed: %s", exc)
     return True, None
@@ -190,7 +214,8 @@ def send_offer(offer_id):
     """
     from app.models.hire import Offer
 
-    offer = Offer.query.filter_by(offer_no=offer_id, is_deleted=0).first()
+    db.session.begin()
+    offer = Offer.query.filter_by(offer_no=offer_id, is_deleted=0).with_for_update().first()
     if not offer:
         raise AppError('NOT_FOUND', f'Offer {offer_id} 不存在')
 
@@ -238,7 +263,8 @@ def accept_offer(offer_id):
     """
     from app.models.hire import Offer
 
-    offer = Offer.query.filter_by(offer_no=offer_id, is_deleted=0).first()
+    db.session.begin()
+    offer = Offer.query.filter_by(offer_no=offer_id, is_deleted=0).with_for_update().first()
     if not offer:
         raise AppError('NOT_FOUND', f'Offer {offer_id} 不存在')
 
@@ -267,7 +293,8 @@ def reject_offer(offer_id, reason=None):
     """
     from app.models.hire import Offer
 
-    offer = Offer.query.filter_by(offer_no=offer_id, is_deleted=0).first()
+    db.session.begin()
+    offer = Offer.query.filter_by(offer_no=offer_id, is_deleted=0).with_for_update().first()
     if not offer:
         raise AppError('NOT_FOUND', f'Offer {offer_id} 不存在')
 
@@ -298,7 +325,8 @@ def withdraw_offer(offer_id, reason=None):
     """
     from app.models.hire import Offer
 
-    offer = Offer.query.filter_by(offer_no=offer_id, is_deleted=0).first()
+    db.session.begin()
+    offer = Offer.query.filter_by(offer_no=offer_id, is_deleted=0).with_for_update().first()
     if not offer:
         raise AppError('NOT_FOUND', f'Offer {offer_id} 不存在')
 
@@ -306,11 +334,12 @@ def withdraw_offer(offer_id, reason=None):
         current_label = OFFER_STATUS_LABELS.get(offer.offer_status, '未知')
         raise AppError('INVALID_STATE', f'Offer状态为"{current_label}"，无法撤回')
 
+    old_status = offer.offer_status
     offer.offer_status = 3  # rejected
     offer.soft_delete()
 
-    # Reopen demand position (only if was sent)
-    if offer.offer_status == 1:
+    # Reopen demand position (only if was sent — draft never incremented filled_count)
+    if old_status == 1:
         _reopen_demand_position(offer)
 
     # 释放候选人回人才库
@@ -480,7 +509,8 @@ def get_offer(offer_id):
 def update_offer_status(offer_id, data):
     """Update offer status (legacy). If accepted, auto-create entry."""
     from app.models.hire import Offer
-    offer = Offer.query.filter_by(offer_no=offer_id, is_deleted=0).first()
+    db.session.begin()
+    offer = Offer.query.filter_by(offer_no=offer_id, is_deleted=0).with_for_update().first()
     if not offer:
         raise AppError('NOT_FOUND', f'Offer {offer_id} 不存在')
 
@@ -541,13 +571,26 @@ def _create_entry_from_offer(offer):
         return
 
     now = datetime.now()
+
+    # Resolve dept/position from the linked demand
+    dept_id = 1
+    position_id = 1
+    try:
+        from app.models.demand import RecruitDemand
+        demand = RecruitDemand.query.filter_by(id=offer.demand_id, is_deleted=0).first()
+        if demand:
+            dept_id = demand.dept_id or 1
+            position_id = demand.position_id or 1
+    except Exception:
+        pass  # fall back to defaults
+
     entry_no = _biz_no('EN')
     entry = Entry(
         entry_no=entry_no,
         event_id=event.id,
         resume_id=offer.resume_id,
-        dept_id=1,  # TODO: resolve from demand
-        position_id=1,
+        dept_id=dept_id,
+        position_id=position_id,
         entry_date=now.date(),
     )
     db.session.add(entry)

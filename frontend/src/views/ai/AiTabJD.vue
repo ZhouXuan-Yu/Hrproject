@@ -87,11 +87,24 @@
           <option v-for="lv in levels" :key="lv" :value="lv">{{ lv }}</option>
         </select>
       </div>
+      <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+        <input v-model="jdForm.salary" placeholder="薪资范围 (如 15K-25K)" style="flex:1;min-width:120px;padding:7px 10px;border:1px solid var(--c-border);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--c-card);color:var(--c-text)">
+        <input v-model="jdForm.workCity" placeholder="工作城市" style="flex:1;min-width:100px;padding:7px 10px;border:1px solid var(--c-border);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--c-card);color:var(--c-text)">
+        <select v-model="jdForm.eduMin" style="width:90px;padding:7px 10px;border:1px solid var(--c-border);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--c-card)">
+          <option value="大专">大专</option><option value="本科">本科</option><option value="硕士">硕士</option><option value="不限">不限</option>
+        </select>
+        <select v-model="jdForm.expMin" style="width:100px;padding:7px 10px;border:1px solid var(--c-border);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--c-card)">
+          <option value="应届">应届</option><option value="1年">1年</option><option value="3年">3年</option><option value="5年">5年</option><option value="不限">不限</option>
+        </select>
+        <select v-model="jdForm.headcount" style="width:70px;padding:7px 10px;border:1px solid var(--c-border);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--c-card)">
+          <option :value="1">1人</option><option :value="2">2人</option><option :value="3">3人</option><option :value="5">5人</option>
+        </select>
+      </div>
       <AiPromptInput
         v-model="jdForm.requirements"
         :status="jdStatus"
         :disabled="!jdForm.position || !jdForm.department"
-        placeholder="描述岗位核心要求 (选填)，例如：5年Java经验、大厂背景、熟悉微服务架构..."
+        placeholder="补充要求 (选填)，例如：大厂背景、熟悉微服务架构..."
         hint=""
         layout="compact"
         aria-label="JD 草稿需求描述"
@@ -110,17 +123,29 @@ import AiPromptInput from '../../components/ai/AiPromptInput.vue';
 import AiMarkdown from '../../components/ai/AiMarkdown.vue';
 import AiDisclaimer from '../../components/ai/AiDisclaimer.vue';
 import StatusBadge from '../../components/StatusBadge.vue';
-import { MOCK_DEPARTMENTS } from '../../data/ai.js';
 import { runJdGenerate } from '../../api/ai.js';
 import { useStreaming } from '../../composables/useStreaming.js';
+import { fetchDepartments } from '../../api/config.js';
 
 const showToast = inject('showToast');
 
 const levels = ['初级', '中级', '高级', '资深', '专家'];
 const qualLabels = { education: '学历', experience: '经验', industry: '行业', soft: '软技能', others: '其他' };
-const departments = MOCK_DEPARTMENTS;
+const departments = ref([]);
 
-const jdForm = reactive({ position: '', department: '', level: '高级', requirements: '' });
+async function loadDepartments() {
+  try {
+    const list = await fetchDepartments();
+    departments.value = (list || []).map(d => d.name || d);
+  } catch (_) {
+    departments.value = [];
+  }
+}
+
+const jdForm = reactive({
+  position: '', department: '', level: '中级', requirements: '',
+  salary: '', workCity: '', eduMin: '本科', expMin: '3年', headcount: 1,
+});
 const jdResult = ref(null);
 const jdLoading = ref(false);
 const jdError = ref('');
@@ -192,6 +217,7 @@ async function generateJd() {
 
   // 1) 流式生成（useStreaming 内部捕获异常，不会 reject）
   await startJdStream('jd-generate', { ...jdForm });
+  if (jdStreamError.value) { jdError.value = jdStreamError.value; jdLoading.value = false; return; }
 
   // 2) 结构化字段缺失（流式解析失败）时，调用阻塞式 API 补齐；
   //    流式的 Markdown 正文仍保留展示
@@ -233,6 +259,7 @@ async function generateJd() {
 
 // Watch: clear error on input change
 watch(() => jdForm.requirements, () => { if (jdError.value) jdError.value = ''; });
+loadDepartments();
 </script>
 
 <style scoped>

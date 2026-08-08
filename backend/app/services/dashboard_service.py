@@ -1,6 +1,7 @@
 """Dashboard service: aggregations for KPI, funnel, dept progress, channels, alerts."""
 import logging
 from datetime import datetime, timedelta
+from app.extensions import db
 
 log = logging.getLogger(__name__)
 
@@ -69,6 +70,7 @@ def get_real_kpi_data(role='admin'):
 
         now = datetime.now()
         month_start = now.strftime('%Y-%m-01')
+        today = now.strftime('%Y-%m-%d')
 
         # Shared counts
         candidates = db.session.execute(
@@ -84,36 +86,88 @@ def get_real_kpi_data(role='admin'):
             {'ms': month_start}
         ).scalar() or 0
 
+        pending_approvals = db.session.execute(
+            text("SELECT COUNT(*) FROM t_hr_recruit_demand WHERE demand_status = 1 AND is_deleted = 0")
+        ).scalar() or 0
+
+        # Pending evaluations: interview books with records that lack evaluate_text
+        pending_evals = db.session.execute(text("""
+            SELECT COUNT(*) FROM t_hr_interview_book b
+            INNER JOIN t_hr_interview_record r ON r.book_id = b.id
+            WHERE (r.evaluate_text IS NULL OR r.evaluate_text = '')
+            AND b.is_deleted = 0 AND r.is_deleted = 0
+        """)).scalar() or 0
+
         if role == 'admin':
-            pending_interviews = db.session.execute(
+            total_interviews = db.session.execute(
                 text("SELECT COUNT(*) FROM t_hr_interview_book WHERE is_deleted = 0")
             ).scalar() or 0
 
             return [
-                {'val': pending_interviews, 'label': '全公司待面试', 'trend': '实时'},
-                {'val': 0, 'label': '待评价', 'trend': '实时'},
+                {'val': total_interviews, 'label': '全公司待面试', 'trend': '实时'},
+                {'val': pending_evals, 'label': '待评价', 'trend': '实时'},
                 {'val': open_demands, 'label': '在招岗位', 'trend': '实时'},
                 {'val': monthly_hires, 'label': '本月入职总量', 'trend': '实时'},
             ]
 
         elif role == 'hr':
-            pending_interviews = db.session.execute(
+            total_interviews = db.session.execute(
                 text("SELECT COUNT(*) FROM t_hr_interview_book WHERE is_deleted = 0")
             ).scalar() or 0
 
             return [
-                {'val': pending_interviews, 'label': '本人今日待面试', 'trend': '实时'},
-                {'val': 0, 'label': '待评价面试', 'trend': '实时'},
-                {'val': candidates, 'label': '待跟进候选人', 'trend': '实时'},
-                {'val': 0, 'label': '待审批岗位', 'trend': '实时'},
+                {'val': total_interviews, 'label': '全部待面试', 'trend': '实时'},
+                {'val': pending_evals, 'label': '待评价面试', 'trend': '实时'},
+                {'val': pending_approvals, 'label': '待审批岗位', 'trend': '实时'},
+                {'val': monthly_hires, 'label': '本月入职总量', 'trend': '实时'},
             ]
 
         elif role == 'interviewer':
+            from flask import g
+            uid = getattr(g, 'current_user_id', None)
+            my_pending = my_evals = my_completed = 0
+            avg_score = 0
+            if uid:
+                my_pending = db.session.execute(text("""
+                    SELECT COUNT(*) FROM t_hr_interview_book b
+                    INNER JOIN t_hr_interview_slot s ON s.id = b.slot_id
+                    WHERE s.interviewer_id = :uid AND b.is_deleted = 0 AND s.is_deleted = 0
+                """), {'uid': uid}).scalar() or 0
+
+                my_evals = db.session.execute(text("""
+                    SELECT COUNT(*) FROM t_hr_interview_book b
+                    INNER JOIN t_hr_interview_slot s ON s.id = b.slot_id
+                    INNER JOIN t_hr_interview_record r ON r.book_id = b.id
+                    WHERE s.interviewer_id = :uid
+                    AND (r.evaluate_text IS NULL OR r.evaluate_text = '')
+                    AND b.is_deleted = 0 AND s.is_deleted = 0 AND r.is_deleted = 0
+                """), {'uid': uid}).scalar() or 0
+
+                my_completed = db.session.execute(text("""
+                    SELECT COUNT(*) FROM t_hr_interview_book b
+                    INNER JOIN t_hr_interview_slot s ON s.id = b.slot_id
+                    INNER JOIN t_hr_interview_record r ON r.book_id = b.id
+                    WHERE s.interviewer_id = :uid
+                    AND r.evaluate_text IS NOT NULL AND r.evaluate_text != ''
+                    AND b.is_deleted = 0 AND s.is_deleted = 0 AND r.is_deleted = 0
+                """), {'uid': uid}).scalar() or 0
+
+                avg_row = db.session.execute(text("""
+                    SELECT AVG(CAST(JSON_EXTRACT(r.score_json, '$.total') AS DECIMAL))
+                    FROM t_hr_interview_record r
+                    INNER JOIN t_hr_interview_book b ON b.id = r.book_id
+                    INNER JOIN t_hr_interview_slot s ON s.id = b.slot_id
+                    WHERE s.interviewer_id = :uid
+                    AND r.score_json IS NOT NULL
+                    AND b.is_deleted = 0 AND r.is_deleted = 0 AND s.is_deleted = 0
+                """), {'uid': uid}).scalar()
+                avg_score = round(float(avg_row), 1) if avg_row else 0
+
             return [
-                {'val': 0, 'label': '本人待面试', 'trend': '实时'},
-                {'val': 0, 'label': '待评价', 'trend': '实时'},
-                {'val': 0, 'label': '均分', 'trend': '—'},
-                {'val': 0, 'label': '已完成', 'trend': '—'},
+                {'val': my_pending, 'label': '本人待面试', 'trend': '实时'},
+                {'val': my_evals, 'label': '待评价', 'trend': '实时'},
+                {'val': avg_score, 'label': '均分', 'trend': '—'},
+                {'val': my_completed, 'label': '已完成', 'trend': '实时'},
             ]
 
         return None
@@ -624,3 +678,114 @@ def get_risk_alerts():
         {'text': '3名候选人超7天未安排面试', 'type': 'warn', 'link': '/recruit-interview', 'action': '安排'},
         {'text': '数据部·数据分析师 — 昨日已招满', 'type': 'done', 'link': '/recruit-demand-detail', 'action': '查看'},
     ]
+
+
+# ── Monthly aggregation for dashboard bar charts ────────────────────────
+
+_MONTH_LABELS = ['1月', '2月', '3月', '4月', '5月', '6月',
+                 '7月', '8月', '9月', '10月', '11月', '12月']
+
+
+def get_monthly_stats(year=None, dept_id=None, position_id=None):
+    """Return 12-month bar chart data: resumes / interviews / hires per month.
+
+    Queries Candidate, InterviewBook, and HireEvent tables grouped by month.
+    Optionally filters by dept_id and/or position_id via demand linkage.
+    Falls back to empty arrays when DB is unavailable.
+    """
+    from datetime import datetime as dt
+    y = int(year) if year else dt.now().year
+
+    months = []
+    for m in range(1, 13):
+        months.append({'label': _MONTH_LABELS[m - 1], 'resumes': 0, 'interviews': 0, 'hires': 0})
+
+    # Build dept/position subquery filter for demands (MySQL compatible)
+    demand_filter_sql = ''
+    demand_filter_params = {}
+    if dept_id or position_id:
+        demand_filter_sql = """ AND EXISTS (
+            SELECT 1 FROM t_hr_recruit_process rp
+            JOIN t_hr_recruit_demand d ON d.id = rp.demand_id AND d.is_deleted = 0
+            WHERE rp.resume_id = r.id AND rp.is_deleted = 0"""
+        if dept_id:
+            demand_filter_sql += ' AND d.dept_id = :df_dept'
+            demand_filter_params['df_dept'] = dept_id
+        if position_id:
+            demand_filter_sql += ' AND d.position_id = :df_pos'
+            demand_filter_params['df_pos'] = position_id
+        demand_filter_sql += ')'
+
+    try:
+        from app.models.candidate import Candidate
+        from app.extensions import db
+        from sqlalchemy import func, extract, text
+
+        # Resumes by month (candidate created_at), optionally filtered by demand dept/position
+        if dept_id or position_id:
+            sql = """SELECT MONTH(c.created_at) AS mo, COUNT(DISTINCT c.id) AS cnt
+            FROM t_hr_candidate c
+            JOIN t_hr_resume r ON r.candidate_id = c.id AND r.is_deleted = 0""" + demand_filter_sql + """
+            WHERE c.is_deleted = 0 AND YEAR(c.created_at) = :yr
+            GROUP BY mo"""
+            rows = db.session.execute(text(sql), {'yr': y, **demand_filter_params}).fetchall()
+        else:
+            rows = db.session.query(
+                extract('month', Candidate.created_at).label('mo'),
+                func.count(Candidate.id).label('cnt')
+            ).filter(
+                Candidate.is_deleted == 0,
+                extract('year', Candidate.created_at) == y
+            ).group_by('mo').all()
+        for mo, cnt in rows:
+            if 1 <= int(mo) <= 12:
+                months[int(mo) - 1]['resumes'] = cnt
+
+        # Interviews by month, optionally filtered
+        if dept_id or position_id:
+            sql = """SELECT MONTH(b.created_at) AS mo, COUNT(DISTINCT b.id) AS cnt
+            FROM t_hr_interview_book b
+            JOIN t_hr_resume r ON r.id = b.resume_id AND r.is_deleted = 0""" + demand_filter_sql + """
+            WHERE b.is_deleted = 0 AND YEAR(b.created_at) = :yr
+            GROUP BY mo"""
+            rows = db.session.execute(text(sql), {'yr': y, **demand_filter_params}).fetchall()
+        else:
+            from app.models.interview import InterviewBook
+            rows = db.session.query(
+                extract('month', InterviewBook.created_at).label('mo'),
+                func.count(InterviewBook.id).label('cnt')
+            ).filter(
+                InterviewBook.is_deleted == 0,
+                extract('year', InterviewBook.created_at) == y
+            ).group_by('mo').all()
+        for mo, cnt in rows:
+            if 1 <= int(mo) <= 12:
+                months[int(mo) - 1]['interviews'] = cnt
+
+        # Hires by month, optionally filtered
+        if dept_id or position_id:
+            sql = """SELECT MONTH(e.created_at) AS mo, COUNT(DISTINCT e.id) AS cnt
+            FROM t_hr_entry e
+            JOIN t_hr_resume r ON r.id = e.resume_id AND r.is_deleted = 0""" + demand_filter_sql + """
+            WHERE e.is_deleted = 0 AND YEAR(e.created_at) = :yr
+            GROUP BY mo"""
+            rows = db.session.execute(text(sql), {'yr': y, **demand_filter_params}).fetchall()
+        else:
+            from app.models.hire import HireEvent
+            rows = db.session.query(
+                extract('month', HireEvent.created_at).label('mo'),
+                func.count(HireEvent.id).label('cnt')
+            ).filter(
+                HireEvent.is_deleted == 0,
+                extract('year', HireEvent.created_at) == y
+            ).group_by('mo').all()
+        for mo, cnt in rows:
+            if 1 <= int(mo) <= 12:
+                months[int(mo) - 1]['hires'] = cnt
+
+    except Exception as exc:
+        log.warning("get_monthly_stats DB query failed: %s", exc)
+
+    return {'year': y, 'months': months}
+
+

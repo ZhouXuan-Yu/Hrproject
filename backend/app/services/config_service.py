@@ -19,6 +19,92 @@ def _mock_enabled():
     return should_mock_fallback()
 
 
+_DEFAULT_KNOWLEDGE = {
+    'companyName': 'XX公司',
+    'industry': '企业服务 / 智能招聘',
+    'website': '',
+    'companyProfile': 'XX公司是一家重视长期主义、工程质量和业务结果的企业，招聘流程以岗位胜任力、候选人体验和合规留痕为基础。',
+    'hiringPrinciples': '岗位分析应基于真实业务目标、团队阶段、必要技能和可验证经历；沟通候选人时保持专业、克制、尊重隐私。',
+    'aiContext': '所有 AI 分析默认代表 XX公司，不夸大公司规模，不编造福利，不生成歧视性或无法验证的判断。',
+}
+
+
+def _ensure_knowledge_table():
+    try:
+        from app.extensions import db
+        from app.models.auxiliary import AiKnowledgeBase
+        AiKnowledgeBase.__table__.create(db.engine, checkfirst=True)
+    except Exception as exc:
+        log.warning("ensure knowledge table failed (non-fatal): %s", exc)
+
+
+def get_knowledge_base():
+    """Return company knowledge base used by AI workflows."""
+    try:
+        from app.models.auxiliary import AiKnowledgeBase
+        _ensure_knowledge_table()
+        row = (AiKnowledgeBase.query.filter_by(status=1, is_deleted=0)
+               .order_by(AiKnowledgeBase.id.desc()).first())
+        if not row:
+            return dict(_DEFAULT_KNOWLEDGE)
+        return {
+            'companyName': row.company_name or _DEFAULT_KNOWLEDGE['companyName'],
+            'industry': row.industry or '',
+            'website': row.website or '',
+            'companyProfile': row.company_profile or '',
+            'hiringPrinciples': row.hiring_principles or '',
+            'aiContext': row.ai_context or '',
+        }
+    except Exception as exc:
+        log.error("DB query failed in get_knowledge_base: %s", exc, exc_info=True)
+        if not _mock_enabled():
+            raise
+    return dict(_DEFAULT_KNOWLEDGE)
+
+
+def update_knowledge_base(data):
+    """Upsert company knowledge base."""
+    try:
+        from app.extensions import db
+        from app.models.auxiliary import AiKnowledgeBase
+        _ensure_knowledge_table()
+        row = (AiKnowledgeBase.query.filter_by(status=1, is_deleted=0)
+               .order_by(AiKnowledgeBase.id.desc()).first())
+        if not row:
+            row = AiKnowledgeBase(status=1)
+            db.session.add(row)
+
+        row.company_name = (data.get('companyName') or data.get('company_name') or _DEFAULT_KNOWLEDGE['companyName']).strip()
+        row.industry = (data.get('industry') or '').strip()
+        row.website = (data.get('website') or '').strip()
+        row.company_profile = (data.get('companyProfile') or data.get('company_profile') or '').strip()
+        row.hiring_principles = (data.get('hiringPrinciples') or data.get('hiring_principles') or '').strip()
+        row.ai_context = (data.get('aiContext') or data.get('ai_context') or '').strip()
+        db.session.commit()
+        return {'updated': True, 'data': get_knowledge_base()}
+    except Exception as exc:
+        log.error("DB write failed in update_knowledge_base: %s", exc, exc_info=True)
+        if not _mock_enabled():
+            raise
+    merged = dict(_DEFAULT_KNOWLEDGE)
+    merged.update({k: v for k, v in data.items() if k in merged})
+    return {'updated': True, 'data': merged, '_fallback': True}
+
+
+def get_ai_knowledge_context():
+    """Compact prompt context built from the configured knowledge base."""
+    kb = get_knowledge_base()
+    parts = [
+        f"公司名称：{kb.get('companyName') or 'XX公司'}",
+        f"行业/业务：{kb.get('industry') or '未配置'}",
+        f"官网：{kb.get('website') or '未配置'}",
+        f"公司介绍：{kb.get('companyProfile') or '未配置'}",
+        f"招聘口径：{kb.get('hiringPrinciples') or '未配置'}",
+        f"AI补充上下文：{kb.get('aiContext') or '未配置'}",
+    ]
+    return "\n".join(parts)
+
+
 def _encrypt_mail_password(raw):
     """Encrypt a mailbox password/authorization code for storage.
 
@@ -86,10 +172,10 @@ _ROLE_LABELS = {
     'employee': '基层员工', 'no_recruit': '无权限员工',
 }
 _ROLE_MENUS_MAP = {
-    'admin': '全部 6 项', 'hr': '看板/需求/人才库/面试',
-    'dept_head': '看板/需求管理', 'employee': '看板/需求管理',
-    'interviewer': '看板/面试计划', 'temp_interviewer': '看板/面试计划',
-    'no_recruit': '侧边栏隐藏',
+    'admin': '全部', 'hr': '看板/需求/人才/面试/AI',
+    'director': '看板/需求', 'dept_head': '需求/人才/面试',
+    'employee': '需求管理', 'interviewer': '面试/人才',
+    'temp_interviewer': '面试', 'no_recruit': '无',
 }
 _ROLE_DATA_SCOPE = {
     'admin': '全量无隔离', 'hr': '全公司',
@@ -533,43 +619,30 @@ def update_channel(code, data):
 #  Notification templates
 # ════════════════════════════════════════════════════════════════════
 
-_NOTIFY_TEMPLATES = [
-    {'id': 1, 'name': '面试邀请通知', 'type': '面试', 'method': '飞书 + 短信', 'updated': '07-10',
-     'subject': '面试邀请 - {{position}}', 'body': '{{candidate}} 您好，诚邀您参加 {{position}} 的面试'},
-    {'id': 2, 'name': 'Offer 发送模板', 'type': 'Offer', 'method': '邮件', 'updated': '07-08',
-     'subject': 'Offer Letter - {{position}}', 'body': '恭喜您通过面试，正式 Offer 请查收附件'},
-    {'id': 3, 'name': '未通过通知', 'type': '淘汰', 'method': '短信', 'updated': '07-01',
-     'subject': '面试结果通知', 'body': '感谢您参加 {{position}} 面试，本次未能匹配'},
-    {'id': 4, 'name': '面试提醒（前一天）', 'type': '提醒', 'method': '飞书 + 短信', 'updated': '06-28',
-     'subject': '面试提醒', 'body': '明天 {{time}} 有 {{position}} 面试，请准时参加'},
-]
-
-
 def get_notify_templates():
-    """Return notification templates — DB first, mock fallback."""
+    """Return notification templates from DB."""
     try:
         from app.models.auxiliary import NotifyTemplate
         rows = NotifyTemplate.active().filter(NotifyTemplate.status == 1).order_by(
             NotifyTemplate.updated_at.desc()
         ).all()
-        if rows:
-            result = []
-            for t in rows:
-                result.append({
-                    'id': t.id,
-                    'name': t.template_name,
-                    'type': t.template_type,
-                    'method': t.send_method or '—',
-                    'subject': t.subject or '',
-                    'body': t.body or '',
-                    'updated': t.updated_at.strftime('%m-%d') if t.updated_at else '—',
-                })
-            return result
+        result = []
+        for t in rows:
+            result.append({
+                'id': t.id,
+                'name': t.template_name,
+                'type': t.template_type,
+                'method': t.send_method or '—',
+                'subject': t.subject or '',
+                'body': t.body or '',
+                'updated': t.updated_at.strftime('%m-%d') if t.updated_at else '—',
+            })
+        return result
     except Exception as exc:
         log.error("DB query failed in get_notify_templates: %s", exc, exc_info=True)
         if not _mock_enabled():
             raise
-    return _NOTIFY_TEMPLATES if _mock_enabled() else []
+        return []
 
 
 def create_notify_template(data):
@@ -599,7 +672,7 @@ def create_notify_template(data):
 def update_notify_template(template_id, data):
     """Update an existing notification template."""
     try:
-        from app.models.auxiliary import NotifyTemplate, AuditLog
+        from app.models.auxiliary import NotifyTemplate
         from app.extensions import db
 
         t = NotifyTemplate.active().filter_by(id=template_id).first()
@@ -624,22 +697,149 @@ def update_notify_template(template_id, data):
     return {'updated': True, 'id': int(template_id)}
 
 
+def delete_notify_template(template_id):
+    """Soft-delete an existing notification template."""
+    try:
+        from app.models.auxiliary import NotifyTemplate
+        from app.extensions import db
+
+        t = NotifyTemplate.active().filter_by(id=template_id).first()
+        if not t:
+            raise AppError('NOT_FOUND', f'模板不存在: {template_id}')
+
+        t.soft_delete()
+        t.status = 0
+        db.session.commit()
+        return {'deleted': True, 'id': int(template_id)}
+    except AppError:
+        raise
+    except Exception as exc:
+        log.error("DB delete failed in delete_notify_template: %s", exc, exc_info=True)
+        if not _mock_enabled():
+            raise
+    try:
+        numeric_id = int(template_id)
+    except (TypeError, ValueError):
+        numeric_id = template_id
+    return {'deleted': True, 'id': numeric_id}
+
+
 # ════════════════════════════════════════════════════════════════════
 #  Role permissions
 # ════════════════════════════════════════════════════════════════════
 
+# All available menu IDs in display order
+_ALL_MENU_IDS = ['recruit-dashboard', 'recruit-demand', 'recruit-talent',
+                 'recruit-interview', 'recruit-ai', 'recruit-config']
+_ALL_MENU_LABELS = {
+    'recruit-dashboard': '招聘看板', 'recruit-demand': '需求管理',
+    'recruit-talent': '人才库', 'recruit-interview': '面试计划',
+    'recruit-ai': '招聘辅助中心', 'recruit-config': '招聘基础配置',
+}
+
+# Default menus per role (fallback when DB is empty)
+_DEFAULT_ROLE_MENUS = {
+    'admin': ['recruit-dashboard', 'recruit-demand', 'recruit-talent',
+              'recruit-interview', 'recruit-ai', 'recruit-config'],
+    'hr': ['recruit-dashboard', 'recruit-demand', 'recruit-talent',
+           'recruit-interview', 'recruit-ai'],
+    'director': ['recruit-dashboard', 'recruit-demand'],
+    'dept_head': ['recruit-demand', 'recruit-talent', 'recruit-interview'],
+    'interviewer': ['recruit-interview', 'recruit-talent'],
+    'temp_interviewer': ['recruit-interview'],
+    'employee': ['recruit-demand'],
+    'no_recruit': [],
+}
+
+
+def _ensure_role_menu_table():
+    """Create the role_menu_permission table and seed defaults if empty."""
+    try:
+        from app.models.auxiliary import RoleMenuPermission
+        from app.extensions import db
+        RoleMenuPermission.__table__.create(bind=db.engine, checkfirst=True)
+        existing = RoleMenuPermission.query.filter_by(is_deleted=0).count()
+        if not existing:
+            for role_code, menu_ids in _DEFAULT_ROLE_MENUS.items():
+                for mid in menu_ids:
+                    db.session.add(RoleMenuPermission(
+                        role_code=role_code, menu_id=mid, enabled=1))
+            db.session.commit()
+            log.info("Seeded default role menu permissions")
+    except Exception as exc:
+        log.warning("ensure_role_menu_table failed: %s", exc)
+        try:
+            from app.extensions import db
+            db.session.rollback()
+        except Exception:
+            pass
+
+
+def get_role_menus_from_db(role_code):
+    """Return list of enabled menu IDs for a role, reading from DB.
+    Falls back to _DEFAULT_ROLE_MENUS if DB is empty.
+    """
+    _ensure_role_menu_table()
+    try:
+        from app.models.auxiliary import RoleMenuPermission
+        rows = RoleMenuPermission.query.filter_by(
+            role_code=role_code, enabled=1, is_deleted=0).all()
+        if rows:
+            return [r.menu_id for r in rows]
+    except Exception:
+        pass
+    return _DEFAULT_ROLE_MENUS.get(role_code, [])
+
+
 def get_role_permissions():
-    """Return role permission matrix from enums."""
-    return [
-        {
+    """Return role permission matrix — DB first, hardcoded fallback."""
+    roles_order = ['admin', 'hr', 'dept_head', 'employee', 'interviewer', 'no_recruit']
+    result = []
+    for rk in roles_order:
+        menu_ids = get_role_menus_from_db(rk)
+        if not menu_ids and rk in _DEFAULT_ROLE_MENUS:
+            menu_ids = _DEFAULT_ROLE_MENUS[rk]
+        menu_labels = [_ALL_MENU_LABELS.get(m, m) for m in menu_ids]
+        result.append({
+            'roleCode': rk,
             'role': _ROLE_LABELS.get(rk, rk),
             'badgeClass': _ROLE_BADGE_CLASS.get(rk, ''),
-            'menus': _ROLE_MENUS_MAP.get(rk, '—'),
+            'menus': '、'.join(menu_labels) if menu_labels else '侧边栏隐藏',
+            'menuIds': menu_ids,
+            'allMenuIds': _ALL_MENU_IDS,
+            'allMenuLabels': _ALL_MENU_LABELS,
             'dataScope': _ROLE_DATA_SCOPE.get(rk, '—'),
             'ops': _ROLE_OPS.get(rk, '—'),
-        }
-        for rk in ['admin', 'hr', 'dept_head', 'employee', 'interviewer', 'no_recruit']
-    ]
+        })
+    return result
+
+
+def update_role_permissions(data):
+    """Save role-menu permissions to DB. *data* is {role_code: [menu_id, ...], ...}.
+
+    Seeds defaults for any role not included in the payload.
+    """
+    from app.models.auxiliary import RoleMenuPermission
+    from app.extensions import db
+
+    saved = []
+    for role_code, menu_ids in data.items():
+        if role_code not in _DEFAULT_ROLE_MENUS:
+            continue
+        # Soft-delete existing entries for this role, then re-create
+        existing = RoleMenuPermission.query.filter_by(
+            role_code=role_code, is_deleted=0).all()
+        for row in existing:
+            row.is_deleted = 1
+
+        for mid in menu_ids:
+            db.session.add(RoleMenuPermission(
+                role_code=role_code, menu_id=mid, enabled=1))
+        saved.append(role_code)
+
+    db.session.commit()
+    log.info("Role permissions updated for: %s", ', '.join(saved))
+    return {'updated': True, 'roles': saved}
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -664,6 +864,15 @@ def get_audit_logs(limit=50):
 
 def append_audit_log(operator_name, module, action, detail=''):
     """Write a new audit log entry — DB first, silent fail on error."""
+    if operator_name == '系统':
+        try:
+            from flask import g
+            from app.services.name_resolver import resolve_user_name
+            uid = getattr(g, 'current_user_id', None)
+            if uid:
+                operator_name = resolve_user_name(uid)
+        except Exception:
+            pass
     try:
         from app.models.auxiliary import AuditLog
         from app.extensions import db

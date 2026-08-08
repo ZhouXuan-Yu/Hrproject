@@ -125,6 +125,7 @@ async function runMatch() {
 
   // 1) 流式匹配（useStreaming 内部捕获异常，不会 reject）
   await startMatchStream('match', { candidate_id: matchForm.candidateId, demand_id: matchForm.demandId });
+  if (matchStreamError.value) { matchError.value = matchStreamError.value; matchLoading.value = false; return; }
 
   // 2) 结构化字段缺失（流式解析失败）时，调用阻塞式 API 补齐
   const sr = matchStreamResult.value || {};

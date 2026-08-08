@@ -6,7 +6,6 @@
 
     <!-- 需求状态统计卡 -->
     <StatCardRow :cards="statCards" :active-key="filters.status" clickable @select="onStatSelect" />
-    <section class="hero-page-summary" style="display:none" aria-hidden="true"></section>
 
     <div class="permission-bar" style="margin-bottom:14px">
       <svg viewBox="0 0 24 24" style="width:14px;height:14px;vertical-align:-2px;stroke:var(--c-sub);fill:none;stroke-width:2;stroke-linecap:round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
@@ -24,7 +23,8 @@
     </div>
 
     <!-- Table -->
-    <div class="table-wrap">
+    <div class="table-wrap data-region">
+      <DataLoadingOverlay :visible="loading" />
       <table v-if="filteredDemands.length > 0">
         <thead><tr>
           <th>需求编号</th><th>岗位</th><th>部门</th><th>HC</th><th>紧急度</th><th>提交人</th>
@@ -45,7 +45,7 @@
               <div v-if="d.approvalNodes.length" class="approval-mini" style="margin-bottom:4px">
                 <template v-for="(node, ni) in d.approvalNodes" :key="ni">
                   <span class="am-node" :class="node.state" :title="node.opinion || ''">
-                    {{ node.label }}<template v-if="node.actor"> · {{ node.actor }}</template><template v-if="node.date">（{{ node.date }}）</template>
+                    {{ node.label }}<template v-if="node.actor"> · {{ node.actor }}</template>
                   </span>
                   <span v-if="ni < d.approvalNodes.length - 1" class="am-arrow">→</span>
                 </template>
@@ -63,16 +63,16 @@
             <td><StatusBadge :type="d.statusType">{{ d.statusLabel }}</StatusBadge></td>
             <td class="row-actions">
               <button class="btn btn-outline btn-sm" @click="goDetail(d)">查看详情</button>
-              <button v-if="d.status === 'approval'" class="btn btn-primary btn-sm" @click="approveDemand(d)">同意</button>
-              <button v-if="d.status === 'draft'" class="btn btn-outline btn-sm" @click="openEditModal(d)">编辑</button>
-              <button v-if="['draft', 'rejected', 'cancelled'].includes(d.status)" class="btn btn-ghost btn-sm" style="color:var(--c-reject,#d4380d)" @click="removeDemand(d)">删除</button>
-              <button class="btn btn-ghost btn-sm" @click="moreOps(d)">更多</button>
+              <button class="btn btn-outline btn-sm" :disabled="!canEdit(d)" @click="openEditModal(d)">编辑</button>
+              <button class="btn btn-ghost btn-sm" style="color:var(--c-reject,#d4380d)" @click="removeDemand(d)">删除</button>
+              <button class="btn btn-ghost btn-sm" @click="openMoreOps(d)">更多</button>
             </td>
           </tr>
         </tbody>
       </table>
+      <div v-if="loadError" class="error-banner">{{ loadError }}</div>
       <EmptyState
-        v-else
+        v-else-if="!loading"
         title="暂无匹配的需求"
         description="当前筛选条件下没有找到招聘需求，请调整筛选条件或新建需求"
         action-label="+ 新建需求"
@@ -98,15 +98,70 @@
             <div class="form-group"><label>薪资范围</label><input type="text" v-model="form.salary" placeholder="15K-25K"></div>
             <div class="form-group"><label>期望到岗</label><input type="date" v-model="form.date"></div>
           </div>
-          <div class="form-group"><label>岗位说明</label><textarea v-model="form.desc" style="width:100%;min-height:78px;padding:10px;border:1px solid var(--c-border);border-radius:6px;font-size:13px;box-sizing:border-box" placeholder="说明核心职责、必备技能和补充要求"></textarea></div>
+          <div class="form-group">
+            <div class="jd-label-row">
+              <label>岗位说明</label>
+              <button class="btn btn-outline btn-sm" @click="generateDemandJd" :disabled="jdLoading || !form.position || !form.dept">
+                {{ jdLoading ? '生成中...' : 'AI 生成岗位说明' }}
+              </button>
+            </div>
+            <textarea v-model="form.desc" style="width:100%;min-height:78px;padding:10px;border:1px solid var(--c-border);border-radius:6px;font-size:13px;box-sizing:border-box" placeholder="说明核心职责、必备技能和补充要求"></textarea>
+            <div v-if="jdLoading" class="jd-thinking">
+              <b>思考中</b><span>正在结合岗位、部门、薪资{{ form.salary }}等信息生成 JD 草稿...</span>
+            </div>
+            <div v-if="jdDraft" class="jd-preview-box">
+              <div class="jd-preview-head">
+                <b>AI 生成预览</b>
+                <div>
+                  <button class="btn btn-outline btn-sm" @click="jdEditMode = !jdEditMode">{{ jdEditMode ? '预览' : '编辑' }}</button>
+                  <button class="btn btn-primary btn-sm" @click="applyJdToDesc">写入岗位说明</button>
+                </div>
+              </div>
+              <textarea v-if="jdEditMode" v-model="jdDraft" class="jd-edit-area"></textarea>
+              <div v-else class="jd-markdown"><AiMarkdown :content="jdDraft" /></div>
+            </div>
+          </div>
           <div class="modal-actions">
-            <button class="btn btn-ghost btn-sm" @click="closeModal">取消</button>
-            <button class="btn btn-outline btn-sm" @click="saveDraft">保存草稿</button>
-            <button class="btn btn-primary btn-sm" @click="submitApproval">提交审批</button>
+            <button class="btn btn-ghost btn-sm" :disabled="submitting" @click="closeModal">取消</button>
+            <button class="btn btn-outline btn-sm" :disabled="submitting" @click="saveDraft">保存草稿</button>
+            <button class="btn btn-primary btn-sm" :disabled="submitting" @click="submitApproval">{{ submitting ? '提交中...' : '提交审批' }}</button>
           </div>
         </div>
       </div>
     </Teleport>
+
+    <Teleport to="body">
+      <div v-if="showMoreModal" class="modal-overlay open" @click.self="closeMoreOps">
+        <div class="modal-box" style="width:460px">
+          <h3>更多操作</h3>
+          <p style="font-size:13px;color:var(--c-sub);margin-top:-4px">
+            {{ moreDemand?.id }} · {{ moreDemand?.position }}
+          </p>
+          <div class="more-action-list">
+            <button class="more-action" :disabled="moreDemand?.status !== 'approval'" @click="approveDemandFromMore">
+              <b>审批通过</b><span>按当前登录身份审批当前节点，管理员会记录为代审批</span>
+            </button>
+            <button class="more-action" :disabled="moreDemand?.status !== 'approval'" @click="rejectDemandFromMore">
+              <b>驳回需求</b><span>退回本条需求，保留审批意见</span>
+            </button>
+            <button class="more-action" :disabled="moreDemand?.status !== 'open'" @click="closeDemandFromMore">
+              <b>关闭需求</b><span>用于招聘完成或停止招聘的岗位</span>
+            </button>
+            <button class="more-action" @click="deleteDemandFromMore">
+              <b>删除需求</b><span>仅草稿、驳回、取消且无进行中面试/Offer时可删</span>
+            </button>
+          </div>
+          <div class="modal-actions" style="margin-top:16px">
+            <button class="btn btn-ghost btn-sm" @click="closeMoreOps">关闭</button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+    <ConfirmDialog
+      v-bind="confirmDialog"
+      @confirm="onConfirmDialogConfirm"
+      @cancel="onConfirmDialogCancel"
+    />
   </WorkbenchLayout>
 </template>
 
@@ -114,37 +169,55 @@
 import { ref, reactive, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import WorkbenchLayout from '../layouts/WorkbenchLayout.vue';
-import { DEMANDS, getLinkedCount } from '../data/demand.js';
-import { HR_DEPARTMENTS } from '../composables/useMockData.js';
+import { fetchDepartments } from '../api/config.js';
 import { fetchDemands, createDemand, updateDemand, deleteDemand, submitForApproval, approveDemandApi, rejectDemandApi, fetchDemandDetail } from '../api/demand.js';
 import { api } from '../api/index.js';
 import { useToast } from '../composables/useToast.js';
 import { useAppError } from '../composables/useAppError.js';
+import { useConfirmDialog } from '../composables/useConfirmDialog.js';
 import StatCardRow from '../components/StatCardRow.vue';
 import EmptyState from '../components/EmptyState.vue';
+import DataLoadingOverlay from '../components/DataLoadingOverlay.vue';
+import ConfirmDialog from '../components/ConfirmDialog.vue';
+import AiMarkdown from '../components/ai/AiMarkdown.vue';
 import { KPI_ICONS } from '../components/kpiIcons.js';
+import { runJdGenerate } from '../api/ai.js';
 
 const router = useRouter();
 const { toast } = useToast();
 const { handleError } = useAppError();
+const { confirmDialog, askConfirm, onConfirmDialogConfirm, onConfirmDialogCancel } = useConfirmDialog();
 const apiDemands = ref(null);
-const demands = ref(DEMANDS.map(d => ({ ...d, linkedCount: getLinkedCount(d.id) })));
+const loading = ref(true);
+const loadError = ref('');
 
 async function loadFromApi() {
+  loading.value = true;
+  loadError.value = '';
   try {
     const res = await fetchDemands({ pageSize: 100 });
     apiDemands.value = res;
   } catch (e) {
-    console.warn('[RecruitDemand] API fetch failed, using mock data:', e);
+    loadError.value = e.message || '需求数据加载失败';
+    apiDemands.value = { data: [], total: 0 };
+    console.warn('[RecruitDemand] API fetch failed:', e);
+  } finally {
+    loading.value = false;
   }
 }
-const departments = HR_DEPARTMENTS;
+const departments = ref([]);
+async function loadDepartments() {
+  try {
+    const depts = await fetchDepartments();
+    departments.value = (depts || []).map(d => d.name || d);
+  } catch { departments.value = []; }
+}
 
 // Filters
 const filters = reactive({ search: '', status: 'all', urgency: 'all' });
 
 const filteredDemands = computed(() => {
-  const list = apiDemands.value?.data || demands.value;
+  const list = apiDemands.value?.data || [];
   return list.filter(d => {
     if (filters.status !== 'all' && d.status !== filters.status) return false;
     if (filters.urgency !== 'all' && d.urgency !== filters.urgency) return false;
@@ -163,14 +236,14 @@ const statusCounts = computed(() => {
   return counts;
 });
 
-const demandList = computed(() => apiDemands.value?.data || demands.value);
+const demandList = computed(() => apiDemands.value?.data || []);
 const statCards = computed(() => {
   const cnt = (st) => demandList.value.filter(d => d.status === st).length;
   return [
     { key: 'all', label: '全部需求', value: demandList.value.length, hint: '含各状态', icon: KPI_ICONS.fileText },
-    { key: 'open', label: '招聘中', value: cnt('open'), hint: '进展中', icon: KPI_ICONS.briefcase },
-    { key: 'approval', label: '待审批', value: cnt('approval'), hint: '审批流程中', icon: KPI_ICONS.clock },
-    { key: 'closed', label: '已关闭', value: cnt('closed'), hint: '本期完成', icon: KPI_ICONS.check },
+    { key: 'approval', label: '待审批', value: cnt('approval'), hint: '需及时处理', icon: KPI_ICONS.clock },
+    { key: 'open', label: '招聘中', value: cnt('open'), hint: '进行中', icon: KPI_ICONS.briefcase },
+    { key: 'draft', label: '草稿', value: cnt('draft'), hint: '待提交审批', icon: KPI_ICONS.edit },
   ];
 });
 function onStatSelect(c) { filters.status = c.key; applyFilters(); }
@@ -184,17 +257,65 @@ function resetFilters(){
 
 // Modal
 const showModal = ref(false);
+const showMoreModal = ref(false);
+const moreDemand = ref(null);
 const editingId = ref('');
-const form = reactive({ dept: '技术部', position: '', hc: 1, urgency: '普通', salary: '', date: '', desc: '' });
+const form = reactive({ dept: '', position: '', hc: 1, urgency: '普通', salary: '', date: '', desc: '' });
+const jdLoading = ref(false);
+const submitting = ref(false);
+const jdDraft = ref('');
+const jdEditMode = ref(false);
+
+function canEdit(d) {
+  return !!d && ['draft', 'rejected', 'open'].includes(d.status);
+}
+
+function canDelete(d) {
+  return !!d && ['draft', 'rejected', 'cancelled', 'open', 'closed'].includes(d.status);
+}
+
+function activeEngagementReason(d) {
+  if (!d) return '';
+  const parts = [];
+  if (Number(d.interviewing || 0) > 0) parts.push(`进行中的面试 ${d.interviewing} 个`);
+  if (Number(d.pendingOffer || d.offerPending || 0) > 0) parts.push(`待处理 Offer ${d.pendingOffer || d.offerPending} 个`);
+  return parts.join('，');
+}
+
+function replaceDemandInList(id, patch) {
+  if (!apiDemands.value?.data) return;
+  apiDemands.value = {
+    ...apiDemands.value,
+    data: apiDemands.value.data.map(item => item.id === id ? { ...item, ...patch } : item),
+  };
+}
+
+function removeDemandFromList(id) {
+  if (!apiDemands.value?.data) return;
+  apiDemands.value = {
+    ...apiDemands.value,
+    data: apiDemands.value.data.filter(item => item.id !== id),
+    total: Math.max(0, (apiDemands.value.total || apiDemands.value.data.length) - 1),
+  };
+}
 
 function openCreateModal(){
   editingId.value = '';
-  Object.assign(form, { dept: '技术部', position: '', hc: 1, urgency: '普通', salary: '', date: '', desc: '' });
+  const defaultDept = departments.value && departments.value[0] ? departments.value[0] : '';
+  Object.assign(form, { dept: defaultDept, position: '', hc: 1, urgency: '普通', salary: '', date: '', desc: '' });
+  jdDraft.value = '';
+  jdEditMode.value = false;
   showModal.value = true;
 }
 
 async function openEditModal(d){
+  if (!canEdit(d)) {
+    toast.info('该状态暂不允许编辑，请在更多操作中关闭或查看详情');
+    return;
+  }
   editingId.value = d.id;
+  jdDraft.value = '';
+  jdEditMode.value = false;
   Object.assign(form, { dept: d.dept, position: d.position, hc: d.hc, urgency: d.urgencyLabel || '普通', salary: d.salary || '', date: d.date || '', desc: d.desc || '' });
   showModal.value = true;
   // 回填完整字段（列表数据可能缺 salary/date/desc）
@@ -217,6 +338,46 @@ async function openEditModal(d){
 }
 
 function closeModal(){ showModal.value = false; }
+
+async function generateDemandJd() {
+  if (!form.position || !form.dept) {
+    toast.warning('请先填写岗位和部门');
+    return;
+  }
+  jdLoading.value = true;
+  try {
+    const result = await runJdGenerate({
+      position: form.position,
+      department: form.dept,
+      level: '高级',
+      salary: form.salary,
+      headcount: form.hc,
+      requirements: form.desc,
+      style: 'internal_approval',
+    });
+    jdDraft.value = result.jd_text || [
+      '## 岗位概述',
+      `${form.dept}拟招聘${form.position}，计划 HC ${form.hc} 人。`,
+      '',
+      '## 核心职责',
+      ...(result.responsibilities || []).map((x, i) => `${i + 1}. ${x}`),
+      '',
+      '## 任职要求',
+      ...((result.required_skills || []).map((s) => `- ${s.name || s}：${s.description || ''}`)),
+    ].join('\n');
+    jdEditMode.value = false;
+    toast.success('JD 草稿生成完成，请预览确认后写入');
+  } catch (e) {
+    handleError(e, 'RecruitDemand.generateDemandJd');
+  } finally {
+    jdLoading.value = false;
+  }
+}
+
+function applyJdToDesc() {
+  form.desc = jdDraft.value;
+  toast.success('已写入岗位说明，可继续人工修改');
+}
 
 function buildPayload(){
   return {
@@ -248,7 +409,9 @@ async function saveDraft(){
 }
 
 async function submitApproval(){
+  if (submitting.value) return;
   if (!form.position) { toast.warning('请填写岗位名称'); return; }
+  submitting.value = true;
   try {
     let id = editingId.value;
     if (id) {
@@ -264,12 +427,21 @@ async function submitApproval(){
     await loadFromApi(); // refresh list
   } catch (e) {
     handleError(e, 'RecruitDemand.submitApproval');
+  } finally {
+    submitting.value = false;
   }
   closeModal();
 }
 
 async function approveDemand(d) {
-  if (!confirm(`确认审批通过 "${d.id} ${d.position}"？`)) return;
+  const ok = await askConfirm({
+    title: '审批通过',
+    message: `确认审批通过「${d.id} ${d.position}」？`,
+    detail: '系统会按当前登录身份记录审批人；管理员代审批会在审批记录中备注管理员身份。',
+    type: 'warning',
+    confirmText: '通过审批',
+  });
+  if (!ok) return;
   // 找到当前待审批层级（state === 'current'），缺省退回第一个未完成节点
   const nodes = d.approvalNodes || [];
   let level = null;
@@ -292,43 +464,133 @@ async function approveDemand(d) {
   }
 }
 
-async function moreOps(d) {
-  const action = prompt(`需求 ${d.id} - 更多操作:\n1. 驳回\n2. 关闭\n3. 取消`, '');
-  if (!action) return;
-  try {
-    if (action === '驳回' || action === '1') {
-      // 与 approveDemand 一致：取当前待审批层级，避免对已处理层级驳回报"已处理"
-      const nodes = d.approvalNodes || [];
-      let level = null;
-      for (let i = 0; i < nodes.length; i++) {
-        if (nodes[i].state === 'current') { level = nodes[i].level || (i + 1); break; }
-      }
-      if (!level) {
-        for (let i = 0; i < nodes.length; i++) {
-          if (nodes[i].state !== 'done') { level = nodes[i].level || (i + 1); break; }
-        }
-      }
-      if (!level) { toast.warning('该需求没有待审批节点，无法驳回'); return; }
-      await rejectDemandApi(d.id, { level, opinion: '不合适' });
-      toast.info('已驳回：' + d.id);
-    } else if (action === '关闭' || action === '2') {
-      await api.post(`/demand/${d.id}/close`);
-      toast.info('已关闭：' + d.id);
-    } else {
-      toast.info('操作完成：' + d.id);
+function currentApprovalLevel(d) {
+  const nodes = d?.approvalNodes || [];
+  let level = null;
+  for (let i = 0; i < nodes.length; i++) {
+    if (nodes[i].state === 'current') { level = nodes[i].level || (i + 1); break; }
+  }
+  if (!level) {
+    for (let i = 0; i < nodes.length; i++) {
+      if (nodes[i].state !== 'done') { level = nodes[i].level || (i + 1); break; }
     }
+  }
+  return level;
+}
+
+function openMoreOps(d) {
+  moreDemand.value = d;
+  showMoreModal.value = true;
+}
+
+function closeMoreOps() {
+  showMoreModal.value = false;
+  moreDemand.value = null;
+}
+
+async function approveDemandFromMore() {
+  if (!moreDemand.value) return;
+  await approveDemand(moreDemand.value);
+  closeMoreOps();
+}
+
+async function rejectDemandFromMore() {
+  const d = moreDemand.value;
+  if (!d) return;
+  const level = currentApprovalLevel(d);
+  if (!level) { toast.warning('该需求没有待审批节点，无法驳回'); return; }
+  try {
+    await rejectDemandApi(d.id, { level, opinion: '不合适' });
+    toast.info('已驳回：' + d.id);
+    closeMoreOps();
     await loadFromApi();
-  } catch (e) { handleError(e, 'RecruitDemand.moreOps'); }
+  } catch (e) {
+    handleError(e, 'RecruitDemand.rejectDemandFromMore');
+  }
+}
+
+async function closeDemandFromMore() {
+  const d = moreDemand.value;
+  if (!d) return;
+  const reason = activeEngagementReason(d);
+  if (reason) {
+    await askConfirm({
+      title: '无法关闭需求',
+      message: `需求「${d.id} ${d.position}」存在进行中的面试或 Offer，无法关闭。`,
+      detail: `当前原因：${reason}。\n请先完成面试评价、撤回或处理 Offer 后再关闭需求。`,
+      type: 'warning',
+      confirmText: '我知道了',
+      showCancel: false,
+    });
+    return;
+  }
+  const ok = await askConfirm({
+    title: '关闭需求',
+    message: `确定关闭需求「${d.id} ${d.position}」吗？`,
+    detail: '关闭后该岗位不再继续招聘；已关联但未进入流程的候选人会释放回人才库。',
+    type: 'warning',
+    confirmText: '关闭需求',
+  });
+  if (!ok) return;
+  try {
+    await api.post(`/demand/${d.id}/close`);
+    toast.info('已关闭：' + d.id);
+    replaceDemandInList(d.id, {
+      status: 'closed',
+      statusLabel: '已关闭',
+      statusType: 'done',
+    });
+    closeMoreOps();
+  } catch (e) {
+    handleError(e, 'RecruitDemand.closeDemandFromMore');
+  }
+}
+
+async function deleteDemandFromMore() {
+  const d = moreDemand.value;
+  if (!d) return;
+  closeMoreOps();
+  await removeDemand(d);
 }
 
 function goDetail(d){ router.push({ path: '/recruit-demand-detail', query: { id: d.id } }); }
 
 async function removeDemand(d) {
-  if (!confirm(`确认删除需求 "${d.id} ${d.position}"？删除后不可恢复。`)) return;
+  if (!canDelete(d)) {
+    await askConfirm({
+      title: '无法删除需求',
+      message: `需求「${d.id} ${d.position}」当前状态不允许删除。`,
+      detail: '只有草稿、驳回、招聘中、已关闭或取消的需求可以进入删除校验。',
+      type: 'warning',
+      confirmText: '我知道了',
+      showCancel: false,
+    });
+    return;
+  }
+  const reason = activeEngagementReason(d);
+  if (reason) {
+    await askConfirm({
+      title: '无法删除需求',
+      message: `需求「${d.id} ${d.position}」存在进行中的面试或 Offer，无法删除。`,
+      detail: `当前原因：${reason}。\n请先完成面试评价、撤回或处理 Offer 后再删除。`,
+      type: 'warning',
+      confirmText: '我知道了',
+      showCancel: false,
+    });
+    return;
+  }
+  const ok = await askConfirm({
+    title: '删除需求',
+    message: `确认删除需求「${d.id} ${d.position}」？`,
+    detail: '删除后不可恢复；已关闭需求可以直接删除。',
+    type: 'danger',
+    confirmText: '删除',
+  });
+  if (!ok) return;
   try {
     await deleteDemand(d.id);
     toast.success('已删除：' + d.id);
-    await loadFromApi();
+    removeDemandFromList(d.id);
   } catch (e) {
     toast.error(e?.message || '删除失败');
     handleError(e, 'RecruitDemand.removeDemand');
@@ -336,13 +598,36 @@ async function removeDemand(d) {
 }
 
 onMounted(() => {
+  loadDepartments();
   loadFromApi();
 });
 </script>
 
 <style scoped>
 .row-actions { white-space: nowrap; }
+.data-region { position: relative; min-height: 220px; }
+.error-banner { margin: 16px 0; padding: 12px 16px; border-radius: 8px; background: #FEF2F2; color: #991B1B; border: 1px solid #FECACA; font-size: 13px; }
 .row-actions .btn { display: inline-flex; margin-right: 4px; }
 .position-link { font-weight: 600; color: var(--c-primary); text-decoration: none; }
 .linked-cnt { color: var(--c-primary); font-weight: 600; margin-left: 4px; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.more-action-list { display: grid; gap: 10px; margin-top: 14px; }
+.more-action {
+  width: 100%; text-align: left; border: 1px solid var(--c-border); border-radius: 8px;
+  background: var(--c-card); padding: 12px 14px; cursor: pointer; color: var(--c-text);
+}
+.more-action b { display: block; font-size: 14px; margin-bottom: 4px; }
+.more-action span { display: block; font-size: 12px; color: var(--c-sub); line-height: 1.5; }
+.more-action:hover:not(:disabled) { border-color: var(--c-primary); background: var(--c-primary-subtle); }
+.more-action:disabled { opacity: .45; cursor: not-allowed; }
+.jd-label-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+.jd-thinking { margin-top: 8px; padding: 10px 12px; border: 1px solid var(--c-border); border-radius: 8px; background: var(--c-bg); font-size: 12px; color: var(--c-sub); }
+.jd-thinking b { color: var(--c-text); margin-right: 8px; }
+.jd-thinking::before { content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 8px; border: 2px solid var(--c-border); border-top-color: var(--c-primary); border-radius: 50%; vertical-align: -2px; animation: spin .8s linear infinite; }
+.jd-preview-box { margin-top: 10px; padding: 12px; border: 1px solid var(--c-border); border-radius: 8px; background: var(--c-card); }
+.jd-preview-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.jd-preview-head > div { display: flex; gap: 8px; }
+.jd-edit-area { width: 100%; min-height: 180px; box-sizing: border-box; padding: 10px; border: 1px solid var(--c-border); border-radius: 6px; font-size: 13px; line-height: 1.7; }
+.jd-markdown { max-height: 220px; overflow: auto; padding: 10px; border-radius: 6px; background: var(--c-bg); font-size: 13px; line-height: 1.7; }
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>

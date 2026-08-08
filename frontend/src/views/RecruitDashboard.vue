@@ -1,259 +1,211 @@
 <template>
   <WorkbenchLayout title="招聘看板" :breadcrumb="{ text: '招聘管理', href: '/recruit-dashboard' }">
     <template #topbar-actions>
-      <span style="font-size:11px;color:var(--c-sub)">更新于 07-15 09:00</span>
-      <select id="timeRange" v-model="timeRange" @change="refreshDashboard">
-        <option value="month">本月</option><option value="week">本周</option><option value="today">今日</option>
+      <span style="font-size:11px;color:var(--c-sub)">数据更新于 {{ lastUpdate }}</span>
+      <select v-model="selectedYear" @change="onFilterChange" style="padding:5px 10px;border:1px solid var(--c-border);border-radius:6px;font-size:13px">
+        <option v-for="y in years" :key="y" :value="y">{{ y }}年</option>
       </select>
-      <select v-if="!isInterviewerRole" id="deptScope" v-model="deptScope" @change="refreshDashboard">
-        <option value="all">全公司</option>
+      <select v-model="selectedDept" @change="onFilterChange" style="padding:5px 10px;border:1px solid var(--c-border);border-radius:6px;font-size:13px">
+        <option value="">全部部门</option>
+        <option v-for="d in deptOptions" :key="d.id" :value="d.id">{{ d.name }}</option>
       </select>
-      <!-- Risk alert bell -->
-      <div style="position:relative">
-        <button class="bell-btn" @click="showAlerts = !showAlerts" id="alertBtn" title="风险预警">
-          <svg viewBox="0 0 24 24" style="width:18px;height:18px;stroke:var(--c-warn);fill:#FFF5E0;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-          <span class="badge">4</span>
-        </button>
-        <div id="alertDropdown" v-if="showAlerts" style="display:block;position:absolute;top:calc(100% + 6px);right:0;width:400px;background:var(--c-card);border:1px solid var(--c-border);border-radius:12px;padding:16px;box-shadow:0 8px 32px rgba(0,0,0,.12);z-index:100;font-size:13px">
-          <div style="font-weight:700;margin-bottom:10px;color:var(--c-text);font-size:14px">招聘风险预警</div>
-          <div v-for="(alert, i) in RISK_ALERTS_" :key="i" style="display:flex;align-items:center;justify-content:space-between;padding:7px 0">
-            <span><span class="alert-dot" :class="alert.type"></span> {{ alert.text }}</span>
-            <button class="btn btn-outline btn-sm" @click="navigateTo(alert.link)">{{ alert.action }}</button>
-          </div>
-        </div>
-      </div>
+      <select v-model="selectedPosition" @change="onFilterChange" style="padding:5px 10px;border:1px solid var(--c-border);border-radius:6px;font-size:13px">
+        <option value="">全部岗位</option>
+        <option v-for="p in positionOptions" :key="p.id" :value="p.id">{{ p.name }}</option>
+      </select>
     </template>
 
-    <!-- KPI row -->
-    <div class="metric-row dashboard-kpi-row" style="margin-bottom:20px">
-      <div v-for="(kpi, i) in kpis" :key="i" class="metric-card dashboard-kpi-card"
-        :style="{ '--kpi-accent': kpiAccent(i) }"
-        @mousemove="onKpiHover(i, $event)" @mouseleave="onKpiLeave(i)">
-        <div class="metric-icon dashboard-kpi-icon" v-html="resolveKpiIcon(kpi)"></div>
-        <div><div class="metric-value">{{ kpi.val }}</div><div class="metric-label">{{ kpi.label }}</div></div>
-        <div class="kpi-trend">{{ kpiTrend(i) }}</div>
+    <DataLoadingOverlay :visible="loading" />
+
+    <!-- KPI cards row -->
+    <div class="analytics-cards" v-if="!loading">
+      <div class="ana-card" v-for="(c, i) in summaryCards" :key="i" :style="{ '--card-accent': c.color }">
+        <div class="ana-card-val">{{ c.val }}</div>
+        <div class="ana-card-label">{{ c.label }}</div>
+        <div class="ana-card-sub" v-if="c.sub">{{ c.sub }}</div>
       </div>
     </div>
 
-    <!-- Funnel Hero Section (Three.js layered-glass scene) -->
-    <FunnelHero />
-
-    <!-- Department progress (collapsible) -->
-    <div class="card" style="margin-bottom:12px">
-      <div class="collapse-toggle" :class="{ open: deptOpen }" role="button" tabindex="0" :aria-expanded="deptOpen ? 'true' : 'false'" aria-controls="bodyDept" data-collapse-enhanced="true" @click="deptOpen = !deptOpen" @keydown.enter.space.prevent="deptOpen = !deptOpen">
-        <svg viewBox="0 0 24 24" style="width:16px;height:16px;fill:none;stroke:var(--c-body);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;transition:transform .2s;flex-shrink:0"><polyline points="9 18 15 12 9 6"/></svg>
-        <span class="card-title" style="margin-bottom:0">部门招聘进度</span>
-        <span class="collapse-summary">{{ deptSummary }}</span>
-      </div>
-      <div class="collapse-body" id="bodyDept" :class="{ show: deptOpen }">
-        <div v-for="(d, i) in DEPT_PROGRESS_" :key="i" class="progress-inline">
-          <span style="width:64px;font-weight:600">{{ d.dept }}</span>
-          <span style="width:40px;color:var(--c-sub);text-align:right">{{ d.hired }}/{{ d.total }}</span>
-          <template v-for="j in d.total" :key="j">
-            <span :class="j <= d.hired ? 'bar-filled' : 'bar-empty'" style="width:60px"></span>
-          </template>
-          <span :style="{fontWeight:'700', color: d.pct === 100 ? 'var(--c-done)' : (d.pct === 0 ? 'var(--c-sub)' : 'var(--c-primary)'), marginLeft:'8px'}">{{ d.pct }}%<template v-if="d.pct === 100"> ✓</template></span>
+    <!-- 4 bar charts — monthly trends (unique to dashboard, not on homepage) -->
+    <div class="chart-grid" v-if="!loading">
+      <div class="chart-card" v-for="(chart, ci) in chartData" :key="ci">
+        <div class="chart-title">{{ chart.title }}</div>
+        <svg :viewBox="'0 0 ' + chartW + ' ' + chartH" class="chart-svg" role="img" :aria-label="chart.title">
+          <line v-for="n in 5" :key="'g'+n" :x1="gridLeft" :y1="gridTop+(n-1)*yStep" :x2="gridRight" :y2="gridTop+(n-1)*yStep" stroke="#f0f2f7" stroke-width="1"/>
+          <text v-for="n in 5" :key="'yl'+n" :x="gridLeft-8" :y="gridTop+(n-1)*yStep+4" text-anchor="end" font-size="10" fill="#8C95A6">{{ yLabel(chart, n) }}</text>
+          <g v-for="(m, mi) in chart.months" :key="'bar'+mi">
+            <rect v-for="(bar, bi) in m.bars" :key="'b'+bi"
+              :x="barX(mi, bi, chart)" :y="barY(bar.val, chart)"
+              :width="barW(chart)" :height="Math.max(0, barH(bar.val, chart))"
+              :fill="bar.color" :opacity="barH(bar.val, chart) > 0 ? 1 : 0" rx="2">
+              <title>{{ bar.label }} {{ m.label }}: {{ bar.val }}</title>
+            </rect>
+          </g>
+          <text v-for="(m, mi) in chart.months" :key="'xl'+mi" :x="barCenter(mi, chart)" :y="chartH-6" text-anchor="middle" font-size="10" fill="#8C95A6">{{ m.label }}</text>
+        </svg>
+        <div class="chart-legend" v-if="chart.legend">
+          <span v-for="leg in chart.legend" :key="leg.label" class="legend-item">
+            <i :style="{ background: leg.color }"></i>{{ leg.label }}
+          </span>
         </div>
       </div>
     </div>
 
-    <!-- Channel effectiveness (collapsible) -->
-    <div class="card">
-      <div class="collapse-toggle" :class="{ open: channelOpen }" role="button" tabindex="0" :aria-expanded="channelOpen ? 'true' : 'false'" aria-controls="bodyChannel" data-collapse-enhanced="true" @click="channelOpen = !channelOpen" @keydown.enter.space.prevent="channelOpen = !channelOpen">
-        <svg viewBox="0 0 24 24" style="width:16px;height:16px;fill:none;stroke:var(--c-body);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;transition:transform .2s;flex-shrink:0"><polyline points="9 18 15 12 9 6"/></svg>
-        <span class="card-title" style="margin-bottom:0">渠道效果统计</span>
-        <span class="collapse-summary">{{ channelSummary }}</span>
-      </div>
-      <div class="collapse-body" id="bodyChannel" :class="{ show: channelOpen }">
-        <table><thead><tr><th>渠道</th><th>简历</th><th>通过</th><th>面试</th><th>录用</th><th>人均成本</th></tr></thead><tbody>
-          <tr v-for="(c, i) in CHANNEL_DATA_" :key="i">
-            <td>{{ c.channel }}</td>
-            <td class="numeric">{{ c.resume }}</td>
-            <td class="numeric">{{ c.pass }}</td>
-            <td class="numeric">{{ c.interview }}</td>
-            <td class="numeric">{{ c.hire }}</td>
-            <td class="numeric">{{ c.cost }}</td>
-          </tr>
-        </tbody></table>
-        <div class="table-count">共 {{ CHANNEL_DATA_.length }} 条渠道数据 · 上次更新 07-15 09:00</div>
-      </div>
+    <div v-if="!loading" class="table-count" style="margin-top:8px">
+      {{ selectedYear }}年 · 共 {{ summaryCards.length }} 项指标 · 数据更新于 {{ lastUpdate }}
     </div>
   </WorkbenchLayout>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { ref, computed, onMounted } from 'vue';
 import WorkbenchLayout from '../layouts/WorkbenchLayout.vue';
-import FunnelHero from '../components/FunnelHero.vue';
-import { KPI_SETS, DEPT_PROGRESS, CHANNEL_DATA, RISK_ALERTS } from '../data/dashboard.js';
-import { fetchKpi, fetchFunnel, fetchDeptProgress, fetchChannel, fetchRiskAlerts } from '../api/dashboard.js';
-import { resolveKpiIcon } from '../components/kpiIcons.js';
+import DataLoadingOverlay from '../components/DataLoadingOverlay.vue';
+import { fetchKpi, fetchMonthlyStats } from '../api/dashboard.js';
+import { fetchPositions } from '../api/auth.js';
 
-const router = useRouter();
-const timeRange = ref('month');
-const deptScope = ref('all');
-const showAlerts = ref(false);
-const deptOpen = ref(false);
-const channelOpen = ref(false);
-const kpiTransforms = ref({});
 const loading = ref(true);
 const loadError = ref('');
+const apiKpis = ref([]);
+const monthlyData = ref([]);
+const selectedYear = ref(new Date().getFullYear());
+const selectedDept = ref('');
+const selectedPosition = ref('');
+const years = [2024, 2025, 2026, 2027];
+const lastUpdate = ref('—');
+const deptOptions = ref([]);
+const positionOptions = ref([]);
 
-const role = localStorage.getItem('hr_role') || 'hr';
-const isInterviewerRole = role === 'interviewer' || role === 'temp_interviewer';
+// Chart layout
+const chartW = 520, chartH = 200;
+const gridLeft = 50, gridRight = 500, gridTop = 16, gridBottom = 170;
+const yStep = (gridBottom - gridTop) / 4;
+const barGroupW = (gridRight - gridLeft) / 12;
 
-// Reactive data from API (with mock fallback)
-const apiKpis = ref(null);
-const apiFunnel = ref(null);
-const apiDeptProgress = ref(null);
-const apiChannelData = ref(null);
-const apiRiskAlerts = ref(null);
+// KPI
+const KPI_COLORS = ['#4F6EF7', '#F59E0B', '#8B5CF6', '#06B6D4', '#22C55E'];
+const summaryCards = computed(() => {
+  const kpis = apiKpis.value || [];
+  return kpis.slice(0, 4).map((k, i) => ({
+    label: k.label || '—', val: k.val != null ? k.val : '—',
+    sub: k.trend || '', color: KPI_COLORS[i % KPI_COLORS.length],
+  }));
+});
 
-const kpis = computed(() => apiKpis.value || (role === 'admin' ? KPI_SETS.admin : role === 'interviewer' || role === 'temp_interviewer' ? KPI_SETS.interviewer : KPI_SETS.hr));
+// Bar charts from real monthly data
+const chartData = computed(() => {
+  const months = monthlyData.value || [];
+  if (!months.length) return [];
 
-const DEPT_PROGRESS_ = computed(() => apiDeptProgress.value || DEPT_PROGRESS);
-const CHANNEL_DATA_ = computed(() => apiChannelData.value || CHANNEL_DATA);
-const RISK_ALERTS_ = computed(() => apiRiskAlerts.value || RISK_ALERTS);
+  const maxResume = Math.max(...months.map(m => m.resumes || 0), 1);
+  const maxInterview = Math.max(...months.map(m => m.interviews || 0), 1);
+  const maxHire = Math.max(...months.map(m => m.hires || 0), 1);
 
-const deptSummary = computed(() => DEPT_PROGRESS_.value.map(d => d.dept + ' ' + d.hired + '/' + d.total).join(' · '));
-const channelSummary = computed(() => CHANNEL_DATA_.value.map(c => c.channel + ' ' + c.resume).join(' · '));
+  return [
+    {
+      title: '每月简历入库',
+      maxVal: maxResume + Math.ceil(maxResume * 0.2),
+      legend: [{ label: '简历', color: '#4F6EF7' }],
+      months: months.map(m => ({ label: m.label, bars: [{ val: m.resumes || 0, color: '#4F6EF7', label: '简历' }] })),
+    },
+    {
+      title: '每月面试场次',
+      maxVal: maxInterview + Math.ceil(maxInterview * 0.2),
+      legend: [{ label: '面试', color: '#F59E0B' }],
+      months: months.map(m => ({ label: m.label, bars: [{ val: m.interviews || 0, color: '#F59E0B', label: '面试' }] })),
+    },
+    {
+      title: '每月入职人数',
+      maxVal: maxHire + Math.ceil(maxHire * 0.2),
+      legend: [{ label: '入职', color: '#22C55E' }],
+      months: months.map(m => ({ label: m.label, bars: [{ val: m.hires || 0, color: '#22C55E', label: '入职' }] })),
+    },
+    {
+      title: '招聘漏斗对比（简历→面试→入职）',
+      maxVal: Math.max(maxResume, maxInterview, maxHire) + 2,
+      legend: [
+        { label: '简历', color: '#CBD5E1' },
+        { label: '面试', color: '#F59E0B' },
+        { label: '入职', color: '#22C55E' },
+      ],
+      months: months.map(m => ({
+        label: m.label,
+        bars: [
+          { val: m.resumes || 0, color: '#CBD5E1', label: '简历' },
+          { val: m.interviews || 0, color: '#F59E0B', label: '面试' },
+          { val: m.hires || 0, color: '#22C55E', label: '入职' },
+        ],
+      })),
+    },
+  ];
+});
 
-// -- KPI 3D Tilt --
-function kpiAccent(i) {
-  const colors = ['var(--c-primary)', 'var(--c-done)', 'var(--c-warn)', 'var(--c-reject)'];
-  return colors[i % colors.length];
-}
+// Chart helpers
+function yLabel(chart, n) { const max = chart.maxVal || 10; return Math.round(max - ((n-1)*max)/4); }
+function barX(mi, bi, chart) { const n = chart.months[0]?.bars?.length || 1; const each = (barGroupW-4)/n; return gridLeft + mi*barGroupW + 2 + bi*each + 1; }
+function barW(chart) { const n = chart.months[0]?.bars?.length || 1; return Math.max(2, (barGroupW-4)/n - 2); }
+function barY(val, chart) { const max = chart.maxVal || 1; return gridBottom - (val/max)*(gridBottom-gridTop); }
+function barH(val, chart) { const max = chart.maxVal || 1; return (val/max)*(gridBottom-gridTop); }
+function barCenter(mi, chart) { return gridLeft + mi*barGroupW + barGroupW/2; }
 
-function kpiTrend(i) {
-  const item = kpis.value[i];
-  return item?.trend || '—';
-}
-
-function onKpiHover(i, e) {
-  const el = e.currentTarget;
-  const rect = el.getBoundingClientRect();
-  const x = (e.clientX - rect.left) / rect.width - 0.5;
-  const y = (e.clientY - rect.top) / rect.height - 0.5;
-  kpiTransforms.value[i] = 'perspective(600px) rotateY(' + (x * 6) + 'deg) rotateX(' + (-y * 4) + 'deg) translateZ(8px)';
-  el.style.transform = kpiTransforms.value[i];
-  el.style.zIndex = '2';
-}
-
-function onKpiLeave(i) {
-  kpiTransforms.value[i] = '';
-  const el = document.querySelectorAll('.dashboard-kpi-card')[i];
-  if (el) { el.style.transform = ''; el.style.zIndex = ''; }
-}
-
-async function refreshDashboard() { await loadFromApi(); }
-
-async function loadFromApi() {
-  loading.value = true;
+async function refreshData() {
   loadError.value = '';
+  loading.value = true;
   try {
-    const [kpiData, funnelData, deptData, channelData, alertData] = await Promise.all([
-      fetchKpi(), fetchFunnel(), fetchDeptProgress(), fetchChannel(), fetchRiskAlerts()
+    const params = { year: selectedYear.value };
+    if (selectedDept.value) params.dept_id = selectedDept.value;
+    if (selectedPosition.value) params.position_id = selectedPosition.value;
+    const [kpiResult, monthlyResult] = await Promise.allSettled([
+      fetchKpi(params),
+      fetchMonthlyStats(params),
     ]);
-    if (kpiData && kpiData.length) apiKpis.value = kpiData;
-    if (funnelData && funnelData.stages) apiFunnel.value = funnelData;
-    if (deptData && deptData.length) apiDeptProgress.value = deptData;
-    if (channelData && channelData.length) apiChannelData.value = channelData;
-    if (alertData && alertData.length) apiRiskAlerts.value = alertData;
+    apiKpis.value = kpiResult.status === 'fulfilled' ? (Array.isArray(kpiResult.value) ? kpiResult.value : []) : [];
+    if (monthlyResult.status === 'fulfilled') {
+      monthlyData.value = monthlyResult.value?.months || monthlyResult.value?.data?.months || [];
+    }
   } catch (e) {
-    loadError.value = e.message;
-    console.warn('API fetch fallback to mock:', e.message);
-  } finally {
-    loading.value = false;
+    loadError.value = '数据加载失败';
+    console.warn('[Dashboard] fetch failed:', e);
   }
+  lastUpdate.value = new Date().toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' });
+  loading.value = false;
 }
 
-function navigateTo(path) {
-  showAlerts.value = false;
-  router.push(path);
+function onFilterChange() {
+  refreshData();
 }
 
-function onDocClick(e) {
-  const btn = document.getElementById('alertBtn'), dd = document.getElementById('alertDropdown');
-  if (showAlerts.value && dd && btn && !btn.contains(e.target) && !dd.contains(e.target)) showAlerts.value = false;
+async function loadFilterOptions() {
+  try {
+    const { fetchDepartments } = await import('../api/config.js');
+    deptOptions.value = Array.isArray(await fetchDepartments()) ? await fetchDepartments() : [];
+  } catch { deptOptions.value = []; }
+  try {
+    positionOptions.value = Array.isArray(await fetchPositions()) ? await fetchPositions() : [];
+  } catch { positionOptions.value = []; }
 }
 
 onMounted(() => {
-  document.addEventListener('click', onDocClick);
-  loadFromApi();
+  loadFilterOptions();
+  refreshData();
 });
-
-onUnmounted(() => document.removeEventListener('click', onDocClick));
 </script>
 
 <style scoped>
-.bell-btn {
-  position: relative; width: 34px; height: 34px; border-radius: 50%;
-  border: 1px solid var(--c-border); background: var(--c-card); cursor: pointer;
-  display: flex; align-items: center; justify-content: center; transition: all .2s;
-}
-.bell-btn:hover { background: #FFF5F5; border-color: var(--c-warn); }
-.bell-btn .badge {
-  position: absolute; top: -5px; right: -5px; min-width: 18px; height: 18px;
-  border-radius: 9px; background: var(--c-reject); color: #fff;
-  font-size: 10px; line-height: 18px; text-align: center; font-weight: 700; padding: 0 5px;
-}
-@keyframes ring { 0%,100%{transform:rotate(0)} 10%{transform:rotate(12deg)} 20%{transform:rotate(-12deg)} 30%{transform:rotate(8deg)} 40%{transform:rotate(-8deg)} 50%{transform:rotate(0)} }
-.bell-btn:hover :deep(svg) { animation: ring .6s ease-in-out; }
-.collapse-toggle { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; padding: 2px 0; }
-.collapse-toggle.open :deep(svg) { transform: rotate(90deg); }
-.collapse-body { display: none; margin-top: 12px; }
-.collapse-body.show { display: block; }
-.collapse-summary { font-size: 12px; color: var(--c-sub); margin-left: 8px; font-weight: 400; }
-.alert-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
-.alert-dot.reject { background: var(--c-reject); }
-.alert-dot.warn { background: var(--c-warn); }
-.alert-dot.done { background: var(--c-done); }
-
-/* ===== Dashboard 3D Professional ===== */
-
-/* KPI cards — 3D tilt on hover */
-.dashboard-kpi-row {
-  perspective: 800px;
-}
-.dashboard-kpi-card {
-  position: relative;
-  transition: transform .25s ease, box-shadow .25s ease;
-  cursor: default;
-  overflow: hidden;
-}
-.dashboard-kpi-card::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 3px;
-  background: var(--kpi-accent);
-  opacity: 0;
-  transition: opacity .2s;
-}
-.dashboard-kpi-card:hover::before { opacity: 1; }
-.dashboard-kpi-card:hover {
-  box-shadow: 0 12px 32px rgba(23,32,51,.1);
-}
-.dashboard-kpi-icon {
-  transition: transform .2s ease;
-}
-.dashboard-kpi-card:hover .dashboard-kpi-icon {
-  transform: scale(1.1);
-}
-.kpi-trend {
-  position: absolute;
-  top: 12px; right: 14px;
-  font-size: 10px;
-  color: var(--c-sub);
-  font-weight: 600;
-  opacity: 0;
-  transition: opacity .2s;
-}
-.dashboard-kpi-card:hover .kpi-trend { opacity: 1; }
-
-/* — Reduced motion — */
-@media (prefers-reduced-motion: reduce) {
-  .dashboard-kpi-card { transition: none !important; transform: none !important; }
-}
+.analytics-cards { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:20px; perspective:800px; }
+.ana-card { background:var(--c-card,#fff); border:1px solid var(--c-border,#E1E6EF); border-radius:10px; padding:16px; position:relative; overflow:hidden; transition:transform .25s,box-shadow .25s; }
+.ana-card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; background:var(--card-accent); }
+.ana-card:hover { box-shadow:0 12px 32px rgba(23,32,51,.1); }
+.ana-card-val { font-size:22px; font-weight:700; color:var(--c-text,#172033); font-variant-numeric:tabular-nums; }
+.ana-card-label { font-size:13px; color:var(--c-sub,#5B6475); margin-top:2px; }
+.ana-card-sub { font-size:11px; color:var(--c-muted,#8C95A6); margin-top:2px; }
+.chart-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:16px; }
+.chart-card { background:var(--c-card,#fff); border:1px solid var(--c-border,#E1E6EF); border-radius:10px; padding:16px; }
+.chart-title { font-size:14px; font-weight:600; color:var(--c-text,#172033); margin-bottom:8px; }
+.chart-svg { width:100%; height:auto; }
+.chart-legend { display:flex; gap:16px; margin-top:6px; font-size:12px; color:var(--c-sub,#5B6475); }
+.legend-item { display:flex; align-items:center; gap:5px; }
+.legend-item i { display:inline-block; width:10px; height:10px; border-radius:2px; }
+.table-count { font-size:12px; color:var(--c-muted,#8C95A6); }
+@media (max-width:768px) { .analytics-cards{grid-template-columns:repeat(2,1fr)} .chart-grid{grid-template-columns:1fr} }
 </style>

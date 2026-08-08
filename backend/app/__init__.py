@@ -16,19 +16,7 @@ def create_app(config_name=None):
     db.init_app(app)
     migrate.init_app(app, db)
     ma.init_app(app)
-    cors.init_app(app, origins=app.config.get('CORS_ORIGINS', '*'))
-
-    # SQLite: 开启 WAL，允许读写在 Web 进程与 Celery 任务间并发
-    if app.config['SQLALCHEMY_DATABASE_URI'].startswith('sqlite'):
-        with app.app_context():
-            from sqlalchemy import event
-
-            @event.listens_for(db.engine, 'connect')
-            def _sqlite_wal(dbapi_conn, _record):
-                cur = dbapi_conn.cursor()
-                cur.execute('PRAGMA journal_mode=WAL')
-                cur.execute('PRAGMA busy_timeout=30000')
-                cur.close()
+    cors.init_app(app, origins=app.config.get('CORS_ORIGINS', 'http://127.0.0.1:7100'))
 
     # Register blueprints
     from app.api import register_blueprints
@@ -42,10 +30,50 @@ def create_app(config_name=None):
     from app.api.errors import errors_bp
     app.register_blueprint(errors_bp)
 
-    # Health check
+    # Health check — includes dependency status for production monitoring
     @app.route('/api/v1/health')
     def health():
-        return {'status': 'ok', 'version': '0.1.0'}
+        import time
+        components = {}
+
+        # DB check
+        try:
+            from app.extensions import db
+            db.session.execute(db.text('SELECT 1'))
+            components['database'] = 'ok'
+        except Exception:
+            components['database'] = {'status': 'error', 'message': '数据库连接异常'}
+
+        # Redis check
+        try:
+            from app.services.cache_service import cache_status
+            cs = cache_status()
+            components['redis'] = 'ok' if cs.get('connected') else 'unreachable'
+        except Exception:
+            components['redis'] = {'status': 'error', 'message': 'Redis 连接异常'}
+
+        # DeepSeek check (non-blocking — just reports configured/not)
+        try:
+            from flask import current_app
+            key = current_app.config.get('DEEPSEEK_API_KEY', '')
+            if key:
+                components['deepseek'] = 'configured'
+            else:
+                components['deepseek'] = 'unconfigured'
+        except Exception:
+            components['deepseek'] = 'unknown'
+
+        all_ok = all(
+            v == 'ok' or v == 'configured' or v == 'unconfigured' or v == 'unknown'
+            if isinstance(v, str) else False
+            for v in components.values()
+        )
+
+        return {
+            'status': 'ok' if all_ok else 'degraded',
+            'version': '0.2.0',
+            'components': components,
+        }
 
     # Request ID injection
     @app.before_request

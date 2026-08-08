@@ -8,7 +8,9 @@ Token 为 JWT（purpose=candidate-confirm），无需候选人登录。
 """
 import logging
 import os
-from datetime import datetime, timedelta
+import html as html_utils
+import re
+from datetime import datetime, timedelta, timezone
 
 import jwt
 
@@ -31,8 +33,8 @@ def generate_confirm_token(kind, ref, ttl_hours=None):
         'purpose': _TOKEN_PURPOSE,
         'kind': kind,
         'ref': str(ref),
-        'exp': datetime.utcnow() + timedelta(hours=ttl),
-        'iat': datetime.utcnow(),
+        'exp': datetime.now(timezone.utc) + timedelta(hours=ttl),
+        'iat': datetime.now(timezone.utc),
     }
     return jwt.encode(payload, current_app.config['JWT_SECRET_KEY'], algorithm='HS256')
 
@@ -56,6 +58,13 @@ def verify_confirm_token(token):
 def build_confirm_url(token):
     base = os.environ.get('PUBLIC_BASE_URL', 'http://127.0.0.1:5000').rstrip('/')
     return f'{base}/confirm/{token}'
+
+
+def _public_url_notice():
+    base = os.environ.get('PUBLIC_BASE_URL', 'http://127.0.0.1:5000')
+    if '127.0.0.1' in base or 'localhost' in base:
+        return '<p style="color:#b45309;font-size:12px">当前系统未配置公网地址，此确认链接仅可在部署服务器本机或内网测试访问。</p>'
+    return ''
 
 
 # ===========================================================================
@@ -97,6 +106,99 @@ def _position_label(demand_id):
     if not d:
         return '招聘岗位'
     return f'岗位 {d.demand_no}' + (f'（{d.work_city}）' if d.work_city else '')
+
+
+def _template_matches(template, kind):
+    text = ' '.join([
+        str(getattr(template, 'template_type', '') or ''),
+        str(getattr(template, 'template_name', '') or ''),
+        str(getattr(template, 'subject', '') or ''),
+    ]).lower()
+    keywords = {
+        'interview': ('interview', 'invite', '面试', '邀请'),
+        'offer': ('offer', '录用', '入职'),
+        'reject': ('reject', 'fail', '未通过', '不通过', '婉拒', '淘汰', '结果'),
+        'remind': ('remind', '提醒'),
+    }
+    return any(key in text for key in keywords.get(kind, (kind,)))
+
+
+def _render_text(template_text, context):
+    rendered = template_text or ''
+    aliases = {
+        'candidate': ('candidate', 'name', '候选人', '候选人姓名'),
+        'company': ('company', '公司'),
+        'position': ('position', '岗位', '应聘岗位'),
+        'time': ('time', '时间', '面试时间'),
+        'method': ('method', '方式', '面试方式'),
+        'round': ('round', '轮次', '面试轮次'),
+        'meeting_url': (
+            'meeting_url', 'meetingUrl', 'meetingURL', 'meeting_link',
+            'meetingLink', '会议链接', '面试链接', '视频链接',
+        ),
+        'address': ('address', '地点', '面试地点'),
+        'hr': ('hr', 'HR', 'hr'),
+        'confirm_url': ('confirm_url', 'url', '链接', '确认链接'),
+        'comment': ('comment', '评价', '原因'),
+    }
+    for key, names in aliases.items():
+        value = str(context.get(key, '') or '')
+        for name in names:
+            rendered = rendered.replace('{{' + name + '}}', value)
+            rendered = rendered.replace('{' + name + '}', value)
+    return rendered
+
+
+def _plain_text_to_html(text):
+    escaped = html_utils.escape(text or '')
+    return '<br>'.join(escaped.splitlines())
+
+
+def _render_notify_template(kind, default_subject, default_html, context):
+    """Render DB notification template when configured, otherwise use default."""
+    try:
+        from app.models.auxiliary import NotifyTemplate
+        templates = NotifyTemplate.active().filter(NotifyTemplate.status == 1).order_by(
+            NotifyTemplate.updated_at.desc()
+        ).all()
+        template = next((t for t in templates if _template_matches(t, kind)), None)
+        if not template:
+            return default_subject, default_html
+
+        subject = _render_text(template.subject or default_subject, context)
+        body = _render_text(template.body or '', context)
+        if not body:
+            return subject, default_html
+        if not re.search(r'<[a-zA-Z][\s\S]*?>', body):
+            body = _plain_text_to_html(body)
+        confirm_url = context.get('confirm_url')
+        if kind in ('interview', 'offer') and confirm_url and str(confirm_url) not in body:
+            label = '确认面试安排' if kind == 'interview' else '查看并确认 Offer'
+            safe_url = html_utils.escape(str(confirm_url), quote=True)
+            body += f"""
+            <p style="text-align:center;margin:24px 0">
+              <a href="{safe_url}" style="background:#4F6EF7;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold">{label}</a>
+            </p>"""
+        html = f"""
+        <div style="font-family:sans-serif;max-width:560px;margin:auto;color:#333;line-height:1.7">
+          {body}
+        </div>"""
+        return subject, html
+    except Exception as exc:
+        log.warning("Render notify template failed: %s", exc)
+        return default_subject, default_html
+
+
+def _mail_position_label(demand_id):
+    try:
+        from app.models.demand import RecruitDemand
+        d = RecruitDemand.query.filter_by(id=demand_id, is_deleted=0).first()
+        if d and getattr(d, 'position_name', None):
+            city = f'（{d.work_city}）' if getattr(d, 'work_city', None) else ''
+            return f'{d.position_name}{city}'
+    except Exception:
+        pass
+    return _position_label(demand_id)
 
 
 # ===========================================================================
@@ -237,7 +339,7 @@ def send_interview_invite_email(book):
     type_labels = {1: '飞书视频', 2: '腾讯会议', 3: '线上视频', 4: '线下面试'}
     time_str = book.book_time.strftime('%Y年%m月%d日 %H:%M') if book.book_time else '待协商'
     method = type_labels.get(book.interview_type, '线上面试')
-    position = _position_label(book.demand_id)
+    position = _mail_position_label(book.demand_id)
 
     html = f"""
     <div style="font-family:sans-serif;max-width:560px;margin:auto;color:#333">
@@ -255,9 +357,26 @@ def send_interview_invite_email(book):
         <a href="{url}" style="background:#4F6EF7;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold">确认面试安排</a>
       </p>
       <p style="color:#999;font-size:12px">如按钮无法点击，请复制链接到浏览器打开：{url}</p>
+      {_public_url_notice()}
     </div>"""
 
-    ok, msg = send_mail(email, f'【面试邀请】{position} - {time_str}', html,
+    default_subject = f'【面试邀请】{position} - {time_str}'
+    context = {
+        'candidate': name or '候选人',
+        'company': os.environ.get('COMPANY_NAME', 'XX公司'),
+        'position': position,
+        'time': time_str,
+        'method': method,
+        'round': f'第{book.interview_round or 1}轮面试',
+        'meeting_url': book.meeting_url or '',
+        'meetingUrl': book.meeting_url or '',
+        'address': book.address or '',
+        'confirm_url': url,
+        'hr': os.environ.get('HR_DISPLAY_NAME', 'HR'),
+    }
+    subject, html = _render_notify_template('interview', default_subject, html, context)
+
+    ok, msg = send_mail(email, subject, html,
                         account_id=_sender_account_id(book.resume_id), mail_type='invite')
     _record_invite_sent(book, ok, msg, email)
     return ok, msg
@@ -273,7 +392,7 @@ def send_offer_email(offer):
 
     token = generate_confirm_token('offer', offer.offer_no)
     url = build_confirm_url(token)
-    position = _position_label(offer.demand_id)
+    position = _mail_position_label(offer.demand_id)
     deadline = offer.valid_deadline.strftime('%Y年%m月%d日') if offer.valid_deadline else '—'
     content_html = (offer.offer_content or '').replace('\n', '<br>')
 
@@ -288,10 +407,55 @@ def send_offer_email(offer):
         <a href="{url}" style="background:#22a06b;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold">查看并确认 Offer</a>
       </p>
       <p style="color:#999;font-size:12px">如按钮无法点击，请复制链接到浏览器打开：{url}</p>
+      {_public_url_notice()}
     </div>"""
 
-    return send_mail(email, f'【录用通知】{position} Offer', html,
+    default_subject = f'【录用通知】{position} Offer'
+    context = {
+        'candidate': name or '候选人',
+        'company': os.environ.get('COMPANY_NAME', 'XX公司'),
+        'position': position,
+        'time': deadline,
+        'method': '邮件',
+        'confirm_url': url,
+        'hr': os.environ.get('HR_DISPLAY_NAME', 'HR'),
+    }
+    subject, html = _render_notify_template('offer', default_subject, html, context)
+
+    return send_mail(email, subject, html,
                      account_id=_sender_account_id(offer.resume_id), mail_type='offer')
+
+
+def send_interview_reject_email(book, comment=''):
+    """Send interview rejection email after a failed evaluation."""
+    from app.services.mail_sender import send_mail
+
+    name, email, _ = _candidate_contact(book.resume_id)
+    if not email:
+        return False, '候选人无邮箱，跳过面试结果通知'
+
+    position = _mail_position_label(book.demand_id)
+    html = f"""
+    <div style="font-family:sans-serif;max-width:560px;margin:auto;color:#333;line-height:1.7">
+      <h2 style="color:#4F6EF7">面试结果通知</h2>
+      <p>{name or '候选人'} 您好：</p>
+      <p>感谢您参加 <b>{position}</b> 的面试。很遗憾，本次面试暂未通过。</p>
+      <p>感谢您对我们的关注与投入，后续如有更匹配的机会，我们也会再次联系您。</p>
+    </div>"""
+    default_subject = f'【面试结果通知】{position}'
+    context = {
+        'candidate': name or '候选人',
+        'company': os.environ.get('COMPANY_NAME', 'XX公司'),
+        'position': position,
+        'time': book.book_time.strftime('%Y-%m-%d %H:%M') if book.book_time else '',
+        'method': '邮件',
+        'round': f'第{book.interview_round or 1}轮面试',
+        'comment': comment,
+        'hr': os.environ.get('HR_DISPLAY_NAME', 'HR'),
+    }
+    subject, html = _render_notify_template('reject', default_subject, html, context)
+    return send_mail(email, subject, html,
+                     account_id=_sender_account_id(book.resume_id), mail_type='reject')
 
 
 def send_offer_reminder_email(offer, days_left, deadline):

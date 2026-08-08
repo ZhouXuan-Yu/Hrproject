@@ -24,7 +24,7 @@ def confirm_page(token):
         payload = verify_confirm_token(token)
         data = get_confirm_page_data(payload)
     except AppError as exc:
-        return _render_error(exc.message), 200
+        return _render_error(exc.message), 400
     return _render_page(token, data)
 
 

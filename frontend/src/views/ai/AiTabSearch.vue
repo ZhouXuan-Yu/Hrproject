@@ -94,7 +94,7 @@ async function searchResume() {
   catch (e) { searchError.value = e.message || '搜索失败，请重试'; showToast(searchError.value); }
   finally { searchProcFinish(); searchLoading.value = false; }
 }
-function viewResume(id) { showToast('查看简历: ' + id); }
+function viewResume(id) { showToast('查看简历: ' + id + ' — 请前往人才库页面搜索查看'); }
 </script>
 
 <style scoped>

@@ -47,18 +47,37 @@ def stream_jd_generate():
     position = body.get("position", "")
     department = body.get("department", "")
     level = body.get("level", "")
+    salary = body.get("salary", "")
+    workCity = body.get("workCity", "")
+    eduMin = body.get("eduMin", "")
+    expMin = body.get("expMin", "")
+    headcount = body.get("headcount", 1)
     requirements = body.get("requirements", "")
     style = body.get("style", "standard")
 
     if not position or not department:
         return _stream_response(_stream_error("请提供岗位名称和部门"))
 
+    # Load company knowledge context
+    knowledge_context = {}
+    try:
+        from app.services.config_service import get_ai_knowledge_context
+        knowledge_context = get_ai_knowledge_context()
+    except Exception:
+        pass
+
     user_input = json.dumps({
         "position": position,
         "department": department,
         "level": level,
+        "salary": salary,
+        "workCity": workCity,
+        "eduMin": eduMin,
+        "expMin": expMin,
+        "headcount": headcount,
         "requirements": requirements,
         "style": style,
+        "knowledge_base": knowledge_context,
     }, ensure_ascii=False)
 
     messages = [
