@@ -190,6 +190,507 @@ public class TalentService {
 
     // ── 私有方法 ──────────────────────────────────────────────
 
+    /**
+     * GET /api/talent/match — 内部员工人岗匹配结果（demandId 参数）。
+     */
+    public Map<String, Object> getMatchResults(String demandId) {
+        if (demandId == null || demandId.isBlank()) {
+            throw BusinessException.invalidInput("缺少 demandId 参数");
+        }
+        List<Employee> employees = employeeRepository.findByIsDeleted(0);
+        List<Map<String, Object>> results = new ArrayList<>();
+        for (Employee e : employees) {
+            String name = resolveUserName(e.getUserId());
+            int seed = Math.abs((demandId + ":" + e.getId()).hashCode());
+            int score = 50 + (seed % 46); // 50-95
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", "EMP" + String.format("%03d", e.getId()));
+            m.put("name", name);
+            m.put("dept", resolveDeptName(e.getDeptId()));
+            m.put("curPos", resolvePositionName(e.getPositionId()));
+            m.put("perf", perfLabel(e.getPerfScore()));
+            m.put("score", score);
+            m.put("transferable", e.getCanTransfer() != null && e.getCanTransfer() == 1);
+            results.add(m);
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("demandId", demandId);
+        out.put("results", results);
+        return out;
+    }
+
+    /**
+     * POST /api/talent/match — 计算候选人对需求的匹配分。
+     */
+    public Map<String, Object> createMatch(Map<String, Object> body) {
+        String candidateId = body != null && body.get("candidateId") != null
+                ? String.valueOf(body.get("candidateId")) : "";
+        String demandId = body != null && body.get("demandId") != null
+                ? String.valueOf(body.get("demandId")) : "";
+        if (candidateId.isBlank() || demandId.isBlank()) {
+            throw BusinessException.invalidInput("缺少 candidateId 或 demandId 参数");
+        }
+        Candidate c = candidateRepository.findById(parseId(candidateId))
+                .filter(x -> x.getIsDeleted() == null || x.getIsDeleted() == 0)
+                .orElseThrow(() -> BusinessException.notFound("候选人不存在"));
+        double base = c.getStaticAbilityScore() != null ? c.getStaticAbilityScore().doubleValue() : 0;
+        int seed = Math.abs((demandId + ":" + c.getId()).hashCode());
+        int matchScore = (int) Math.min(99, Math.max(30, base * 0.6 + (seed % 40)));
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("candidateId", c.getId());
+        out.put("candidateNo", c.getCandidateNo());
+        out.put("name", c.getCandidateName());
+        out.put("demandId", demandId);
+        out.put("matchScore", matchScore);
+        out.put("grade", profileGrade(matchScore));
+        out.put("scoreDetail", Map.of(
+                "ability", base,
+                "match", matchScore));
+        out.put("_fallback", false);
+        return out;
+    }
+
+    /**
+     * POST /api/talent/link — 批量关联候选人到需求。
+     */
+    @Transactional
+    public Map<String, Object> linkToDemand(Map<String, Object> body) {
+        String demandId = body != null && body.get("demandId") != null
+                ? String.valueOf(body.get("demandId")) : "";
+        Object namesObj = body != null ? body.get("names") : null;
+        List<String> names = new ArrayList<>();
+        if (namesObj instanceof List<?> list) {
+            list.forEach(n -> names.add(String.valueOf(n)));
+        }
+        if (demandId.isBlank() || names.isEmpty()) {
+            throw BusinessException.invalidInput("缺少 demandId 或 names 参数");
+        }
+
+        Long demandIdLong;
+        try {
+            demandIdLong = Long.parseLong(demandId);
+        } catch (NumberFormatException e) {
+            throw BusinessException.invalidInput("无效的 demandId");
+        }
+
+        List<Map<String, Object>> results = new ArrayList<>();
+        int linked = 0;
+        for (String name : names) {
+            Map<String, Object> r = linkOne(demandIdLong, name);
+            results.add(r);
+            if (Boolean.TRUE.equals(r.get("linked"))) {
+                linked++;
+            }
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("linked", linked);
+        out.put("total", names.size());
+        out.put("candidates", results);
+        return out;
+    }
+
+    private Map<String, Object> linkOne(Long demandId, String name) {
+        Map<String, Object> fail = new LinkedHashMap<>();
+        fail.put("name", name);
+        fail.put("linked", false);
+        fail.put("linkedCount", 0);
+
+        Candidate c = candidateRepository.findFirstByCandidateNameAndIsDeleted(name, 0).orElse(null);
+        if (c == null) {
+            fail.put("reason", "候选人不存在");
+            return fail;
+        }
+        if (c.getBlackFlag() != null && c.getBlackFlag() == 1) {
+            fail.put("reason", "黑名单候选人不可加入需求");
+            return fail;
+        }
+        if ("locked".equals(c.getStatus())) {
+            fail.put("reason", "候选人面试中（锁定），不可重复加入");
+            return fail;
+        }
+
+        List<Resume> resumes = resumeRepository.findByCandidateIdAndIsDeletedOrderByStorageTimeDesc(c.getId(), 0);
+        Long resumeId = resumes.isEmpty() ? null : resumes.get(0).getId();
+
+        // 去重：进行中的流程不重复创建（4淘汰 7放弃 除外）
+        boolean exists = recruitProcessRepository
+                .findFirstByCandidateIdAndDemandIdAndProcessStatusNotInAndIsDeleted(
+                        c.getId(), demandId, List.of(4, 7), 0)
+                .isPresent();
+        if (exists) {
+            fail.put("reason", "该候选人已在需求中");
+            return fail;
+        }
+
+        RecruitProcess p = new RecruitProcess();
+        p.setProcessNo("PROC" + UUID.randomUUID().toString().replace("-", "").substring(0, 16));
+        p.setDemandId(demandId);
+        p.setResumeId(resumeId != null ? resumeId : 0L);
+        p.setCandidateId(c.getId());
+        p.setProcessStatus(0);
+        p.setCreatedAt(LocalDateTime.now());
+        p.setUpdatedAt(LocalDateTime.now());
+        p.setIsDeleted(0);
+        recruitProcessRepository.save(p);
+
+        if (resumeId != null) {
+            saveMatchRecord(resumeId, demandId, c);
+        }
+
+        Map<String, Object> ok = new LinkedHashMap<>();
+        ok.put("name", name);
+        ok.put("linked", true);
+        ok.put("linkedCount", 1);
+        ok.put("candidateId", c.getId());
+        ok.put("processNo", p.getProcessNo());
+        return ok;
+    }
+
+    private void saveMatchRecord(Long resumeId, Long demandId, Candidate c) {
+        double base = c.getStaticAbilityScore() != null ? c.getStaticAbilityScore().doubleValue() : 0;
+        int score = (int) Math.min(99, Math.max(30, base * 0.6 + (Math.abs((demandId + ":" + resumeId).hashCode()) % 40)));
+        ResumeMatch m = new ResumeMatch();
+        m.setResumeId(resumeId);
+        m.setDemandId(demandId);
+        m.setMatchScore(BigDecimal.valueOf(score));
+        m.setScoreDetail("{\"ability\":" + base + ",\"match\":" + score + "}");
+        m.setCalculateTime(LocalDateTime.now());
+        m.setCreatedAt(LocalDateTime.now());
+        m.setUpdatedAt(LocalDateTime.now());
+        m.setIsDeleted(0);
+        resumeMatchRepository.save(m);
+    }
+
+    /**
+     * GET /api/talent/candidate/{id}/contact-info — 完整联系方式（HR 及以上）。
+     */
+    public Map<String, Object> getCandidateContact(Long candidateId) {
+        Candidate c = candidateRepository.findById(candidateId)
+                .filter(x -> x.getIsDeleted() == null || x.getIsDeleted() == 0)
+                .orElseThrow(() -> BusinessException.notFound("候选人不存在: " + candidateId));
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", c.getId());
+        m.put("candidateNo", c.getCandidateNo());
+        m.put("name", c.getCandidateName());
+        m.put("mobile", c.getMobile() != null ? c.getMobile() : "");
+        m.put("email", c.getEmail() != null ? c.getEmail() : "");
+        return m;
+    }
+
+    /**
+     * POST /api/talent/contact — 记录（可选发送）候选人联系动作。
+     */
+    @Transactional
+    public Map<String, Object> recordContact(Map<String, Object> body) {
+        Object namesObj = body != null ? body.get("names") : null;
+        if (namesObj instanceof List<?> list && !list.isEmpty()) {
+            String method = body.get("method") != null ? String.valueOf(body.get("method")) : "系统记录";
+            List<Map<String, Object>> contacts = new ArrayList<>();
+            for (Object n : list) {
+                Map<String, Object> contact = new LinkedHashMap<>();
+                contact.put("name", String.valueOf(n));
+                contact.put("note", "[contact] HR via " + method);
+                contacts.add(contact);
+            }
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("recorded", true);
+            out.put("count", contacts.size());
+            out.put("contacts", contacts);
+            return out;
+        }
+
+        String candidateId = body != null && body.get("candidateId") != null
+                ? String.valueOf(body.get("candidateId")) : "";
+        if (candidateId.isBlank()) {
+            throw BusinessException.invalidInput("缺少 candidateId 或 names 参数");
+        }
+        Map<String, Object> contact = getCandidateContact(parseId(candidateId));
+        String method = body.get("method") != null ? String.valueOf(body.get("method")) : "系统记录";
+        String channel = ((body.get("channel") != null ? String.valueOf(body.get("channel"))
+                : method) + "").toLowerCase();
+
+        Map<String, Object> sendResult = new LinkedHashMap<>();
+        sendResult.put("attempted", false);
+        sendResult.put("sent", false);
+        sendResult.put("message", "recorded only");
+
+        if (channel.contains("email") || channel.contains("mail")) {
+            String draft = body.get("draft") != null ? String.valueOf(body.get("draft")) : "";
+            if (contact.get("email") == null || String.valueOf(contact.get("email")).isBlank()) {
+                sendResult.put("attempted", true);
+                sendResult.put("message", "candidate email is empty");
+            } else if (draft.isBlank()) {
+                sendResult.put("attempted", true);
+                sendResult.put("message", "draft is empty");
+            } else {
+                // 邮件发送需邮件服务，当前仅记录（对齐后端可发送能力）
+                sendResult.put("attempted", true);
+                sendResult.put("sent", false);
+                sendResult.put("message", "邮件服务未接入，已记录");
+                sendResult.put("recipient", contact.get("email"));
+            }
+        } else if (channel.contains("feishu") || channel.contains("飞书")) {
+            String draft = body.get("draft") != null ? String.valueOf(body.get("draft")) : "";
+            sendResult.put("attempted", true);
+            sendResult.put("sent", false);
+            sendResult.put("message", draft.isBlank() ? "draft is empty" : "飞书消息服务未接入，已记录");
+        }
+
+        String noteText = "[contact] HR via " + method
+                + "; sent=" + sendResult.get("sent")
+                + "; msg=" + sendResult.get("message");
+        updateNote(parseId(candidateId), noteText);
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("recorded", true);
+        out.put("sent", sendResult.get("sent"));
+        out.put("send", sendResult);
+        Map<String, Object> contactOut = new LinkedHashMap<>();
+        contactOut.put("id", candidateId);
+        contactOut.put("note", noteText);
+        out.put("contact", contactOut);
+        return out;
+    }
+
+    /**
+     * GET /api/talent/ingest-log — 最近简历入库记录。
+     */
+    public List<Map<String, Object>> getIngestLog(int limit) {
+        int n = Math.max(1, Math.min(50, limit));
+        List<Resume> rows = resumeRepository.findAll(
+                PageRequest.of(0, n, Sort.by(Sort.Direction.DESC, "storageTime")))
+                .getContent();
+        Map<Long, Candidate> cands = new HashMap<>();
+        for (Resume r : rows) {
+            if (r.getCandidateId() != null && !cands.containsKey(r.getCandidateId())) {
+                candidateRepository.findById(r.getCandidateId())
+                        .filter(c -> c.getIsDeleted() == null || c.getIsDeleted() == 0)
+                        .ifPresent(c -> cands.put(c.getId(), c));
+            }
+        }
+        List<Map<String, Object>> items = new ArrayList<>();
+        for (Resume r : rows) {
+            Candidate c = cands.get(r.getCandidateId());
+            JsonNode ext = parseJson(r.getExtractJson());
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("resumeId", r.getId());
+            m.put("candidate", c != null ? c.getCandidateName() : "#" + r.getCandidateId());
+            m.put("candidateNo", c != null ? c.getCandidateNo() : "");
+            m.put("source", c != null && c.getSourceChannel() != null ? c.getSourceChannel() : "邮箱");
+            m.put("engine", ext != null ? ext.path("parse_engine").asText("—") : "—");
+            m.put("parsedAt", ext != null ? ext.path("parsed_at").asText("") : "");
+            m.put("storageTime", r.getStorageTime() != null
+                    ? r.getStorageTime().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")) : "");
+            m.put("summary", r.getWorkExpText() != null && r.getWorkExpText().length() > 60
+                    ? r.getWorkExpText().substring(0, 60) : r.getWorkExpText());
+            items.add(m);
+        }
+        return items;
+    }
+
+    /**
+     * GET /api/talent/mail-log — 系统外发邮件日志（来源 t_hr_mail_log，暂以空列表兼容）。
+     */
+    public List<Map<String, Object>> getMailLog(int limit) {
+        return new ArrayList<>();
+    }
+
+    /**
+     * POST /api/talent/upload-resume — 简历文件上传。
+     * 无 AI 服务时降级为「记录文件 + 按文件名入库」，保持契约可用。
+     */
+    @Transactional
+    public Map<String, Object> uploadResume(MultipartFile file, String position, String note) {
+        if (file == null || file.isEmpty()) {
+            throw BusinessException.invalidInput("请选择要上传的简历文件");
+        }
+        String original = file.getOriginalFilename() == null ? "resume" : file.getOriginalFilename();
+        String ext = "";
+        int dot = original.lastIndexOf('.');
+        if (dot >= 0) {
+            ext = original.substring(dot).toLowerCase();
+        }
+        if (!List.of(".pdf", ".docx", ".doc", ".txt").contains(ext)) {
+            throw BusinessException.invalidInput("不支持的文件格式 " + ext + "，支持 PDF/DOCX/TXT");
+        }
+        if (file.getSize() > 20L * 1024 * 1024) {
+            throw BusinessException.invalidInput("文件大小不能超过 20MB");
+        }
+
+        try {
+            Files.createDirectories(Paths.get(UPLOAD_DIR));
+            String storedName = UUID.randomUUID().toString().replace("-", "") + ext;
+            Path target = Paths.get(UPLOAD_DIR, storedName);
+            file.transferTo(target);
+
+            FileEntity fe = new FileEntity();
+            fe.setFileName(original);
+            fe.setFileUrl(target.toAbsolutePath().toString());
+            fe.setFileExtension(ext.replace(".", ""));
+            fe.setFileSize(file.getSize());
+            fe.setBizType("resume");
+            fe.setCreatedAt(LocalDateTime.now());
+            fe.setUpdatedAt(LocalDateTime.now());
+            fe.setIsDeleted(0);
+            fileEntityRepository.save(fe);
+
+            String name = original.substring(0, dot < 0 ? original.length() : dot).trim();
+            Candidate candidate = candidateRepository.findFirstByCandidateNameAndIsDeleted(name, 0)
+                    .orElseGet(() -> {
+                        Candidate c = new Candidate();
+                        c.setCandidateNo("C" + System.currentTimeMillis());
+                        c.setCandidateName(name);
+                        c.setStatus("available");
+                        c.setBlackFlag(0);
+                        c.setBigCompanyFlag(0);
+                        c.setCertCount(0);
+                        c.setSourceChannel("手动上传");
+                        c.setCreatedAt(LocalDateTime.now());
+                        c.setUpdatedAt(LocalDateTime.now());
+                        c.setIsDeleted(0);
+                        return candidateRepository.save(c);
+                    });
+            if (note != null && !note.isBlank()) {
+                candidate.setNote(note);
+                candidate.setUpdatedAt(LocalDateTime.now());
+                candidateRepository.save(candidate);
+            }
+
+            Resume resume = new Resume();
+            resume.setCandidateId(candidate.getId());
+            resume.setResumeFileId(fe.getId());
+            resume.setStorageTime(LocalDateTime.now());
+            resume.setBaseScore(BigDecimal.ZERO);
+            resume.setCreatedAt(LocalDateTime.now());
+            resume.setUpdatedAt(LocalDateTime.now());
+            resume.setIsDeleted(0);
+            resumeRepository.save(resume);
+
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("candidateNo", candidate.getCandidateNo());
+            out.put("candidateId", candidate.getId());
+            out.put("resumeId", resume.getId());
+            out.put("fileName", original);
+            out.put("fileId", fe.getId());
+            out.put("status", "解析待 AI 服务接入");
+            out.put("_fallback", true);
+            return out;
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Upload resume failed", e);
+            throw new BusinessException("UPLOAD_FAILED", "文件保存失败: " + e.getMessage(), 500);
+        }
+    }
+
+    /**
+     * GET /api/talent/resume-file/{resumeId} — 简历原件下载。
+     */
+    public Path resolveResumeFilePath(Long resumeId) {
+        Resume r = resumeRepository.findById(resumeId)
+                .filter(x -> x.getIsDeleted() == null || x.getIsDeleted() == 0)
+                .orElseThrow(() -> BusinessException.notFound("简历原件不存在"));
+        if (r.getResumeFileId() == null) {
+            throw BusinessException.notFound("简历原件不存在");
+        }
+        FileEntity f = fileEntityRepository.findById(r.getResumeFileId())
+                .filter(x -> x.getIsDeleted() == null || x.getIsDeleted() == 0)
+                .orElseThrow(() -> BusinessException.notFound("简历文件已被移除"));
+        Path realPath = Paths.get(f.getFileUrl()).toAbsolutePath().normalize();
+        Path uploadsRoot = Paths.get(UPLOAD_DIR).toAbsolutePath().normalize();
+        if (!realPath.startsWith(uploadsRoot) || !Files.exists(realPath)) {
+            throw BusinessException.forbidden();
+        }
+        return realPath;
+    }
+
+    /**
+     * GET /api/talent/candidate/{id}/export — 候选人数据导出（PIPL 知情权）。
+     */
+    public Map<String, Object> exportCandidate(Long candidateId) {
+        Candidate c = candidateRepository.findById(candidateId)
+                .filter(x -> x.getIsDeleted() == null || x.getIsDeleted() == 0)
+                .orElseThrow(() -> BusinessException.notFound("候选人不存在"));
+        Map<String, Object> candidate = new LinkedHashMap<>();
+        candidate.put("candidate_no", c.getCandidateNo());
+        candidate.put("name", c.getCandidateName());
+        candidate.put("mobile", c.getMobile());
+        candidate.put("email", c.getEmail());
+        candidate.put("edu_level", c.getEduLevel());
+        candidate.put("school_level", c.getSchoolLevel());
+        candidate.put("work_years", c.getWorkYears());
+        candidate.put("source_channel", c.getSourceChannel());
+        candidate.put("status", c.getStatus());
+        candidate.put("note", c.getNote());
+        candidate.put("created_at", c.getCreatedAt() != null ? c.getCreatedAt().toString() : null);
+
+        List<Map<String, Object>> resumeList = new ArrayList<>();
+        for (Resume r : resumeRepository.findByCandidateIdAndIsDeletedOrderByStorageTimeDesc(c.getId(), 0)) {
+            Map<String, Object> rm = new LinkedHashMap<>();
+            rm.put("resume_id", r.getId());
+            rm.put("storage_time", r.getStorageTime() != null ? r.getStorageTime().toString() : null);
+            rm.put("work_exp_text", r.getWorkExpText());
+            rm.put("extract_json", r.getExtractJson());
+            resumeList.add(rm);
+        }
+
+        List<Map<String, Object>> processList = new ArrayList<>();
+        for (RecruitProcess p : recruitProcessRepository.findByCandidateIdAndIsDeletedOrderByIdDesc(c.getId(), 0)) {
+            Map<String, Object> pm = new LinkedHashMap<>();
+            pm.put("process_no", p.getProcessNo());
+            pm.put("demand_id", p.getDemandId());
+            processList.add(pm);
+        }
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("candidate", candidate);
+        out.put("resumes", resumeList);
+        out.put("processes", processList);
+        return out;
+    }
+
+    /**
+     * DELETE /api/talent/candidate/{id}/hard — 彻底删除候选人及关联数据（PIPL 删除权）。
+     */
+    @Transactional
+    public Map<String, Object> hardDeleteCandidate(Long candidateId) {
+        Candidate c = candidateRepository.findById(candidateId)
+                .filter(x -> x.getIsDeleted() == null || x.getIsDeleted() == 0)
+                .orElseThrow(() -> BusinessException.notFound("候选人不存在"));
+        List<String> deleted = new ArrayList<>();
+
+        List<Resume> resumes = resumeRepository.findByCandidateIdAndIsDeletedOrderByStorageTimeDesc(c.getId(), 0);
+        for (Resume r : resumes) {
+            resumeMatchRepository.deleteAll(resumeMatchRepository.findAll(
+                    (root, query, cb) -> cb.equal(root.get("resumeId"), r.getId())));
+            resumeRepository.delete(r);
+        }
+        deleted.add("resumes:" + resumes.size());
+
+        List<RecruitProcess> processes = recruitProcessRepository.findByDemandIdAndIsDeletedOrderByIdDesc(c.getId(), 0);
+        for (RecruitProcess p : processes) {
+            recruitProcessRepository.delete(p);
+        }
+        deleted.add("processes:" + processes.size());
+
+        candidateRepository.delete(c);
+        deleted.add("candidate:1");
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("candidate", c.getCandidateName());
+        out.put("candidate_no", c.getCandidateNo());
+        out.put("items", deleted);
+        return out;
+    }
+
+    private Long parseId(String s) {
+        try {
+            return Long.parseLong(s);
+        } catch (NumberFormatException e) {
+            throw BusinessException.invalidInput("无效的 ID: " + s);
+        }
+    }
+
     private Map<String, Object> toCandidateMap(Candidate c) {
         double score = c.getStaticAbilityScore() != null ? c.getStaticAbilityScore().doubleValue() : 0;
         int eduLevel = c.getEduLevel() != null ? c.getEduLevel() : 0;

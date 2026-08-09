@@ -13,4 +13,6 @@ public interface RecruitProcessRepository extends JpaRepository<RecruitProcess, 
             Long candidateId, Long demandId, List<Integer> statuses, Integer isDeleted);
 
     List<RecruitProcess> findByDemandIdAndIsDeletedOrderByIdDesc(Long demandId, Integer isDeleted);
+
+    List<RecruitProcess> findByCandidateIdAndIsDeletedOrderByIdDesc(Long candidateId, Integer isDeleted);
 }
