@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -265,6 +266,179 @@ public class DashboardService {
             return result;
         } catch (Exception e) {
             return List.of();
+        }
+    }
+
+    // ── 风险预警 ──────────────────────────────────────────────
+
+    public List<Map<String, Object>> getRiskAlerts() {
+        try {
+            List<Map<String, Object>> alerts = new ArrayList<>();
+            LocalDate now = LocalDate.now();
+            LocalDateTime yesterday = now.minusDays(1).atStartOfDay();
+            LocalDateTime sevenDaysAgo = now.minusDays(7).atStartOfDay();
+
+            // 1) 在招需求零候选人
+            List<?> zeroRows = entityManager.createNativeQuery("""
+                    SELECT d.id, d.dept_id, d.position_id, d.created_at, d.position_name, d.dept_name
+                    FROM t_hr_recruit_demand d
+                    WHERE d.demand_status = 2 AND d.is_deleted = 0
+                      AND d.id NOT IN (SELECT DISTINCT p.demand_id FROM t_hr_recruit_process p WHERE p.is_deleted = 0)
+                    LIMIT 5""").getResultList();
+            for (Object row : zeroRows) {
+                Object[] cols = (Object[]) row;
+                String dept = nameOf(cols[1], cols[5], DEPT_FALLBACK, "部门");
+                String pos = nameOf(cols[2], cols[4], Map.of(), "岗位");
+                long daysOpen = 1;
+                if (cols[3] instanceof java.sql.Timestamp ts) {
+                    daysOpen = Math.max(1, java.time.Duration.between(ts.toLocalDateTime(), LocalDateTime.now()).toDays());
+                }
+                alerts.add(alert(dept + "·" + pos + " — 发布" + daysOpen + "天零简历", "reject"));
+            }
+
+            // 2) HC 即将招满（>=80%）
+            List<?> fullRows = entityManager.createNativeQuery("""
+                    SELECT d.id, d.dept_id, d.position_id, d.plan_headcount, d.filled_count, d.position_name, d.dept_name
+                    FROM t_hr_recruit_demand d
+                    WHERE d.demand_status = 2 AND d.is_deleted = 0
+                      AND d.plan_headcount > 0
+                      AND d.filled_count * 1.0 / d.plan_headcount >= 0.8
+                      AND d.filled_count < d.plan_headcount
+                    LIMIT 5""").getResultList();
+            for (Object row : fullRows) {
+                Object[] cols = (Object[]) row;
+                String dept = nameOf(cols[1], cols[6], DEPT_FALLBACK, "部门");
+                String pos = nameOf(cols[2], cols[5], Map.of(), "岗位");
+                long remaining = ((Number) cols[3]).longValue() - ((Number) cols[4]).longValue();
+                alerts.add(alert(dept + "·" + pos + " — HC仅剩" + remaining + "个", "warn"));
+            }
+
+            // 3) 超 7 天未安排面试
+            try {
+                Object overdue = entityManager.createNativeQuery("""
+                        SELECT COUNT(DISTINCT b.id)
+                        FROM t_hr_interview_book b
+                        JOIN t_hr_interview_slot s ON s.id = b.slot_id
+                        LEFT JOIN t_hr_interview_record r ON r.book_id = b.id
+                        WHERE r.id IS NULL AND s.start_dt < :cutoff
+                          AND b.is_deleted = 0 AND s.is_deleted = 0""")
+                        .setParameter("cutoff", sevenDaysAgo)
+                        .getSingleResult();
+                if (overdue != null && ((Number) overdue).longValue() > 0) {
+                    alerts.add(alert(((Number) overdue).longValue() + "名候选人超7天未安排面试", "warn"));
+                }
+            } catch (Exception ignored) {
+            }
+
+            // 4) 昨日招满
+            List<?> recentRows = entityManager.createNativeQuery("""
+                    SELECT d.id, d.dept_id, d.position_id, d.position_name, d.dept_name
+                    FROM t_hr_recruit_demand d
+                    WHERE d.demand_status = 4 AND d.is_deleted = 0
+                      AND (d.closed_at >= :yesterday OR d.updated_at >= :yesterday)
+                    LIMIT 5""")
+                    .setParameter("yesterday", yesterday)
+                    .getResultList();
+            for (Object row : recentRows) {
+                Object[] cols = (Object[]) row;
+                String dept = nameOf(cols[1], cols[4], DEPT_FALLBACK, "部门");
+                String pos = nameOf(cols[2], cols[3], Map.of(), "岗位");
+                alerts.add(alert(dept + "·" + pos + " — 昨日已招满", "done"));
+            }
+
+            if (alerts.size() > 8) {
+                return alerts.subList(0, 8);
+            }
+            return alerts;
+        } catch (Exception e) {
+            log.warn("Dashboard risk alerts query failed: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    private Map<String, Object> alert(String text, String type) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("text", text);
+        m.put("type", type);
+        m.put("link", "/recruit-demand-detail");
+        m.put("action", "查看");
+        return m;
+    }
+
+    private String nameOf(Object idObj, Object nameObj, Map<Integer, String> fallback, String prefix) {
+        if (nameObj != null && !String.valueOf(nameObj).isBlank()) {
+            return String.valueOf(nameObj);
+        }
+        if (idObj instanceof Number id) {
+            return fallback.getOrDefault(id.intValue(), prefix + "(" + id + ")");
+        }
+        return prefix + "(?)";
+    }
+
+    // ── 月度趋势（柱状图） ─────────────────────────────────────
+
+    public List<Map<String, Object>> getMonthlyStats(Integer year, Long deptId, Long positionId) {
+        int y = year != null ? year : LocalDate.now().getYear();
+        List<Map<String, Object>> months = new ArrayList<>();
+        for (int m = 1; m <= 12; m++) {
+            Map<String, Object> mo = new LinkedHashMap<>();
+            mo.put("label", m + "月");
+            mo.put("resumes", 0L);
+            mo.put("interviews", 0L);
+            mo.put("hires", 0L);
+            months.add(mo);
+        }
+        try {
+            // 每月简历入库量
+            List<?> resumeRows = entityManager.createNativeQuery("""
+                    SELECT DATE_FORMAT(storage_time, '%m') AS m, COUNT(*)
+                    FROM t_hr_resume
+                    WHERE YEAR(storage_time) = :y AND is_deleted = 0
+                    GROUP BY DATE_FORMAT(storage_time, '%m')""")
+                    .setParameter("y", y)
+                    .getResultList();
+            fillMonthly(months, resumeRows, "resumes");
+
+            // 每月面试量
+            List<?> interviewRows = entityManager.createNativeQuery("""
+                    SELECT DATE_FORMAT(book_time, '%m') AS m, COUNT(*)
+                    FROM t_hr_interview_book
+                    WHERE YEAR(book_time) = :y AND is_deleted = 0
+                    GROUP BY DATE_FORMAT(book_time, '%m')""")
+                    .setParameter("y", y)
+                    .getResultList();
+            fillMonthly(months, interviewRows, "interviews");
+
+            // 每月入职量
+            List<?> hireRows = entityManager.createNativeQuery("""
+                    SELECT DATE_FORMAT(entry_date, '%m') AS m, COUNT(*)
+                    FROM t_hr_entry
+                    WHERE YEAR(entry_date) = :y AND is_deleted = 0
+                    GROUP BY DATE_FORMAT(entry_date, '%m')""")
+                    .setParameter("y", y)
+                    .getResultList();
+            fillMonthly(months, hireRows, "hires");
+            return months;
+        } catch (Exception e) {
+            log.warn("Dashboard monthly query failed: {}", e.getMessage());
+            return months;
+        }
+    }
+
+    private void fillMonthly(List<Map<String, Object>> months, List<?> rows, String key) {
+        for (Object row : rows) {
+            Object[] cols = (Object[]) row;
+            if (cols.length >= 2 && cols[0] != null) {
+                int m;
+                try {
+                    m = Integer.parseInt(String.valueOf(cols[0]));
+                } catch (NumberFormatException e) {
+                    continue;
+                }
+                if (m >= 1 && m <= 12) {
+                    months.get(m - 1).put(key, cols[1] instanceof Number n ? n.longValue() : 0L);
+                }
+            }
         }
     }
 

@@ -62,6 +62,9 @@ public class TalentService {
     private static final Map<String, String> STATUS_LABELS = Map.of(
             "available", "可联系", "locked", "面试中(锁定)", "reserve", "储备",
             "archived", "已封存", "hired", "已入职");
+    private static final Map<String, String> MAIL_TYPE_LABELS = Map.of(
+            "invite", "面试邀请", "offer", "录用通知", "entry", "入职指引",
+            "test", "测试邮件", "other", "系统邮件");
     private static final Map<Integer, String> SCHOOL_LABELS = Map.of(
             1, "普通", 2, "211", 3, "985", 4, "C9");
     private static final Map<String, String> PERF_LABELS = Map.of(
