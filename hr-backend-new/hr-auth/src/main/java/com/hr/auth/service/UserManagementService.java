@@ -216,6 +216,13 @@ public class UserManagementService {
         return out;
     }
 
+    private Long nextUserId() {
+        Long max = userRepository.findAll().stream()
+                .map(IamUser::getUserId).filter(java.util.Objects::nonNull)
+                .max(Long::compareTo).orElse(0L);
+        return Math.max(max, 9L) + 1; // 对齐 Flask：max+1，空库从 10 开始
+    }
+
     private String generateEmployeeNo() {
         String yyyy = String.valueOf(LocalDateTime.now().getYear());
         List<IamUser> all = userRepository.findAll((root, query, cb) -> cb.like(root.get("employeeNo"), yyyy + "%"));
