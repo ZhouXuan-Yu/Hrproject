@@ -110,7 +110,7 @@
           <th style="width:36px"><input type="checkbox" id="checkAll" @change="toggleAll"></th>
           <th>姓名</th><th>画像分</th><th>匹配分</th><th>来源</th><th>入库时长</th><th>状态</th><th>操作</th><th>加入状态</th>
         </tr></thead><tbody>
-          <tr v-for="c in filteredCandidates" :key="c.name" :class="rowClass(c)">
+          <tr v-for="c in visibleCandidates" :key="c.name" :class="rowClass(c)">
             <td><input type="checkbox" class="row-check" v-model="checkedSet[c.name]" @change="onCheck"></td>
             <td><a href="javascript:void(0)" style="font-weight:600;color:var(--c-primary)" @click="openDrawer(c)">{{ c.name }}</a></td>
             <td><span class="portrait-score" :class="profileColor(c.profileScore)">{{ c.profileGrade }} · {{ c.profileScore }}</span></td>
@@ -157,6 +157,11 @@
           @action="doReMatch"
         />
         <div class="table-count" id="candidateCount">共 {{ filteredCandidates.length }} 人</div>
+        <div v-if="filteredCandidates.length > CAND_PAGE_SIZE" style="display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:8px 4px;font-size:12px;color:var(--c-sub)">
+          <button class="btn btn-ghost btn-sm" :disabled="candPage <= 1" @click="onCandPageChange(candPage - 1)">上一页</button>
+          <span>第 {{ candPage }} / {{ candTotalPages }} 页</span>
+          <button class="btn btn-ghost btn-sm" :disabled="candPage >= candTotalPages" @click="onCandPageChange(candPage + 1)">下一页</button>
+        </div>
       </div>
     </div>
 
@@ -500,6 +505,21 @@ const filteredCandidates = computed(() => {
   });
   return list;
 });
+
+// 候选人前端分页：仅当超过 50 条时启用，避免大列表一次性渲染
+const CAND_PAGE_SIZE = 50;
+const candPage = ref(1);
+const visibleCandidates = computed(() => {
+  const all = filteredCandidates.value;
+  if (all.length <= CAND_PAGE_SIZE) return all;
+  const start = (candPage.value - 1) * CAND_PAGE_SIZE;
+  return all.slice(start, start + CAND_PAGE_SIZE);
+});
+const candTotalPages = computed(() => Math.max(1, Math.ceil(filteredCandidates.value.length / CAND_PAGE_SIZE)));
+function onCandPageChange(p) {
+  candPage.value = p;
+  if (p > candTotalPages.value) candPage.value = candTotalPages.value;
+}
 
 function matchColor(s) { if (s >= 80) return 'var(--c-done)'; if (s >= 60) return 'var(--c-warn)'; return 'var(--c-draft)'; }
 function profileColor(s) { if (s >= 80) return 'score-high'; if (s >= 60) return 'score-mid'; return 'score-low'; }
