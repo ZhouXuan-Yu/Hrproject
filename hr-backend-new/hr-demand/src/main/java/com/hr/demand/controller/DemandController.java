@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -49,6 +50,36 @@ public class DemandController {
     @GetMapping("/{id}")
     public ApiResponse<Map<String, Object>> detail(@PathVariable Long id) {
         return ApiResponse.success(demandService.getDemandDetail(id));
+    }
+
+    @PatchMapping("/{id}")
+    public ApiResponse<Map<String, Object>> update(@PathVariable Long id,
+                                                   @RequestBody Map<String, Object> body) {
+        return ApiResponse.success(demandService.updateDemand(id, body));
+    }
+
+    @GetMapping("/{id}/candidates")
+    public ApiResponse<List<Map<String, Object>>> candidates(@PathVariable Long id,
+                                                             @RequestParam(required = false) String source) {
+        return ApiResponse.success(demandService.listDemandCandidates(id, source));
+    }
+
+    @GetMapping("/{id}/candidates/{name}/detail")
+    public ApiResponse<Map<String, Object>> candidateDetail(@PathVariable Long id,
+                                                            @PathVariable String name) {
+        return ApiResponse.success(demandService.getCandidateMatchDetail(id, name));
+    }
+
+    @PostMapping("/{id}/candidates/{name}/link")
+    public ApiResponse<Map<String, Object>> linkCandidate(@PathVariable Long id,
+                                                          @PathVariable String name) {
+        return ApiResponse.success(demandService.linkCandidate(id, name));
+    }
+
+    @PostMapping("/{id}/match")
+    public ApiResponse<Map<String, Object>> match(@PathVariable Long id,
+                                                  @RequestBody(required = false) Map<String, Object> body) {
+        return ApiResponse.success(demandService.matchCandidates(id, body));
     }
 
     @PostMapping("/{id}/submit")
