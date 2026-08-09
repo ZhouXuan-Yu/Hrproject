@@ -13,12 +13,14 @@ import com.hr.common.util.SecurityUtils;
 import com.hr.talent.entity.Candidate;
 import com.hr.talent.entity.Employee;
 import com.hr.talent.entity.FileEntity;
+import com.hr.talent.entity.MailLog;
 import com.hr.talent.entity.RecruitProcess;
 import com.hr.talent.entity.Resume;
 import com.hr.talent.entity.ResumeMatch;
 import com.hr.talent.repository.CandidateRepository;
 import com.hr.talent.repository.EmployeeRepository;
 import com.hr.talent.repository.FileEntityRepository;
+import com.hr.talent.repository.MailLogRepository;
 import com.hr.talent.repository.RecruitProcessRepository;
 import com.hr.talent.repository.ResumeMatchRepository;
 import com.hr.talent.repository.ResumeRepository;
@@ -74,6 +76,7 @@ public class TalentService {
     private final RecruitProcessRepository recruitProcessRepository;
     private final ResumeMatchRepository resumeMatchRepository;
     private final FileEntityRepository fileEntityRepository;
+    private final MailLogRepository mailLogRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private static final String UPLOAD_DIR = System.getProperty("user.dir") + "/uploads";
 
@@ -489,10 +492,30 @@ public class TalentService {
     }
 
     /**
-     * GET /api/talent/mail-log — 系统外发邮件日志（来源 t_hr_mail_log，暂以空列表兼容）。
+     * GET /api/talent/mail-log — 系统外发邮件日志（来源 t_hr_mail_log）。
      */
     public List<Map<String, Object>> getMailLog(int limit) {
-        return new ArrayList<>();
+        int capped = Math.min(limit <= 0 ? 50 : limit, 200);
+        List<MailLog> rows = mailLogRepository.findTop50ByIsDeletedOrderByIdDesc(0);
+        if (capped < 50) {
+            rows = rows.stream().limit(capped).toList();
+        }
+        return rows.stream().map(this::mailLogToMap).toList();
+    }
+
+    private Map<String, Object> mailLogToMap(MailLog r) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", r.getId());
+        m.put("sender", r.getSenderEmail());
+        m.put("recipient", r.getRecipient());
+        m.put("subject", r.getSubject());
+        m.put("type", r.getMailType());
+        m.put("typeLabel", MAIL_TYPE_LABELS.getOrDefault(r.getMailType(), "系统邮件"));
+        m.put("ok", r.getStatus() != null && r.getStatus() == 1);
+        m.put("error", r.getErrorMsg());
+        m.put("time", r.getCreatedAt() != null
+                ? r.getCreatedAt().format(DateTimeFormatter.ofPattern("MM-dd HH:mm")) : "");
+        return m;
     }
 
     /**
