@@ -367,7 +367,9 @@ public class InterviewService {
         record.setSubmitInterviewerId(body != null && body.get("interviewerId") != null
                 ? ((Number) body.get("interviewerId")).longValue() : 0L);
         record.setIsArrive(body != null && body.get("isArrive") != null
-                ? ((Number) body.get("isArrive")).intValue() : 1);
+                ? ((Number) body.get("isArrive")).intValue()
+                : (body != null && body.get("is_arrive") != null
+                        ? ((Number) body.get("is_arrive")).intValue() : 1));
         record.setInterviewResult(0);
         record.setEndTime(LocalDateTime.now());
         record.setCreatedAt(LocalDateTime.now());
