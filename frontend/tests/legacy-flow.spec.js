@@ -215,7 +215,8 @@ test.beforeEach(async ({ page }) => {
 
 test('login routes authenticated users to the new home page', async ({ page }) => {
   await page.goto('/login');
-  await page.locator('[data-role="hr"]').click();
+  await page.locator('#username').fill('admin');
+  await page.locator('#password').fill('123456');
   await page.locator('.btn-login').click();
   await expect(page).toHaveURL(/\/home$/);
   await expect(page.locator('.metric-row')).toBeVisible();
