@@ -70,6 +70,11 @@ public class ConfigController {
         return ApiResponse.success(configService.getScoreRules());
     }
 
+    @PutMapping("/score-rules")
+    public ApiResponse<Map<String, Object>> updateScoreRules(@RequestBody Map<String, Object> body) {
+        return ApiResponse.success(configService.updateScoreRules(body));
+    }
+
     @GetMapping("/audit-logs")
     public Map<String, Object> auditLogs(@RequestParam(defaultValue = "50") int limit) {
         return listResponse(configService.getAuditLogs(limit));

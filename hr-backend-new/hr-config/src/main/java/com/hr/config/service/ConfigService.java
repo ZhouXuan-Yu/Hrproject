@@ -326,6 +326,52 @@ public class ConfigService {
         return m;
     }
 
+    /**
+     * PUT /api/config/score-rules — 更新打分规则（对齐 Flask update_score_rules）。
+     */
+    @Transactional
+    public Map<String, Object> updateScoreRules(Map<String, Object> data) {
+        if (data == null) {
+            data = new LinkedHashMap<>();
+        }
+        ScoreRule rule = scoreRuleRepository.findFirstByStatusAndIsDeletedOrderByIdDesc(1, 0)
+                .orElse(null);
+        if (rule == null) {
+            rule = new ScoreRule();
+            rule.setScoreScene(1);
+            rule.setPoolMinScore(new BigDecimal("60"));
+            rule.setStatus(1);
+            rule.setIsDeleted(0);
+            rule.setCreatedAt(LocalDateTime.now());
+        }
+        rule.setUpdatedAt(LocalDateTime.now());
+
+        Map<String, Object> w = parseJsonMap(rule.getWeightJson());
+        for (String key : new String[]{"profileWeight", "matchWeight", "decay30",
+                "decay90", "decayOver90", "topCount", "searchRange"}) {
+            if (data.containsKey(key)) {
+                w.put(key, data.get(key));
+            }
+        }
+        rule.setWeightJson(toJson(w));
+        if (data.containsKey("passLine")) {
+            rule.setPoolMinScore(new BigDecimal(String.valueOf(data.get("passLine"))));
+        }
+        if (data.containsKey("autoInviteMinScore")) {
+            Object v = data.get("autoInviteMinScore");
+            rule.setAutoInviteMinScore(v != null ? new BigDecimal(String.valueOf(v)) : null);
+        }
+        if (data.containsKey("scoreScene")) {
+            rule.setScoreScene(((Number) data.get("scoreScene")).intValue());
+        }
+        scoreRuleRepository.save(rule);
+
+        Map<String, Object> result = new LinkedHashMap<>(data);
+        result.put("updated", true);
+        result.put("id", rule.getId());
+        return result;
+    }
+
     // ── 审计日志 ───────────────────────────────────────────
 
     public List<Map<String, Object>> getAuditLogs(int limit) {
@@ -437,6 +483,17 @@ public class ConfigService {
             return OBJECT_MAPPER.readValue(json, new TypeReference<LinkedHashMap<String, Object>>() {});
         } catch (Exception e) {
             return new LinkedHashMap<>();
+        }
+    }
+
+    private String toJson(Object o) {
+        if (o == null) {
+            return null;
+        }
+        try {
+            return OBJECT_MAPPER.writeValueAsString(o);
+        } catch (Exception e) {
+            return String.valueOf(o);
         }
     }
 }

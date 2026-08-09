@@ -406,14 +406,14 @@ public class UserManagementService {
         return m;
     }
 
-    /** werkzeug generate_password_hash 兼容的 scrypt 哈希（werkzeug 默认 n=16384 r=8 p=1 dklen=64）。 */
+    /** werkzeug generate_password_hash 兼容的 scrypt 哈希（werkzeug 默认 n=16384 r=8 p=1 dklen=64，salt 明文 + hash hex）。 */
     public static String werkzeugScrypt(String password) {
         byte[] salt = new byte[16];
         SECURE_RANDOM.nextBytes(salt);
         byte[] hash = SCrypt.generate(
                 password.getBytes(StandardCharsets.UTF_8), salt, 16384, 8, 1, 64);
-        return "scrypt:16384:8:1$" + Base64.getEncoder().encodeToString(salt)
-                + "$" + Base64.getEncoder().encodeToString(hash);
+        return "scrypt:16384:8:1$" + new String(salt, StandardCharsets.UTF_8)
+                + "$" + com.hr.common.util.Sha256Util.sha256Hex(hash);
     }
 
     /** 兼容 werkzeug scrypt / bcrypt / legacy sha256 的校验。 */
