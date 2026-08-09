@@ -51,10 +51,10 @@ public class DashboardController {
     }
 
     @GetMapping("/monthly")
-    public ApiResponse<List<Map<String, Object>>> monthly(
+    public ApiResponse<Map<String, Object>> monthly(
             @RequestParam(required = false) Integer year,
-            @RequestParam(required = false) Long deptId,
-            @RequestParam(required = false) Long positionId) {
+            @RequestParam(name = "dept_id", required = false) Long deptId,
+            @RequestParam(name = "position_id", required = false) Long positionId) {
         return ApiResponse.success(dashboardService.getMonthlyStats(year, deptId, positionId));
     }
 }

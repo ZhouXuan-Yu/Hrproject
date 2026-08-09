@@ -390,68 +390,73 @@ public class DashboardService {
         }
         try {
             // 部门/岗位过滤：需求→流程→简历的 EXISTS 子查询（对齐 Flask）
-            StringBuilder demandFilter = new StringBuilder();
-            Map<String, Object> params = new java.util.HashMap<>();
+            String demandFilterSql = "";
             if (deptId != null || positionId != null) {
-                demandFilter.append("""
+                StringBuilder f = new StringBuilder("""
                          AND EXISTS (
                             SELECT 1 FROM t_hr_recruit_process rp
                             JOIN t_hr_recruit_demand d ON d.id = rp.demand_id AND d.is_deleted = 0
                             WHERE rp.resume_id = r.id AND rp.is_deleted = 0""");
                 if (deptId != null) {
-                    demandFilter.append(" AND d.dept_id = :f_dept");
-                    params.put("f_dept", deptId);
+                    f.append(" AND d.dept_id = :f_dept");
                 }
                 if (positionId != null) {
-                    demandFilter.append(" AND d.position_id = :f_pos");
-                    params.put("f_pos", positionId);
+                    f.append(" AND d.position_id = :f_pos");
                 }
-                demandFilter.append(")");
+                f.append(")");
+                demandFilterSql = f.toString();
             }
-            String demandFilterSql = demandFilter.toString();
 
             // 每月简历入库量（候选人 created_at，对齐 Flask Candidate）
-            List<?> resumeRows = entityManager.createNativeQuery("""
+            var resumeQuery = entityManager.createNativeQuery("""
                     SELECT DATE_FORMAT(c.created_at, '%m') AS m, COUNT(DISTINCT c.id)
                     FROM t_hr_candidate c
                     JOIN t_hr_resume r ON r.candidate_id = c.id AND r.is_deleted = 0
                     WHERE c.is_deleted = 0 AND YEAR(c.created_at) = :y
                     """ + demandFilterSql + """
                     GROUP BY DATE_FORMAT(c.created_at, '%m')""")
-                    .setParameter("y", y)
-                    .getResultList();
-            fillMonthly(months, resumeRows, "resumes");
+                    .setParameter("y", y);
+            if (deptId != null) resumeQuery.setParameter("f_dept", deptId);
+            if (positionId != null) resumeQuery.setParameter("f_pos", positionId);
+            fillMonthly(months, resumeQuery.getResultList(), "resumes");
 
             // 每月面试量
-            List<?> interviewRows = entityManager.createNativeQuery("""
+            var interviewQuery = entityManager.createNativeQuery("""
                     SELECT DATE_FORMAT(b.created_at, '%m') AS m, COUNT(DISTINCT b.id)
                     FROM t_hr_interview_book b
                     JOIN t_hr_resume r ON r.id = b.resume_id AND r.is_deleted = 0
                     WHERE b.is_deleted = 0 AND YEAR(b.created_at) = :y
                     """ + demandFilterSql + """
                     GROUP BY DATE_FORMAT(b.created_at, '%m')""")
-                    .setParameter("y", y)
-                    .getResultList();
-            fillMonthly(months, interviewRows, "interviews");
+                    .setParameter("y", y);
+            if (deptId != null) interviewQuery.setParameter("f_dept", deptId);
+            if (positionId != null) interviewQuery.setParameter("f_pos", positionId);
+            fillMonthly(months, interviewQuery.getResultList(), "interviews");
 
-            // 每月入职量（hire_event created_at，对齐 Flask HireEvent）
-            List<?> hireRows = entityManager.createNativeQuery("""
-                    SELECT DATE_FORMAT(e.created_at, '%m') AS m, COUNT(DISTINCT e.id)
-                    FROM t_hr_hire_event e
-                    JOIN t_hr_resume r ON r.id = e.process_id AND r.is_deleted = 0
-                    WHERE e.is_deleted = 0 AND YEAR(e.created_at) = :y
-                    """ + demandFilterSql + """
-                    GROUP BY DATE_FORMAT(e.created_at, '%m')""")
-                    .setParameter("y", y)
-                    .getResultList();
-            fillMonthly(months, hireRows, "hires");
-
-            params.forEach((k, v) -> {
-            });
-            if (!params.isEmpty()) {
-                // 重新按带过滤参数执行（当前实现先走全量，过滤留待后续对齐）
-                log.warn("monthly dept/position filter params not applied: {}", params);
+            // 每月入职量（无过滤按 hire_event created_at；有过滤按 entry 关联简历，对齐 Flask）
+            var hireQuery;
+            if (deptId == null && positionId == null) {
+                hireQuery = entityManager.createNativeQuery("""
+                        SELECT DATE_FORMAT(e.created_at, '%m') AS m, COUNT(DISTINCT e.id)
+                        FROM t_hr_hire_event e
+                        WHERE e.is_deleted = 0 AND YEAR(e.created_at) = :y
+                        GROUP BY DATE_FORMAT(e.created_at, '%m')""")
+                        .setParameter("y", y);
+            } else {
+                var hq = entityManager.createNativeQuery("""
+                        SELECT DATE_FORMAT(e.created_at, '%m') AS m, COUNT(DISTINCT e.id)
+                        FROM t_hr_entry e
+                        JOIN t_hr_resume r ON r.id = e.resume_id AND r.is_deleted = 0
+                        WHERE e.is_deleted = 0 AND YEAR(e.created_at) = :y
+                        """ + demandFilterSql + """
+                        GROUP BY DATE_FORMAT(e.created_at, '%m')""")
+                        .setParameter("y", y);
+                if (deptId != null) hq.setParameter("f_dept", deptId);
+                if (positionId != null) hq.setParameter("f_pos", positionId);
+                hireQuery = hq;
             }
+            fillMonthly(months, hireQuery.getResultList(), "hires");
+
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("year", y);
             result.put("months", months);
