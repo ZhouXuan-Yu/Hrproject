@@ -16,4 +16,6 @@ public interface OfferRepository extends JpaRepository<Offer, Long>, JpaSpecific
 
     List<Offer> findByResumeIdAndDemandIdAndOfferStatusInAndIsDeleted(
             Long resumeId, Long demandId, Collection<Integer> offerStatuses, Integer isDeleted);
+
+    List<Offer> findByLastInterviewIdInAndIsDeleted(Collection<Long> lastInterviewIds, Integer isDeleted);
 }

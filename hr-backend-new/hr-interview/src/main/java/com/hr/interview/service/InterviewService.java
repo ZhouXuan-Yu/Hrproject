@@ -86,7 +86,7 @@ public class InterviewService {
         Page<InterviewBook> result = bookRepository.findAll(spec,
                 PageRequest.of(Math.max(0, page - 1), pageSize, Sort.by(Sort.Direction.DESC, "bookTime")));
 
-        List<Map<String, Object>> list = result.getContent().stream().map(this::toBookMap).toList();
+        List<Map<String, Object>> list = toBookMaps(result.getContent());
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("data", list);
         m.put("total", result.getTotalElements());
@@ -720,12 +720,61 @@ public class InterviewService {
     }
 
     private Map<String, Object> toBookMap(InterviewBook book) {
-        String[] candidate = resolveCandidate(book.getResumeId());
+        return toBookMap(book, null, null, null, null);
+    }
+
+    /**
+     * 批量转换面试预约 → Map：一次批量预取简历/候选人/需求/评价记录，
+     * 避免每行 5-6 条 SQL（N+1）。
+     */
+    private List<Map<String, Object>> toBookMaps(List<InterviewBook> books) {
+        if (books == null || books.isEmpty()) {
+            return List.of();
+        }
+        List<Long> resumeIds = books.stream().map(InterviewBook::getResumeId)
+                .filter(id -> id != null && id > 0).distinct().toList();
+        List<Long> demandIds = books.stream().map(InterviewBook::getDemandId)
+                .filter(id -> id != null && id > 0).distinct().toList();
+        List<Long> bookIds = books.stream().map(InterviewBook::getId)
+                .filter(java.util.Objects::nonNull).distinct().toList();
+
+        Map<Long, Resume> resumeMap = new HashMap<>();
+        for (Resume r : resumeRepository.findAllById(resumeIds)) {
+            if (r.getIsDeleted() == null || r.getIsDeleted() == 0) {
+                resumeMap.put(r.getId(), r);
+            }
+        }
+        Map<Long, Candidate> candidateMap = new HashMap<>();
+        for (Candidate c : candidateRepository.findAllById(
+                resumeMap.values().stream().map(Resume::getCandidateId).filter(java.util.Objects::nonNull).toList())) {
+            if (c.getIsDeleted() == null || c.getIsDeleted() == 0) {
+                candidateMap.put(c.getId(), c);
+            }
+        }
+        Map<Long, String> demandPosMap = new HashMap<>();
+        for (RecruitDemand d : demandRepository.findAllById(demandIds)) {
+            boolean active = d.getIsDeleted() == null || d.getIsDeleted() == 0;
+            if (active && d.getPositionName() != null && !d.getPositionName().isBlank()) {
+                demandPosMap.put(d.getId(), d.getPositionName());
+            }
+        }
+        Map<Long, InterviewRecord> recordMap = new HashMap<>();
+        for (InterviewRecord r : recordRepository.findByBookIdInAndIsDeleted(bookIds, 0)) {
+            recordMap.putIfAbsent(r.getBookId(), r); // 取首条，保持 findFirstBy 语义
+        }
+
+        return books.stream().map(b -> toBookMap(b, resumeMap, candidateMap, demandPosMap, recordMap)).toList();
+    }
+
+    private Map<String, Object> toBookMap(InterviewBook book, Map<Long, Resume> resumeMap,
+                                          Map<Long, Candidate> candidateMap, Map<Long, String> demandPosMap,
+                                          Map<Long, InterviewRecord> recordMap) {
+        String[] candidate = resolveCandidate(book.getResumeId(), resumeMap, candidateMap);
         String candidateName = candidate[0];
         String candidateNo = candidate[1];
-        String demandPos = resolveDemandPosition(book.getDemandId());
+        String demandPos = resolveDemandPosition(book.getDemandId(), demandPosMap);
 
-        String[] display = deriveDisplayStatus(book);
+        String[] display = deriveDisplayStatus(book, recordMap);
         JsonNode invite = parseJson(book.getInviteJson());
         String interviewer = "待分配";
         if (invite != null) {
@@ -736,10 +785,12 @@ public class InterviewService {
         int roundNum = book.getInterviewRound() != null ? book.getInterviewRound() : 1;
         int type = book.getInterviewType() != null ? book.getInterviewType() : 1;
         String result = null;
-        if (recordRepository.findFirstByBookIdAndIsDeleted(book.getId(), 0).isPresent()) {
-            int code = recordRepository.findFirstByBookIdAndIsDeleted(book.getId(), 0)
-                    .map(InterviewRecord::getInterviewResult).orElse(0);
-            result = Map.of(1, "pass", 2, "reject", 3, "hold").get(code);
+        InterviewRecord rec = recordMap != null ? recordMap.get(book.getId()) : null;
+        if (rec == null && recordMap == null) {
+            rec = recordRepository.findFirstByBookIdAndIsDeleted(book.getId(), 0).orElse(null);
+        }
+        if (rec != null) {
+            result = Map.of(1, "pass", 2, "reject", 3, "hold").get(rec.getInterviewResult());
         }
 
         Map<String, Object> m = new LinkedHashMap<>();
@@ -767,7 +818,12 @@ public class InterviewService {
     }
 
     private String[] deriveDisplayStatus(InterviewBook book) {
-        InterviewRecord record = recordRepository.findFirstByBookIdAndIsDeleted(book.getId(), 0).orElse(null);
+        return deriveDisplayStatus(book, null);
+    }
+
+    private String[] deriveDisplayStatus(InterviewBook book, Map<Long, InterviewRecord> recordMap) {
+        InterviewRecord record = recordMap != null ? recordMap.get(book.getId())
+                : recordRepository.findFirstByBookIdAndIsDeleted(book.getId(), 0).orElse(null);
         if (record != null) {
             int code = record.getInterviewResult() != null ? record.getInterviewResult() : 0;
             if (code == 1) return new String[]{"offer", "待录用"};
@@ -781,17 +837,23 @@ public class InterviewService {
     }
 
     private String[] resolveCandidate(Long resumeId) {
+        return resolveCandidate(resumeId, null, null);
+    }
+
+    private String[] resolveCandidate(Long resumeId, Map<Long, Resume> resumeMap, Map<Long, Candidate> candidateMap) {
         if (resumeId == null || resumeId <= 0) {
             return new String[]{"候选人#" + resumeId, ""};
         }
-        Resume resume = resumeRepository.findById(resumeId).filter(r -> r.getIsDeleted() == null || r.getIsDeleted() == 0)
-                .orElse(null);
+        Resume resume = resumeMap != null ? resumeMap.get(resumeId)
+                : resumeRepository.findById(resumeId).filter(r -> r.getIsDeleted() == null || r.getIsDeleted() == 0)
+                        .orElse(null);
         if (resume == null) {
             return new String[]{"候选人#" + resumeId, ""};
         }
-        Candidate c = candidateRepository.findById(resume.getCandidateId())
-                .filter(x -> x.getIsDeleted() == null || x.getIsDeleted() == 0)
-                .orElse(null);
+        Candidate c = candidateMap != null ? candidateMap.get(resume.getCandidateId())
+                : candidateRepository.findById(resume.getCandidateId())
+                        .filter(x -> x.getIsDeleted() == null || x.getIsDeleted() == 0)
+                        .orElse(null);
         if (c != null) {
             return new String[]{c.getCandidateName(), c.getCandidateNo() != null ? c.getCandidateNo() : ""};
         }
@@ -799,8 +861,15 @@ public class InterviewService {
     }
 
     private String resolveDemandPosition(Long demandId) {
+        return resolveDemandPosition(demandId, null);
+    }
+
+    private String resolveDemandPosition(Long demandId, Map<Long, String> demandPosMap) {
         if (demandId == null || demandId <= 0) {
             return "岗位#" + demandId;
+        }
+        if (demandPosMap != null) {
+            return demandPosMap.getOrDefault(demandId, "岗位#" + demandId);
         }
         return demandRepository.findById(demandId)
                 .filter(d -> d.getIsDeleted() == null || d.getIsDeleted() == 0)

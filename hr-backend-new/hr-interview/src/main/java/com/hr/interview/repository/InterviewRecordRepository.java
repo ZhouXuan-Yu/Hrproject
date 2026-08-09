@@ -12,4 +12,6 @@ public interface InterviewRecordRepository extends JpaRepository<InterviewRecord
     Optional<InterviewRecord> findFirstByBookIdAndIsDeleted(Long bookId, Integer isDeleted);
 
     List<InterviewRecord> findByBookIdAndIsDeleted(Long bookId, Integer isDeleted);
+
+    List<InterviewRecord> findByBookIdInAndIsDeleted(java.util.Collection<Long> bookIds, Integer isDeleted);
 }
