@@ -296,9 +296,10 @@ public class InterviewService {
                     candidateNo = String.valueOf(body.get("candidate")).trim();
                 }
                 if (!candidateNo.isBlank()) {
+                    String searchNo = candidateNo;
                     Candidate c = candidateRepository.findAll(
                                     (root, query, cb) -> cb.and(
-                                            cb.equal(root.get("candidateNo"), candidateNo),
+                                            cb.equal(root.get("candidateNo"), searchNo),
                                             cb.equal(root.get("isDeleted"), 0)))
                             .stream().findFirst().orElse(null);
                     if (c != null) {

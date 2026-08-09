@@ -145,7 +145,7 @@ public class TalentService {
         m.put("years", (e.getWorkYears() != null ? e.getWorkYears() : 0) + "年");
         m.put("perf", perfLabel(e.getPerfScore()));
         m.put("score", e.getCompositiveScore() != null ? e.getCompositiveScore().doubleValue() : 0);
-        m.put("grade", profileGrade(e.getCompositiveScore()));
+        m.put("grade", profileGrade(e.getCompositiveScore() != null ? e.getCompositiveScore().doubleValue() : 0));
         m.put("transfer", e.getCanTransfer() != null && e.getCanTransfer() == 1);
         m.put("restrictReason", e.getTransferRestrictReason() != null ? e.getTransferRestrictReason() : "");
         m.put("lastPromote", e.getLastPromoteDate() != null ? e.getLastPromoteDate().toString().substring(0, 7) : "—");

@@ -1,0 +1,46 @@
+package com.hr.dashboard.controller;
+
+import com.hr.common.annotation.RequireRole;
+import com.hr.common.dto.ApiResponse;
+import com.hr.common.util.SecurityUtils;
+import com.hr.dashboard.service.DashboardService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+import java.util.Map;
+
+/**
+ * 招聘看板接口 /api/dashboard/*，对齐 Flask api/dashboard.py。
+ */
+@RestController
+@RequestMapping("/api/dashboard")
+@RequiredArgsConstructor
+@RequireRole({"admin", "hr", "dept_head", "director", "employee"})
+public class DashboardController {
+
+    private final DashboardService dashboardService;
+
+    @GetMapping("/kpi")
+    public ApiResponse<List<Map<String, Object>>> kpi() {
+        return ApiResponse.success(dashboardService.getKpi(
+                SecurityUtils.getRoleCode(), SecurityUtils.getUserId()));
+    }
+
+    @GetMapping("/funnel")
+    public ApiResponse<Map<String, Object>> funnel() {
+        return ApiResponse.success(dashboardService.getFunnel());
+    }
+
+    @GetMapping("/dept-progress")
+    public ApiResponse<List<Map<String, Object>>> deptProgress() {
+        return ApiResponse.success(dashboardService.getDeptProgress());
+    }
+
+    @GetMapping("/channel")
+    public ApiResponse<List<Map<String, Object>>> channel() {
+        return ApiResponse.success(dashboardService.getChannel());
+    }
+}
