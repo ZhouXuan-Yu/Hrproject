@@ -40,13 +40,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 Object roleObj = claims.get("role");
                 Object tenantObj = claims.get("tenant_id");
                 if (userIdObj != null && roleObj != null) {
+                    Object deptObj = claims.get("dept_id");
+                    Long deptId = deptObj instanceof Number n ? n.longValue() : null;
                     LoginUser user = LoginUser.of(
                             ((Number) userIdObj).longValue(),
                             String.valueOf(roleObj),
                             tenantObj != null ? ((Number) tenantObj).longValue() : 1L,
                             String.valueOf(claims.getOrDefault("username", "")),
-                            "",
-                            null
+                            String.valueOf(claims.getOrDefault("real_name", "")),
+                            deptId != null && deptId > 0 ? deptId : null
                     );
                     UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
                             user, null, List.of(new SimpleGrantedAuthority("ROLE_" + user.getRoleCode())));

@@ -36,7 +36,8 @@ public class DemandController {
             @RequestParam(required = false) Integer status,
             @RequestParam(required = false) Long deptId) {
         return demandService.listDemands(page, pageSize, keyword, status, deptId,
-                SecurityUtils.getRoleCode(), SecurityUtils.getUserId(), null);
+                SecurityUtils.getRoleCode(), SecurityUtils.getUserId(),
+                SecurityUtils.getCurrentUser() != null ? SecurityUtils.getCurrentUser().getDeptId() : null);
     }
 
     @PostMapping("/create")

@@ -34,7 +34,8 @@ public class TokenProvider {
     /**
      * 签发 JWT。
      */
-    public String createToken(Long userId, String role, Long tenantId, String username, boolean rememberMe) {
+    public String createToken(Long userId, String role, Long tenantId, String username,
+                              String realName, Long deptId, boolean rememberMe) {
         long ttl = rememberMe ? rememberMeSeconds : expiresSeconds;
         Instant now = Instant.now();
         return Jwts.builder()
@@ -43,6 +44,8 @@ public class TokenProvider {
                 .claim("role", role)
                 .claim("tenant_id", tenantId)
                 .claim("username", username)
+                .claim("real_name", realName != null ? realName : "")
+                .claim("dept_id", deptId != null ? deptId : 0L)
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plusSeconds(ttl)))
                 .signWith(key)

@@ -71,7 +71,9 @@ public class AuthService {
         boolean rememberMe = Boolean.TRUE.equals(req.getRememberMe());
         String token = tokenProvider.createToken(
                 user.getUserId(), user.getRoleCode(), 1L,
-                user.getRealName() == null ? username : user.getRealName(),
+                user.getUsername() == null ? username : user.getUsername(),
+                user.getRealName(),
+                user.getDeptId(),
                 rememberMe);
 
         Map<String, Object> userInfo = new HashMap<>();
