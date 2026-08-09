@@ -434,7 +434,7 @@ public class DashboardService {
             fillMonthly(months, interviewQuery.getResultList(), "interviews");
 
             // 每月入职量（无过滤按 hire_event created_at；有过滤按 entry 关联简历，对齐 Flask）
-            var hireQuery;
+            jakarta.persistence.Query hireQuery;
             if (deptId == null && positionId == null) {
                 hireQuery = entityManager.createNativeQuery("""
                         SELECT DATE_FORMAT(e.created_at, '%m') AS m, COUNT(DISTINCT e.id)
@@ -443,7 +443,7 @@ public class DashboardService {
                         GROUP BY DATE_FORMAT(e.created_at, '%m')""")
                         .setParameter("y", y);
             } else {
-                var hq = entityManager.createNativeQuery("""
+                hireQuery = entityManager.createNativeQuery("""
                         SELECT DATE_FORMAT(e.created_at, '%m') AS m, COUNT(DISTINCT e.id)
                         FROM t_hr_entry e
                         JOIN t_hr_resume r ON r.id = e.resume_id AND r.is_deleted = 0
@@ -451,9 +451,8 @@ public class DashboardService {
                         """ + demandFilterSql + """
                         GROUP BY DATE_FORMAT(e.created_at, '%m')""")
                         .setParameter("y", y);
-                if (deptId != null) hq.setParameter("f_dept", deptId);
-                if (positionId != null) hq.setParameter("f_pos", positionId);
-                hireQuery = hq;
+                if (deptId != null) hireQuery.setParameter("f_dept", deptId);
+                if (positionId != null) hireQuery.setParameter("f_pos", positionId);
             }
             fillMonthly(months, hireQuery.getResultList(), "hires");
 

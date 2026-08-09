@@ -18,6 +18,8 @@ import com.hr.config.repository.RecruitChannelRepository;
 import com.hr.config.repository.RecruitMailAccountRepository;
 import com.hr.config.repository.ScoreRuleRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 

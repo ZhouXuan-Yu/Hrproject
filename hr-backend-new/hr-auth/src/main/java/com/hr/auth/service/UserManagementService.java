@@ -87,8 +87,8 @@ public class UserManagementService {
         u.setMustChangePassword(1);
         u.setStatus(1);
         u.setIsDeleted(0);
-        u.setCreatedAt(LocalDateTime.now());
-        u.setUpdatedAt(LocalDateTime.now());
+        u.setCreateTime(LocalDateTime.now());
+        u.setUpdateTime(LocalDateTime.now());
         userRepository.save(u);
 
         Map<String, Object> m = userToMap(u);
@@ -125,7 +125,7 @@ public class UserManagementService {
             }
             u.setMobile(mobile.isEmpty() ? null : mobile);
         }
-        u.setUpdatedAt(LocalDateTime.now());
+        u.setUpdateTime(LocalDateTime.now());
         userRepository.save(u);
         return userToMap(u);
     }
@@ -134,7 +134,7 @@ public class UserManagementService {
     public Map<String, Object> toggleUserStatus(Long userId) {
         IamUser u = getActiveUser(userId);
         u.setStatus(u.getStatus() != null && u.getStatus() == 1 ? 0 : 1);
-        u.setUpdatedAt(LocalDateTime.now());
+        u.setUpdateTime(LocalDateTime.now());
         userRepository.save(u);
         return userToMap(u);
     }
@@ -144,7 +144,7 @@ public class UserManagementService {
         IamUser u = getActiveUser(userId);
         u.setIsDeleted(1);
         u.setStatus(0);
-        u.setUpdatedAt(LocalDateTime.now());
+        u.setUpdateTime(LocalDateTime.now());
         userRepository.save(u);
     }
 
@@ -154,7 +154,7 @@ public class UserManagementService {
         u.setPasswordHash(werkzeugScrypt("123456"));
         u.setMustChangePassword(1);
         u.setPasswordUpdatedAt(LocalDateTime.now());
-        u.setUpdatedAt(LocalDateTime.now());
+        u.setUpdateTime(LocalDateTime.now());
         userRepository.save(u);
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("reset", true);
@@ -180,7 +180,7 @@ public class UserManagementService {
         u.setPasswordHash(werkzeugScrypt(newPwd));
         u.setMustChangePassword(0);
         u.setPasswordUpdatedAt(LocalDateTime.now());
-        u.setUpdatedAt(LocalDateTime.now());
+        u.setUpdateTime(LocalDateTime.now());
         userRepository.save(u);
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("changed", true);
