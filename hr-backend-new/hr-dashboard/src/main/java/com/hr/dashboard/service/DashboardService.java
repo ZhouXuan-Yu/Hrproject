@@ -270,11 +270,14 @@ public class DashboardService {
 
     // ── 私有工具 ──────────────────────────────────────────────
 
-    private long count(String sql, Object... params) {
+    private long count(String sql) {
+        Object r = entityManager.createNativeQuery(sql).getSingleResult();
+        return r != null ? ((Number) r).longValue() : 0L;
+    }
+
+    private long count(String sql, Map<String, Object> params) {
         var q = entityManager.createNativeQuery(sql);
-        for (int i = 0; i < params.length; i++) {
-            q.setParameter(i + 1, params[i]);
-        }
+        params.forEach(q::setParameter);
         Object r = q.getSingleResult();
         return r != null ? ((Number) r).longValue() : 0L;
     }
