@@ -204,8 +204,6 @@ def create_vc_meeting(topic: str, start_time: str, duration_minutes: int = 60) -
             "end_time": end_time,
             "meeting_settings": {
                 "topic": topic,
-                "start_time": start_time,
-                "duration": duration_minutes,
                 "action_permissions": [],
                 "meeting_initial_type": 1,
             },
@@ -218,7 +216,8 @@ def create_vc_meeting(topic: str, start_time: str, duration_minutes: int = 60) -
 
     data = body.get("data", {}) or {}
     reserve = data.get("reserve", {}) or {}
-    meeting_url = reserve.get("meeting_link") or reserve.get("url")
+    # 文档：响应字段为 url（入会链接）/ meeting_no（会议号）；旧代码误用 meeting_link
+    meeting_url = reserve.get("url") or reserve.get("meeting_link") or ""
     meeting_code = reserve.get("meeting_no") or str(reserve.get("id", ""))
     if not meeting_url:
         raise RuntimeError(f"vc reserves/apply returned no meeting link: {data}")
