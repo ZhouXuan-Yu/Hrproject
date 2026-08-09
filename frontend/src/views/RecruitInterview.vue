@@ -186,6 +186,9 @@
                 {{ item.method }}
                 <svg viewBox="0 0 24 24" class="meeting-link-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
               </a>
+              <template v-else-if="item.meetingCode || item.meetingPwd">
+                <span class="meeting-link-text" :title="'会议号 ' + (item.meetingCode || '') + ' · 密码 ' + (item.meetingPwd || '')">{{ item.method }}（{{ item.meetingCode || item.meetingPwd }}）</span>
+              </template>
               <template v-else>{{ item.method }}</template>
             </td>
             <td><StatusBadge :type="STATUS_TYPE_MAP[item.status]">{{ item.statusLabel }}</StatusBadge>
@@ -223,6 +226,9 @@
                 {{ item.method }}
                 <svg viewBox="0 0 24 24" class="meeting-link-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
               </a>
+              <template v-else-if="item.meetingCode || item.meetingPwd">
+                <span class="meeting-link-text" :title="'会议号 ' + (item.meetingCode || '') + ' · 密码 ' + (item.meetingPwd || '')">{{ item.method }}（{{ item.meetingCode || item.meetingPwd }}）</span>
+              </template>
               <template v-else>{{ item.method }}</template>
             </td>
             <td><StatusBadge :type="STATUS_TYPE_MAP[item.status]">{{ item.statusLabel }}</StatusBadge>

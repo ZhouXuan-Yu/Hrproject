@@ -2,6 +2,7 @@ package com.hr.integration.feishu;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -25,10 +26,13 @@ import java.util.concurrent.TimeUnit;
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class FeishuClient {
 
     private static final String API_BASE = "https://open.feishu.cn/open-apis";
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
+
+    private final ConfigCredentials configCredentials;
 
     private final OkHttpClient http = new OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
@@ -55,14 +59,14 @@ public class FeishuClient {
         if (appId != null && !appId.isBlank()) {
             return appId;
         }
-        return ConfigCredentials.get("feishu_app_id");
+        return configCredentials.get("feishu_app_id");
     }
 
     private String getAppSecret() {
         if (appSecret != null && !appSecret.isBlank()) {
             return appSecret;
         }
-        return ConfigCredentials.get("feishu");
+        return configCredentials.get("feishu");
     }
 
     /**
