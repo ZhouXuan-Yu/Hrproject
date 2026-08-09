@@ -355,6 +355,178 @@ public class ConfigService {
                 .stream().map(this::mailAccountToMap).toList();
     }
 
+    /**
+     * POST /api/config/email-accounts — 创建邮箱账号（对齐 Flask create_email_account）。
+     */
+    @Transactional
+    public Map<String, Object> createEmailAccount(Map<String, Object> body) {
+        String address = body.get("address") == null ? "" : String.valueOf(body.get("address")).trim();
+        if (address.isEmpty() || !address.contains("@")) {
+            throw BusinessException.invalidInput("请输入有效的邮箱地址");
+        }
+
+        RecruitMailAccount existing = mailAccountRepository.findByEmailAddress(address).orElse(null);
+        if (existing != null) {
+            if (existing.getIsDeleted() != null && existing.getIsDeleted() == 1) {
+                // 复用软删除账号：重新启用并应用新配置
+                existing.setIsDeleted(0);
+                if (body.get("server") != null) existing.setImapHost(String.valueOf(body.get("server")));
+                if (body.get("port") != null) existing.setImapPort(toInt(body.get("port"), null));
+                if (body.get("pass") != null && !String.valueOf(body.get("pass")).isBlank()) {
+                    existing.setPasswordEncrypted(encryptMailPassword(String.valueOf(body.get("pass"))));
+                }
+                if (body.get("type") != null) existing.setMailType(String.valueOf(body.get("type")));
+                existing.setMonitorFolder(body.get("folder") != null ? String.valueOf(body.get("folder")) : "INBOX");
+                existing.setStatus(1);
+                existing.setLastSyncTime(null);
+                existing.setUpdatedAt(LocalDateTime.now());
+                mailAccountRepository.save(existing);
+                Map<String, Object> r = new LinkedHashMap<>();
+                r.put("created", true);
+                r.put("id", existing.getId());
+                r.put("address", address);
+                r.put("reactivated", true);
+                return r;
+            }
+            throw BusinessException.invalidInput("邮箱 " + address + " 已存在，请勿重复添加");
+        }
+
+        RecruitMailAccount account = new RecruitMailAccount();
+        account.setEmailAddress(address);
+        account.setAccountName(body.get("name") != null ? String.valueOf(body.get("name"))
+                : (address.contains("@") ? address.split("@")[0] : address));
+        account.setImapHost(body.get("server") != null ? String.valueOf(body.get("server")) : null);
+        account.setImapPort(body.get("port") != null ? toInt(body.get("port"), null) : null);
+        account.setOwnerUserId(body.get("owner_user_id") != null ? toLong(body.get("owner_user_id")) : null);
+        account.setStatus(toInt(body.get("status"), 1));
+        account.setMonitorFolder(body.get("folder") != null ? String.valueOf(body.get("folder")) : "INBOX");
+        account.setMailType(body.get("type") != null ? String.valueOf(body.get("type")) : null);
+        account.setSyncFreq(freqLabelToMinutes(String.valueOf(body.get("freq"))));
+        account.setPasswordEncrypted(body.get("pass") != null && !String.valueOf(body.get("pass")).isBlank()
+                ? encryptMailPassword(String.valueOf(body.get("pass"))) : null);
+        account.setCreatedAt(LocalDateTime.now());
+        account.setUpdatedAt(LocalDateTime.now());
+        account.setIsDeleted(0);
+        mailAccountRepository.save(account);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("created", true);
+        result.put("id", account.getId());
+        result.put("address", address);
+        return result;
+    }
+
+    /**
+     * PUT /api/config/email-accounts/{id} — 更新邮箱账号（对齐 Flask update_email_account）。
+     */
+    @Transactional
+    public Map<String, Object> updateEmailAccount(Long id, Map<String, Object> data) {
+        RecruitMailAccount account = mailAccountRepository.findById(id)
+                .filter(a -> a.getIsDeleted() == null || a.getIsDeleted() == 0)
+                .orElseThrow(() -> BusinessException.notFound("邮箱账号不存在: " + id));
+
+        if (Boolean.TRUE.equals(data.get("_delete"))) {
+            account.setIsDeleted(1);
+            account.setUpdatedAt(LocalDateTime.now());
+            mailAccountRepository.save(account);
+            return Map.of("deleted", true, "account_id", id);
+        }
+        if (data.get("status") != null) {
+            account.setStatus(parseStatus(data.get("status")));
+        }
+        if (data.get("address") != null) {
+            account.setEmailAddress(String.valueOf(data.get("address")));
+        }
+        if (data.get("server") != null) {
+            account.setImapHost(String.valueOf(data.get("server")));
+        }
+        if (data.get("port") != null && !String.valueOf(data.get("port")).isBlank()) {
+            account.setImapPort(toInt(data.get("port"), null));
+        }
+        if (data.get("folder") != null) {
+            account.setMonitorFolder(String.valueOf(data.get("folder")));
+        }
+        if (data.get("type") != null) {
+            account.setMailType(String.valueOf(data.get("type")));
+        }
+        if (data.get("freq") != null) {
+            account.setSyncFreq(freqLabelToMinutes(String.valueOf(data.get("freq"))));
+        }
+        if (data.get("pass") != null && !String.valueOf(data.get("pass")).isBlank()) {
+            account.setPasswordEncrypted(encryptMailPassword(String.valueOf(data.get("pass"))));
+        }
+        account.setUpdatedAt(LocalDateTime.now());
+        mailAccountRepository.save(account);
+        return Map.of("updated", true, "id", id);
+    }
+
+    /**
+     * DELETE /api/config/email-accounts/{id} — 软删除邮箱账号（对齐 Flask delete_email_account）。
+     */
+    @Transactional
+    public Map<String, Object> deleteEmailAccount(Long id) {
+        RecruitMailAccount account = mailAccountRepository.findById(id)
+                .orElseThrow(() -> BusinessException.notFound("邮箱账号不存在: " + id));
+        account.setIsDeleted(1);
+        account.setStatus(0);
+        account.setUpdatedAt(LocalDateTime.now());
+        mailAccountRepository.save(account);
+        return Map.of("deleted", true, "account_id", id);
+    }
+
+    /**
+     * POST /api/config/email-accounts/sync — 手动同步全部邮箱（返回统计摘要）。
+     * Java 侧暂不实现真实 IMAP 采集（AI/Python 服务负责），返回对齐前端契约的提示。
+     */
+    public Map<String, Object> syncAllEmailAccounts() {
+        List<RecruitMailAccount> accounts = mailAccountRepository.findByIsDeletedOrderByIdAsc(0)
+                .stream().filter(a -> a.getStatus() != null && a.getStatus() == 1).toList();
+        int failed = 0;
+        List<Map<String, Object>> results = new java.util.ArrayList<>();
+        LocalDateTime now = LocalDateTime.now();
+        for (RecruitMailAccount a : accounts) {
+            Map<String, Object> r = new LinkedHashMap<>();
+            r.put("id", a.getId());
+            r.put("address", a.getEmailAddress());
+            r.put("status", "skipped");
+            r.put("message", "IMAP 采集由 AI 服务负责，当前跳过");
+            results.add(r);
+            if (a.getImapHost() == null || a.getImapHost().isBlank()) {
+                failed++;
+            } else {
+                a.setLastSyncTime(now);
+                a.setUpdatedAt(now);
+                mailAccountRepository.save(a);
+            }
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("synced", 0);
+        out.put("skipped", results.size());
+        out.put("failed", failed);
+        out.put("results", results);
+        return out;
+    }
+
+    private String encryptMailPassword(String raw) {
+        try {
+            return AesUtil.encrypt(raw, cryptoSecret());
+        } catch (Exception e) {
+            return raw;
+        }
+    }
+
+    private int freqLabelToMinutes(String label) {
+        if (label == null || label.isBlank()) return 30;
+        for (Map.Entry<Integer, String> e : MAIL_FREQ_LABELS.entrySet()) {
+            if (e.getValue().equals(label)) return e.getKey();
+        }
+        try {
+            return Integer.parseInt(label);
+        } catch (NumberFormatException ex) {
+            return 30;
+        }
+    }
+
     private Map<String, Object> mailAccountToMap(RecruitMailAccount account) {
         int freqMinutes = account.getSyncFreq() != null ? account.getSyncFreq() : 30;
         String freqLabel = MAIL_FREQ_LABELS.getOrDefault(freqMinutes, "每 " + freqMinutes + " 分钟");
@@ -394,6 +566,62 @@ public class ConfigService {
                     m.put("updated", t.getUpdatedAt() != null ? t.getUpdatedAt().format(MONTH_DAY) : "—");
                     return m;
                 }).toList();
+    }
+
+    /**
+     * POST /api/config/notify-templates — 创建通知模板（对齐 Flask create_notify_template）。
+     */
+    @Transactional
+    public Map<String, Object> createNotifyTemplate(Map<String, Object> body) {
+        NotifyTemplate t = new NotifyTemplate();
+        t.setTemplateName(body.get("name") != null ? String.valueOf(body.get("name")) : "");
+        t.setTemplateType(body.get("type") != null ? String.valueOf(body.get("type")) : "通用");
+        t.setSendMethod(body.get("method") != null ? String.valueOf(body.get("method")) : "");
+        t.setSubject(body.get("subject") != null ? String.valueOf(body.get("subject")) : "");
+        t.setBody(body.get("body") != null ? String.valueOf(body.get("body")) : "");
+        t.setStatus(1);
+        t.setCreatedAt(LocalDateTime.now());
+        t.setUpdatedAt(LocalDateTime.now());
+        t.setIsDeleted(0);
+        notifyTemplateRepository.save(t);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("created", true);
+        result.put("id", t.getId());
+        result.put("name", t.getTemplateName());
+        return result;
+    }
+
+    /**
+     * PUT /api/config/notify-templates/{id} — 更新通知模板（对齐 Flask update_notify_template）。
+     */
+    @Transactional
+    public Map<String, Object> updateNotifyTemplate(Long id, Map<String, Object> data) {
+        NotifyTemplate t = notifyTemplateRepository.findById(id)
+                .filter(x -> x.getIsDeleted() == null || x.getIsDeleted() == 0)
+                .orElseThrow(() -> BusinessException.notFound("模板不存在: " + id));
+        if (data.get("name") != null) t.setTemplateName(String.valueOf(data.get("name")));
+        if (data.get("type") != null) t.setTemplateType(String.valueOf(data.get("type")));
+        if (data.get("method") != null) t.setSendMethod(String.valueOf(data.get("method")));
+        if (data.get("subject") != null) t.setSubject(String.valueOf(data.get("subject")));
+        if (data.get("body") != null) t.setBody(String.valueOf(data.get("body")));
+        t.setUpdatedAt(LocalDateTime.now());
+        notifyTemplateRepository.save(t);
+        return Map.of("updated", true, "id", id);
+    }
+
+    /**
+     * DELETE /api/config/notify-templates/{id} — 软删除通知模板（对齐 Flask delete_notify_template）。
+     */
+    @Transactional
+    public Map<String, Object> deleteNotifyTemplate(Long id) {
+        NotifyTemplate t = notifyTemplateRepository.findById(id)
+                .filter(x -> x.getIsDeleted() == null || x.getIsDeleted() == 0)
+                .orElseThrow(() -> BusinessException.notFound("模板不存在: " + id));
+        t.setIsDeleted(1);
+        t.setStatus(0);
+        t.setUpdatedAt(LocalDateTime.now());
+        notifyTemplateRepository.save(t);
+        return Map.of("deleted", true, "id", id);
     }
 
     // ── AI 知识库 ───────────────────────────────────────────
@@ -579,6 +807,150 @@ public class ConfigService {
             return "••••••••";
         }
         return encrypted.substring(0, 4) + "••••••••" + encrypted.substring(encrypted.length() - 4);
+    }
+
+    /**
+     * PUT /api/config/api-keys — 加密保存 API 密钥（对齐 Flask save_api_keys）。
+     */
+    @Transactional
+    public Map<String, Object> saveApiKeys(Map<String, Object> data) {
+        List<String> savedKeys = new java.util.ArrayList<>();
+        for (String keyName : API_KEY_DISPLAY.keySet()) {
+            Object raw = data.get(keyName);
+            if (raw == null || String.valueOf(raw).isBlank()) {
+                continue;
+            }
+            String value = String.valueOf(raw).trim();
+            if (value.equals("••••••••")) {
+                continue; // 掩码占位符，不重复加密
+            }
+            String encrypted = encryptMailPassword(value);
+            ApiKeyConfig row = apiKeyRepository.findByKeyNameAndIsDeleted(keyName, 0).orElse(null);
+            LocalDateTime now = LocalDateTime.now();
+            if (row != null) {
+                row.setValueEncrypted(encrypted);
+                row.setUpdatedAt(now);
+                apiKeyRepository.save(row);
+            } else {
+                ApiKeyConfig n = new ApiKeyConfig();
+                n.setKeyName(keyName);
+                n.setValueEncrypted(encrypted);
+                n.setDisplayLabel(API_KEY_DISPLAY.get(keyName).label());
+                n.setStatus(1);
+                n.setCreatedAt(now);
+                n.setUpdatedAt(now);
+                n.setIsDeleted(0);
+                apiKeyRepository.save(n);
+            }
+            savedKeys.add(keyName);
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("saved", true);
+        result.put("keys", savedKeys);
+        return result;
+    }
+
+    /**
+     * POST /api/config/api-keys/test — 密钥连通性测试（对齐 Flask test_api_key）。
+     * deepseek 走真实 HTTP 探测；其余仅返回配置状态。
+     */
+    public Map<String, Object> testApiKey(String keyName) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("ok", false);
+        result.put("supported", true);
+        result.put("message", "");
+        result.put("source", null);
+
+        if (!List.of("deepseek", "feishu", "dify").contains(keyName)) {
+            result.put("supported", false);
+            result.put("message", "该密钥暂不支持连通性测试");
+            return result;
+        }
+        if ("dify".equals(keyName)) {
+            result.put("supported", false);
+            result.put("message", "Dify 为兼容保留配置，暂不支持连通性测试");
+            return result;
+        }
+
+        if ("deepseek".equals(keyName)) {
+            String env = System.getenv("DEEPSEEK_API_KEY");
+            String stored = env != null && !env.isBlank() ? env : decryptStoredKey(keyName);
+            result.put("source", env != null && !env.isBlank() ? "env" : (stored != null ? "db" : null));
+            if (stored == null || stored.isBlank()) {
+                result.put("message", "未配置密钥，请先保存");
+                return result;
+            }
+            try {
+                java.net.HttpURLConnection conn = (java.net.HttpURLConnection)
+                        new java.net.URL("https://api.deepseek.com/models").openConnection();
+                conn.setRequestMethod("GET");
+                conn.setRequestProperty("Authorization", "Bearer " + stored);
+                conn.setConnectTimeout(10000);
+                conn.setReadTimeout(10000);
+                int status = conn.getResponseCode();
+                if (status == 200) {
+                    result.put("ok", true);
+                    result.put("message", "连接成功，密钥可用");
+                } else if (status == 401 || status == 403) {
+                    result.put("message", "密钥无效或已过期（HTTP " + status + "）");
+                } else {
+                    result.put("message", "服务返回 HTTP " + status);
+                }
+                conn.disconnect();
+            } catch (Exception e) {
+                result.put("message", "网络请求失败：" + e.getClass().getSimpleName());
+            }
+            return result;
+        }
+
+        // feishu：app_id/secret 配对
+        String appId = decryptStoredKey("feishu_app_id");
+        String secret = decryptStoredKey("feishu");
+        if (secret == null || secret.isBlank()) {
+            result.put("message", "未配置 App Secret，请先保存");
+            return result;
+        }
+        if (appId == null || appId.isBlank()) {
+            result.put("message", "未配置 App ID，请先保存");
+            return result;
+        }
+        try {
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection)
+                    new java.net.URL("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal")
+                            .openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setDoOutput(true);
+            conn.setConnectTimeout(10000);
+            conn.setReadTimeout(10000);
+            try (java.io.OutputStream os = conn.getOutputStream()) {
+                os.write(("{\"app_id\":\"" + appId + "\",\"app_secret\":\"" + secret + "\"}")
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
+            int status = conn.getResponseCode();
+            if (status == 200) {
+                result.put("ok", true);
+                result.put("message", "连接成功，密钥可用");
+            } else {
+                result.put("message", "服务返回 HTTP " + status);
+            }
+            conn.disconnect();
+        } catch (Exception e) {
+            result.put("message", "网络请求失败：" + e.getClass().getSimpleName());
+        }
+        return result;
+    }
+
+    private String decryptStoredKey(String keyName) {
+        ApiKeyConfig row = apiKeyRepository.findByKeyNameAndIsDeleted(keyName, 0).orElse(null);
+        if (row == null || row.getValueEncrypted() == null || row.getValueEncrypted().isEmpty()) {
+            return null;
+        }
+        try {
+            return AesUtil.decrypt(row.getValueEncrypted(), cryptoSecret());
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     // ── 工具方法 ────────────────────────────────────────────

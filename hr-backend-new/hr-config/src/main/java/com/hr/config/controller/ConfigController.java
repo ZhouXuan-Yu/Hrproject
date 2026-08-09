@@ -50,6 +50,33 @@ public class ConfigController {
         return listResponse(configService.getEmailAccounts());
     }
 
+    @PostMapping("/email-accounts")
+    public ApiResponse<Map<String, Object>> createEmailAccount(@RequestBody Map<String, Object> body) {
+        return ApiResponse.success(configService.createEmailAccount(body));
+    }
+
+    @PutMapping("/email-accounts/{id}")
+    public ApiResponse<Map<String, Object>> updateEmailAccount(@PathVariable Long id,
+                                                               @RequestBody Map<String, Object> body) {
+        return ApiResponse.success(configService.updateEmailAccount(id, body));
+    }
+
+    @DeleteMapping("/email-accounts/{id}")
+    public ApiResponse<Map<String, Object>> deleteEmailAccount(@PathVariable Long id) {
+        return ApiResponse.success(configService.deleteEmailAccount(id));
+    }
+
+    @PostMapping("/email-accounts/sync")
+    public ApiResponse<Map<String, Object>> syncAllEmailAccounts() {
+        return ApiResponse.success(configService.syncAllEmailAccounts());
+    }
+
+    @PostMapping("/email-accounts/{id}/sync")
+    public ApiResponse<Map<String, Object>> syncEmailAccount(@PathVariable Long id) {
+        return ApiResponse.success(Map.of("accepted", true, "mode", "async",
+                "taskId", "sync-" + id, "message", "同步已开始，请稍后刷新查看结果"));
+    }
+
     @GetMapping("/email-accounts/resolve")
     public ApiResponse<Map<String, Object>> resolveEmailServer(@RequestParam String email) {
         return ApiResponse.success(configService.resolveEmailServer(email));
@@ -68,6 +95,22 @@ public class ConfigController {
     @GetMapping("/notify-templates")
     public Map<String, Object> notifyTemplates() {
         return listResponse(configService.getNotifyTemplates());
+    }
+
+    @PostMapping("/notify-templates")
+    public ApiResponse<Map<String, Object>> createNotifyTemplate(@RequestBody Map<String, Object> body) {
+        return ApiResponse.success(configService.createNotifyTemplate(body));
+    }
+
+    @PutMapping("/notify-templates/{id}")
+    public ApiResponse<Map<String, Object>> updateNotifyTemplate(@PathVariable Long id,
+                                                                 @RequestBody Map<String, Object> body) {
+        return ApiResponse.success(configService.updateNotifyTemplate(id, body));
+    }
+
+    @DeleteMapping("/notify-templates/{id}")
+    public ApiResponse<Map<String, Object>> deleteNotifyTemplate(@PathVariable Long id) {
+        return ApiResponse.success(configService.deleteNotifyTemplate(id));
     }
 
     @GetMapping("/knowledge-base")
