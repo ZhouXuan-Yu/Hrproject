@@ -1,0 +1,53 @@
+-- ============================================================
+-- V1__baseline.sql
+-- 智能招聘系统 · 数据库基线
+--
+-- 说明：
+--  1. 现有数据库已通过 Flyway baseline-on-migrate 标记，本脚本仅作记录
+--  2. 若在全新数据库上部署，需要先执行现有 Flask 后端的完整建表 DDL
+--  3. 以下列出数据库的 27 张业务表，供参考
+-- ============================================================
+
+-- IAM 底座（外部系统提供，只读引用）
+-- t_core_dept      组织部门表
+-- t_core_position  岗位表
+-- t_core_user      系统用户表
+
+-- 基础设施
+-- files            全局附件文件表
+-- t_hr_tag_dict    标签字典表
+-- t_hr_recruit_channel  招聘渠道字典表
+
+-- 招聘核心
+-- t_hr_dept_hc                部门编制表
+-- t_hr_recruit_demand         招聘需求主表
+-- t_hr_demand_approval        需求审批流水表
+-- t_hr_candidate              外部候选人档案表
+-- t_hr_resume                 外部简历信息表
+-- t_hr_candidate_tag_rel      候选人-标签关联表
+-- t_hr_recruit_process        简历招聘流程表
+-- t_hr_score_rule             打分规则表
+-- t_hr_resume_match           简历岗位匹配记录表
+-- t_hr_internal_match_log     内部员工匹配日志表
+-- t_hr_search_log             检索日志表
+-- t_hr_interview_slot         面试时段表
+-- t_hr_interview_book         面试预约表
+-- t_hr_interview_record       面试评价记录表
+-- t_hr_hire_event             录用事件表
+-- t_hr_offer                  Offer 发放表
+-- t_hr_offer_remind_log       Offer 提醒日志表
+-- t_hr_entry                  入职登记表
+
+-- 辅助
+-- t_hr_recruit_mail_account   简历采集邮箱配置表
+-- t_hr_chat_log               AI 对话日志表
+-- t_hr_notify_template         通知模板表
+-- t_hr_audit_log               操作审计日志表
+-- t_hr_api_key                 API 密钥表（AES-256-GCM 加密存储）
+-- t_hr_ai_knowledge_base       AI 知识库上下文表
+-- t_hr_role_menu_permission    角色菜单权限表
+-- t_hr_password_reset          密码重置令牌表
+-- t_hr_approval_identity       审批身份映射表
+-- t_hr_mail_log                邮件发送日志表
+-- t_hr_employee                内部员工档案表
+-- t_hr_employee_tag_rel        员工-标签关联表

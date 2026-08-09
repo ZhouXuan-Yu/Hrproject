@@ -1,0 +1,49 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: hr-redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  hr-business:
+    build: .
+    container_name: hr-business
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+      - DATABASE_URL=jdbc:mysql://host.docker.internal:3306/hr_recruitment_db?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+      - DATABASE_USER=hr_recruitment
+      - DATABASE_PASSWORD=${DATABASE_PASSWORD:-hr_recruitment_123}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-me-jwt-secret-please-override}
+      - PASSWORD_SALT=${PASSWORD_SALT:-default-salt-change-me}
+      - AI_SERVICE_URL=http://hr-ai:8100
+    depends_on:
+      redis:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  hr-ai:
+    build: ./hr-ai-service
+    container_name: hr-ai
+    ports:
+      - "8100:8100"
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - DEEPSEEK_BASE_URL=https://api.deepseek.com
+      - DEEPSEEK_MODEL=deepseek-chat
+      - AI_SERVICE_PORT=8100
+
+volumes:
+  redis-data:

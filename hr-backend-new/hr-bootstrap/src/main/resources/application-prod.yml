@@ -1,0 +1,15 @@
+spring:
+  datasource:
+    url: ${DATABASE_URL:jdbc:mysql://127.0.0.1:3306/hr_recruit?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
+    username: ${DATABASE_USER:root}
+    password: ${DATABASE_PASSWORD:}
+  jpa:
+    hibernate:
+      ddl-auto: none
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+
+logging:
+  level:
+    com.hr: INFO
