@@ -3,6 +3,7 @@ package com.hr.config.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hr.common.exception.BusinessException;
+import com.hr.common.util.AesUtil;
 import com.hr.config.entity.AiKnowledgeBase;
 import com.hr.config.entity.ApiKeyConfig;
 import com.hr.config.entity.AuditLog;
@@ -102,6 +103,12 @@ public class ConfigService {
         API_KEY_DISPLAY.put("tencent_secretid", new ApiKeyDisplay("腾讯会议 SecretId", "腾讯会议开放平台 SecretId", null, null));
         API_KEY_DISPLAY.put("tencent_secretkey", new ApiKeyDisplay("腾讯会议 SecretKey", "腾讯会议开放平台 SecretKey（加密存储）", null, null));
         API_KEY_DISPLAY.put("tencent_userid", new ApiKeyDisplay("腾讯会议主持人 UserID", "创建会议时的主持人 userid（必填）", null, null));
+    }
+
+    /** AES 加密密钥：优先环境变量，其次固定默认值（对齐 Flask SECRET_KEY）。 */
+    private String cryptoSecret() {
+        String env = System.getenv("PASSWORD_SALT");
+        return (env != null && !env.isBlank()) ? env : "default-salt-change-me";
     }
 
     // ── 渠道 ────────────────────────────────────────────────

@@ -68,4 +68,24 @@ public class AuthController {
         }
         return authService.me(userId);
     }
+
+    @PostMapping("/forgot-password")
+    public ApiResponse<Map<String, Object>> forgotPassword(@RequestBody(required = false) Map<String, Object> body) {
+        return ApiResponse.success(authService.forgotPassword(body));
+    }
+
+    @PostMapping("/verify-reset-code")
+    public ApiResponse<Map<String, Object>> verifyResetCode(@RequestBody(required = false) Map<String, Object> body) {
+        return ApiResponse.success(authService.verifyResetCode(body));
+    }
+
+    @GetMapping("/setup-status")
+    public ApiResponse<Map<String, Object>> setupStatus() {
+        return ApiResponse.success(authService.setupStatus());
+    }
+
+    @PostMapping("/setup")
+    public ApiResponse<Map<String, Object>> setup(@RequestBody(required = false) Map<String, Object> body) {
+        return ApiResponse.success(authService.firstTimeSetup(body));
+    }
 }

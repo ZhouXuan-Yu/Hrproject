@@ -260,7 +260,6 @@ public class AuthService {
         user.setCreateTime(LocalDateTime.now());
         user.setUpdateTime(LocalDateTime.now());
         userRepository.save(user);
-
         Map<String, Object> userInfo = new HashMap<>();
         userInfo.put("username", username);
         userInfo.put("realName", realName);
@@ -292,8 +291,8 @@ public class AuthService {
         token.setStatus("pending");
         token.setExpiresAt(LocalDateTime.now().plusMinutes(5));
         token.setIsDeleted(0);
-        token.setCreateTime(LocalDateTime.now());
-        token.setUpdateTime(LocalDateTime.now());
+        token.setCreatedAt(LocalDateTime.now());
+        token.setUpdatedAt(LocalDateTime.now());
         resetTokenRepository.save(token);
     }
 
