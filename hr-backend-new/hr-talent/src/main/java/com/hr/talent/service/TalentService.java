@@ -9,28 +9,43 @@ import com.hr.auth.repository.IamDeptRepository;
 import com.hr.auth.repository.IamPositionRepository;
 import com.hr.auth.repository.IamUserRepository;
 import com.hr.common.exception.BusinessException;
+import com.hr.common.util.SecurityUtils;
 import com.hr.talent.entity.Candidate;
 import com.hr.talent.entity.Employee;
+import com.hr.talent.entity.FileEntity;
+import com.hr.talent.entity.RecruitProcess;
 import com.hr.talent.entity.Resume;
+import com.hr.talent.entity.ResumeMatch;
 import com.hr.talent.repository.CandidateRepository;
 import com.hr.talent.repository.EmployeeRepository;
+import com.hr.talent.repository.FileEntityRepository;
+import com.hr.talent.repository.RecruitProcessRepository;
+import com.hr.talent.repository.ResumeMatchRepository;
 import com.hr.talent.repository.ResumeRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import jakarta.persistence.criteria.Predicate;
 import java.math.BigDecimal;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * 人才库服务，对齐 Flask talent_service.py 核心逻辑。
@@ -56,7 +71,11 @@ public class TalentService {
     private final IamUserRepository iamUserRepository;
     private final IamDeptRepository iamDeptRepository;
     private final IamPositionRepository iamPositionRepository;
+    private final RecruitProcessRepository recruitProcessRepository;
+    private final ResumeMatchRepository resumeMatchRepository;
+    private final FileEntityRepository fileEntityRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private static final String UPLOAD_DIR = System.getProperty("user.dir") + "/uploads";
 
     /**
      * 候选人列表（分页 + keyword + status 筛选）。
