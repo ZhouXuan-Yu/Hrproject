@@ -18,4 +18,7 @@ public interface IamUserRepository extends JpaRepository<IamUser, Long>, JpaSpec
     List<IamUser> findByRoleCodeAndStatusAndIsDeleted(String roleCode, Integer status, Integer isDeleted);
 
     List<IamUser> findByStatusAndIsDeleted(Integer status, Integer isDeleted);
+
+    @org.springframework.data.jpa.repository.Query("SELECT COALESCE(MAX(u.userId), 0) FROM IamUser u")
+    Long maxUserId();
 }

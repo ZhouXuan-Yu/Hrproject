@@ -76,6 +76,9 @@ public class UserManagementService {
 
         String password = "123456";
         IamUser u = new IamUser();
+        // user_id 为业务主键（t_core_user.id 是自增物理主键），手动分配 max+1，对齐 Flask
+        Long maxId = userRepository.maxUserId();
+        u.setUserId(maxId != null ? maxId + 1 : 3001L);
         u.setEmployeeNo(employeeNo);
         u.setUsername(employeeNo);
         u.setRealName(realName);
@@ -406,14 +409,24 @@ public class UserManagementService {
         return m;
     }
 
-    /** werkzeug generate_password_hash 兼容的 scrypt 哈希（werkzeug 默认 n=16384 r=8 p=1 dklen=64，salt 明文 + hash hex）。 */
+    /** werkzeug generate_password_hash 兼容的 scrypt 哈希（werkzeug 默认 n=32768 r=8 p=1，盐为 ASCII hex 字符，哈希 hex）。 */
     public static String werkzeugScrypt(String password) {
-        byte[] salt = new byte[16];
-        SECURE_RANDOM.nextBytes(salt);
+        byte[] rawSalt = new byte[8];
+        SECURE_RANDOM.nextBytes(rawSalt);
+        String saltStr = com.hr.common.util.Sha256Util.sha256Hex(rawSalt).substring(0, 16);
+        byte[] salt = saltStr.getBytes(StandardCharsets.UTF_8);
         byte[] hash = SCrypt.generate(
-                password.getBytes(StandardCharsets.UTF_8), salt, 16384, 8, 1, 64);
-        return "scrypt:16384:8:1$" + new String(salt, StandardCharsets.UTF_8)
-                + "$" + com.hr.common.util.Sha256Util.sha256Hex(hash);
+                password.getBytes(StandardCharsets.UTF_8), salt, 32768, 8, 1, 64);
+        return "scrypt:32768:8:1$" + saltStr + "$" + toHex(hash);
+    }
+
+    private static String toHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) {
+            sb.append(Character.forDigit((b >> 4) & 0xF, 16));
+            sb.append(Character.forDigit(b & 0xF, 16));
+        }
+        return sb.toString();
     }
 
     /** 兼容 werkzeug scrypt / bcrypt / legacy sha256 的校验。 */
