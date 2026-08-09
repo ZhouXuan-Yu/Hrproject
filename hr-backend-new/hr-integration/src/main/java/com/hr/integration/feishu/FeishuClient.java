@@ -46,7 +46,23 @@ public class FeishuClient {
     private volatile long tokenExpiresAt; // epoch seconds
 
     public boolean isConfigured() {
-        return appId != null && !appId.isBlank() && appSecret != null && !appSecret.isBlank();
+        return getAppId() != null && !getAppId().isBlank()
+                && getAppSecret() != null && !getAppSecret().isBlank();
+    }
+
+    /** 环境变量优先，其次数据库配置页保存的凭证。 */
+    private String getAppId() {
+        if (appId != null && !appId.isBlank()) {
+            return appId;
+        }
+        return ConfigCredentials.get("feishu_app_id");
+    }
+
+    private String getAppSecret() {
+        if (appSecret != null && !appSecret.isBlank()) {
+            return appSecret;
+        }
+        return ConfigCredentials.get("feishu");
     }
 
     /**
@@ -113,7 +129,8 @@ public class FeishuClient {
         if (token != null && System.currentTimeMillis() / 1000 < tokenExpiresAt - 60) {
             return token;
         }
-        String body = mapper.writeValueAsString(Map.of("app_id", appId, "app_secret", appSecret));
+        String body = mapper.writeValueAsString(Map.of(
+                "app_id", getAppId(), "app_secret", getAppSecret()));
         Request request = new Request.Builder()
                 .url(API_BASE + "/auth/v3/tenant_access_token/internal")
                 .post(RequestBody.create(body, JSON))

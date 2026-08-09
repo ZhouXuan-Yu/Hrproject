@@ -411,7 +411,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, computed, onMounted, onActivated, onUnmounted } from 'vue';
 import WorkbenchLayout from '../layouts/WorkbenchLayout.vue';
 import { STATUS_TYPE_MAP } from '../data/interview.js';
 import { fetchInterviews, fetchInterviewAlerts, createInterview, evaluateInterview, completeInterview, cancelInterview, fetchInterviewCalendar, confirmOnboard } from '../api/interview.js';
@@ -431,6 +431,7 @@ const { handleError } = useAppError();
 
 const showAlerts = ref(false);
 const showScheduleModal = ref(false);
+const initialLoaded = ref(false);
 const showOfferModal = ref(false);
 const scheduleCandidate = ref({ name: '', id: '' });
 const scheduleDemand = ref({ position: '', id: '' });
@@ -778,6 +779,16 @@ onMounted(() => {
   window.addEventListener('interview:onboard', handleOnboard);
   loadFromApi();
   loadOnboardOptions();
+});
+
+// keep-alive 缓存下 onMounted 只执行一次；每次切回本页时重新拉取，
+// 保证在需求详情/人才库发起面试后回到本页能看到最新数据
+onActivated(() => {
+  if (!initialLoaded.value) {
+    initialLoaded.value = true;
+    return; // 首次进入由 onMounted 加载
+  }
+  loadListAndAlerts();
 });
 
 onUnmounted(() => {
