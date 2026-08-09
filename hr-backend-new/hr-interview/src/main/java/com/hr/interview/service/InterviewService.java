@@ -69,6 +69,7 @@ public class InterviewService {
     private final HireEventRepository hireEventRepository;
     private final HireService hireService;
     private final LockUtil lockUtil;
+    private final com.hr.integration.feishu.FeishuClient feishuClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Random random = new Random();
 
@@ -569,13 +570,25 @@ public class InterviewService {
         String meetingCode = body.get("meetingCode") != null ? String.valueOf(body.get("meetingCode")) : "";
         String meetingPwd = body.get("meetingPwd") != null ? String.valueOf(body.get("meetingPwd")) : "";
         String meetingUrl = "";
-        if (interviewType == 3) {
-            meetingUrl = body.get("meetingUrl") != null ? String.valueOf(body.get("meetingUrl")).trim() : "";
-        } else if (interviewType == 1 || interviewType == 2) {
-            meetingUrl = body.get("meetingUrl") != null ? String.valueOf(body.get("meetingUrl")).trim() : "";
-            if (meetingPwd.isEmpty()) {
-                meetingPwd = randomDigits(random.nextInt(3) + 4);
+        if (interviewType == 1) {
+            // 飞书视频：调用飞书 API 创建会议预约（对齐 Flask _build_feishu_vc）
+            Map<String, String> vc = feishuClient.createVcMeeting(
+                    "面试-" + str(body.get("candidate")) + "-" + str(body.get("position")),
+                    bookTime.toEpochSecond(java.time.ZoneOffset.ofHours(8)),
+                    60);
+            meetingUrl = vc.getOrDefault("meeting_url", "");
+            if (!meetingCode.isEmpty()) {
+                meetingCode = vc.getOrDefault("meeting_code", meetingCode);
+            } else {
+                meetingCode = vc.getOrDefault("meeting_code", "");
             }
+        } else if (interviewType == 2) {
+            meetingUrl = body.get("meetingUrl") != null ? String.valueOf(body.get("meetingUrl")).trim() : "";
+        } else if (interviewType == 3) {
+            meetingUrl = body.get("meetingUrl") != null ? String.valueOf(body.get("meetingUrl")).trim() : "";
+        }
+        if ((interviewType == 1 || interviewType == 2 || interviewType == 3) && meetingPwd.isEmpty()) {
+            meetingPwd = randomDigits(random.nextInt(3) + 4);
         }
 
         long[] links = resolveLinks(body);
@@ -972,5 +985,9 @@ public class InterviewService {
             sb.append(random.nextInt(10));
         }
         return sb.toString();
+    }
+
+    private String str(Object o) {
+        return o == null ? "" : String.valueOf(o).trim();
     }
 }
