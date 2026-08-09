@@ -226,7 +226,8 @@ public class HireService {
     @Transactional
     public Map<String, Object> updateOfferStatus(String offerNo, Map<String, Object> body) {
         Offer offer = getOfferEntity(offerNo);
-        Integer newStatus = num(body.get("status")) != null ? num(body.get("status")).intValue() : null;
+        Long statusVal = num(body.get("status"));
+        Integer newStatus = statusVal != null ? statusVal.intValue() : null;
         if (newStatus == null || newStatus < 0 || newStatus > 4) {
             throw BusinessException.invalidInput("无效的状态值: " + newStatus);
         }
