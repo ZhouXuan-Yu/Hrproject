@@ -178,6 +178,7 @@ public class InterviewService {
      * 取消面试（软删除）。
      */
     @Transactional
+    @org.springframework.cache.annotation.CacheEvict(cacheNames = "list", allEntries = true)
     public Map<String, Object> cancelInterview(Long bookId, String reason) {
         InterviewBook book = getActiveBook(bookId);
 
@@ -309,6 +310,7 @@ public class InterviewService {
      * POST /api/interview/schedule — 批量安排面试（支持单条或数组）。
      */
     @Transactional
+    @org.springframework.cache.annotation.CacheEvict(cacheNames = "list", allEntries = true)
     public Map<String, Object> scheduleInterviews(Map<String, Object> body) {
         Object itemsObj = body != null ? body.get("items") : null;
         List<Map<String, Object>> items = new ArrayList<>();
@@ -350,6 +352,7 @@ public class InterviewService {
      * POST /api/interview/{id}/complete — 标记面试完成（scheduled -> evaluating）。
      */
     @Transactional
+    @org.springframework.cache.annotation.CacheEvict(cacheNames = "list", allEntries = true)
     public Map<String, Object> completeInterview(Long bookId, Map<String, Object> body) {
         InterviewBook book = getActiveBook(bookId);
         if (recordRepository.findFirstByBookIdAndIsDeleted(book.getId(), 0).isPresent()) {
@@ -382,6 +385,7 @@ public class InterviewService {
      * POST /api/interview/{id}/offer — 面试通过后发放 Offer。
      */
     @Transactional
+    @org.springframework.cache.annotation.CacheEvict(cacheNames = "list", allEntries = true)
     public Map<String, Object> sendOffer(Long bookId, Map<String, Object> body) {
         InterviewBook book = getActiveBook(bookId);
         InterviewRecord record = recordRepository.findFirstByBookIdAndIsDeleted(book.getId(), 0)
@@ -438,6 +442,7 @@ public class InterviewService {
      * POST /api/interview/{id}/onboard — 确认候选人入职。
      */
     @Transactional
+    @org.springframework.cache.annotation.CacheEvict(cacheNames = "list", allEntries = true)
     public Map<String, Object> confirmOnboard(Long bookId, Map<String, Object> body) {
         InterviewBook book = getActiveBook(bookId);
         InterviewRecord record = recordRepository.findFirstByBookIdAndIsDeleted(book.getId(), 0)
