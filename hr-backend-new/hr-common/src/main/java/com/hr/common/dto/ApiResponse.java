@@ -11,6 +11,9 @@ import lombok.Data;
 public class ApiResponse<T> {
     private T data;
     private String message;
+    private Integer total;
+    private Integer page;
+    private Integer pageSize;
     private ErrorDetail error;
 
     @Data
@@ -34,8 +37,18 @@ public class ApiResponse<T> {
     }
 
     public static <T> ApiResponse<T> successList(T data, int total) {
-        // 保持 { data: [...], total: N } 结构
-        return success(data);
+        // 对齐 Flask success_list：{ data:[...], total:N, page:N, pageSize:N }
+        return successList(data, total, 1, 20);
+    }
+
+    public static <T> ApiResponse<T> successList(T data, int total, int page, int pageSize) {
+        ApiResponse<T> r = new ApiResponse<>();
+        r.setData(data);
+        r.setMessage("ok");
+        r.setTotal(total);
+        r.setPage(page);
+        r.setPageSize(pageSize);
+        return r;
     }
 
     public static <T> ApiResponse<T> error(String code, String message) {

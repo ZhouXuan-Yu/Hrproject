@@ -50,7 +50,8 @@ public class WerkzeugPasswordEncoder {
 
     private boolean verifyScrypt(String rawPassword, String storedHash) {
         try {
-            // 格式: scrypt:N:R:P$base64(salt)$base64(hash)
+            // werkzeug 格式: scrypt:N:R:P$<16位明文salt>$<hex(hash)>
+            // dklen 固定 64（hashlib.scrypt 默认）
             String body = storedHash.substring("scrypt:".length());
             String[] parts = body.split("\\$");
             if (parts.length != 3) {
@@ -63,18 +64,25 @@ public class WerkzeugPasswordEncoder {
             int n = Integer.parseInt(params[0]);
             int r = Integer.parseInt(params[1]);
             int p = Integer.parseInt(params[2]);
-            // werkzeug scrypt 格式为 scrypt:n:r:p，dklen 固定 64 不入串
-            int dkLen = params.length == 4 ? Integer.parseInt(params[3]) : 64;
 
-            byte[] salt = Base64.getDecoder().decode(parts[1]);
-            byte[] expected = Base64.getDecoder().decode(parts[2]);
+            byte[] salt = parts[1].getBytes(StandardCharsets.UTF_8);
+            byte[] expected = hexDecode(parts[2]);
 
             byte[] computed = SCrypt.generate(
-                    rawPassword.getBytes(StandardCharsets.UTF_8), salt, n, r, p, dkLen);
+                    rawPassword.getBytes(StandardCharsets.UTF_8), salt, n, r, p, 64);
             return constantTimeEquals(computed, expected);
         } catch (Exception e) {
             return false;
         }
+    }
+
+    private byte[] hexDecode(String hex) {
+        int len = hex.length();
+        byte[] out = new byte[len / 2];
+        for (int i = 0; i < len; i += 2) {
+            out[i / 2] = (byte) Integer.parseInt(hex.substring(i, i + 2), 16);
+        }
+        return out;
     }
 
     private boolean isHex64(String s) {
