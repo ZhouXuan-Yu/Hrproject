@@ -436,7 +436,7 @@ public class TalentService {
         if (candidateId.isBlank()) {
             throw BusinessException.invalidInput("缺少 candidateId 或 names 参数");
         }
-        Map<String, Object> contact = getCandidateContact(parseId(candidateId));
+        Map<String, Object> contact = getCandidateContact(resolveCandidateId(candidateId));
         String method = body.get("method") != null ? String.valueOf(body.get("method")) : "系统记录";
         String channel = ((body.get("channel") != null ? String.valueOf(body.get("channel"))
                 : method) + "").toLowerCase();

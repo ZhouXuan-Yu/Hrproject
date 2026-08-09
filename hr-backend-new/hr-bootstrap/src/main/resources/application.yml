@@ -59,6 +59,11 @@ deepseek:
 ai-service:
   url: ${AI_SERVICE_URL:http://127.0.0.1:8100}
 
+# 飞书集成（会议预约、通知）
+feishu:
+  app-id: ${FEISHU_APP_ID:}
+  app-secret: ${FEISHU_APP_SECRET:}
+
 # 候选人确认页
 offer:
   confirm-deadline-days: ${OFFER_CONFIRM_DEADLINE_DAYS:3}
