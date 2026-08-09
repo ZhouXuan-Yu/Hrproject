@@ -48,74 +48,74 @@ public class DemandController {
     }
 
     @GetMapping("/{id}")
-    public ApiResponse<Map<String, Object>> detail(@PathVariable Long id) {
-        return ApiResponse.success(demandService.getDemandDetail(id));
+    public ApiResponse<Map<String, Object>> detail(@PathVariable String id) {
+        return ApiResponse.success(demandService.getDemandDetail(demandService.resolveDemandId(id)));
     }
 
     @PatchMapping("/{id}")
-    public ApiResponse<Map<String, Object>> update(@PathVariable Long id,
+    public ApiResponse<Map<String, Object>> update(@PathVariable String id,
                                                    @RequestBody Map<String, Object> body) {
-        return ApiResponse.success(demandService.updateDemand(id, body));
+        return ApiResponse.success(demandService.updateDemand(demandService.resolveDemandId(id), body));
     }
 
     @GetMapping("/{id}/candidates")
-    public ApiResponse<List<Map<String, Object>>> candidates(@PathVariable Long id,
+    public ApiResponse<List<Map<String, Object>>> candidates(@PathVariable String id,
                                                              @RequestParam(required = false) String source) {
-        return ApiResponse.success(demandService.listDemandCandidates(id, source));
+        return ApiResponse.success(demandService.listDemandCandidates(demandService.resolveDemandId(id), source));
     }
 
     @GetMapping("/{id}/candidates/{name}/detail")
-    public ApiResponse<Map<String, Object>> candidateDetail(@PathVariable Long id,
+    public ApiResponse<Map<String, Object>> candidateDetail(@PathVariable String id,
                                                             @PathVariable String name) {
-        return ApiResponse.success(demandService.getCandidateMatchDetail(id, name));
+        return ApiResponse.success(demandService.getCandidateMatchDetail(demandService.resolveDemandId(id), name));
     }
 
     @PostMapping("/{id}/candidates/{name}/link")
-    public ApiResponse<Map<String, Object>> linkCandidate(@PathVariable Long id,
+    public ApiResponse<Map<String, Object>> linkCandidate(@PathVariable String id,
                                                           @PathVariable String name) {
-        return ApiResponse.success(demandService.linkCandidate(id, name));
+        return ApiResponse.success(demandService.linkCandidate(demandService.resolveDemandId(id), name));
     }
 
     @PostMapping("/{id}/match")
-    public ApiResponse<Map<String, Object>> match(@PathVariable Long id,
+    public ApiResponse<Map<String, Object>> match(@PathVariable String id,
                                                   @RequestBody(required = false) Map<String, Object> body) {
-        return ApiResponse.success(demandService.matchCandidates(id, body));
+        return ApiResponse.success(demandService.matchCandidates(demandService.resolveDemandId(id), body));
     }
 
     @PostMapping("/{id}/submit")
-    public ApiResponse<Map<String, Object>> submit(@PathVariable Long id) {
-        return ApiResponse.success(demandService.submitForApproval(id));
+    public ApiResponse<Map<String, Object>> submit(@PathVariable String id) {
+        return ApiResponse.success(demandService.submitForApproval(demandService.resolveDemandId(id)));
     }
 
     @PostMapping("/{id}/approve")
-    public ApiResponse<Map<String, Object>> approve(@PathVariable Long id,
+    public ApiResponse<Map<String, Object>> approve(@PathVariable String id,
                                                     @RequestBody(required = false) Map<String, Object> body) {
         String opinion = body != null && body.get("opinion") != null
                 ? String.valueOf(body.get("opinion")) : null;
-        return ApiResponse.success(demandService.approve(id, SecurityUtils.getUserId(),
+        return ApiResponse.success(demandService.approve(demandService.resolveDemandId(id), SecurityUtils.getUserId(),
                 SecurityUtils.getRoleCode(), opinion));
     }
 
     @PostMapping("/{id}/reject")
-    public ApiResponse<Map<String, Object>> reject(@PathVariable Long id,
+    public ApiResponse<Map<String, Object>> reject(@PathVariable String id,
                                                    @RequestBody(required = false) Map<String, Object> body) {
         String opinion = body != null && body.get("opinion") != null
                 ? String.valueOf(body.get("opinion")) : null;
-        return ApiResponse.success(demandService.reject(id, SecurityUtils.getUserId(),
+        return ApiResponse.success(demandService.reject(demandService.resolveDemandId(id), SecurityUtils.getUserId(),
                 SecurityUtils.getRoleCode(), opinion));
     }
 
     @PostMapping("/{id}/close")
-    public ApiResponse<Map<String, Object>> close(@PathVariable Long id,
+    public ApiResponse<Map<String, Object>> close(@PathVariable String id,
                                                   @RequestBody(required = false) Map<String, Object> body) {
         String reason = body != null && body.get("reason") != null
                 ? String.valueOf(body.get("reason")) : null;
-        return ApiResponse.success(demandService.close(id, reason));
+        return ApiResponse.success(demandService.close(demandService.resolveDemandId(id), reason));
     }
 
     @DeleteMapping("/{id}")
-    public ApiResponse<Void> delete(@PathVariable Long id) {
-        demandService.deleteDemand(id);
+    public ApiResponse<Void> delete(@PathVariable String id) {
+        demandService.deleteDemand(demandService.resolveDemandId(id));
         return ApiResponse.success(null);
     }
 }

@@ -139,7 +139,17 @@ public class TalentService {
         Page<Employee> result = employeeRepository.findAll(spec,
                 PageRequest.of(Math.max(0, page - 1), pageSize, Sort.by(Sort.Direction.DESC, "id")));
 
-        List<Map<String, Object>> list = result.getContent().stream().map(this::toEmployeeMap).toList();
+        List<Employee> content = result.getContent();
+        // 批量预取用户/部门/岗位，避免每行 3 次查询（N+1）
+        Map<Long, String> userNames = fetchUserNames(
+                content.stream().map(Employee::getUserId).filter(java.util.Objects::nonNull).toList());
+        Map<Long, String> deptNames = fetchDeptNames(
+                content.stream().map(Employee::getDeptId).filter(java.util.Objects::nonNull).toList());
+        Map<Long, String> positionNames = fetchPositionNames(
+                content.stream().map(Employee::getPositionId).filter(java.util.Objects::nonNull).toList());
+
+        List<Map<String, Object>> list = content.stream()
+                .map(e -> toEmployeeMap(e, userNames, deptNames, positionNames)).toList();
         return pageData(list, result.getTotalElements(), page, pageSize);
     }
 
@@ -210,16 +220,24 @@ public class TalentService {
             throw BusinessException.invalidInput("缺少 demandId 参数");
         }
         List<Employee> employees = employeeRepository.findByIsDeleted(0);
+        // 批量预取用户/部门/岗位名称，避免循环内 3 次查询（N+1）
+        Map<Long, String> userNames = fetchUserNames(
+                employees.stream().map(Employee::getUserId).filter(java.util.Objects::nonNull).toList());
+        Map<Long, String> deptNames = fetchDeptNames(
+                employees.stream().map(Employee::getDeptId).filter(java.util.Objects::nonNull).toList());
+        Map<Long, String> positionNames = fetchPositionNames(
+                employees.stream().map(Employee::getPositionId).filter(java.util.Objects::nonNull).toList());
+
         List<Map<String, Object>> results = new ArrayList<>();
         for (Employee e : employees) {
-            String name = resolveUserName(e.getUserId());
+            String name = resolveUserName(e.getUserId(), userNames);
             int seed = Math.abs((demandId + ":" + e.getId()).hashCode());
             int score = 50 + (seed % 46); // 50-95
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", "EMP" + String.format("%03d", e.getId()));
             m.put("name", name);
-            m.put("dept", resolveDeptName(e.getDeptId()));
-            m.put("curPos", resolvePositionName(e.getPositionId()));
+            m.put("dept", resolveDeptName(e.getDeptId(), deptNames));
+            m.put("curPos", resolvePositionName(e.getPositionId(), positionNames));
             m.put("perf", perfLabel(e.getPerfScore()));
             m.put("score", score);
             m.put("transferable", e.getCanTransfer() != null && e.getCanTransfer() == 1);
@@ -753,10 +771,15 @@ public class TalentService {
     }
 
     private Map<String, Object> toEmployeeMap(Employee e) {
+        return toEmployeeMap(e, null, null, null);
+    }
+
+    private Map<String, Object> toEmployeeMap(Employee e, Map<Long, String> userNames,
+                                              Map<Long, String> deptNames, Map<Long, String> positionNames) {
         double score = e.getCompositiveScore() != null ? e.getCompositiveScore().doubleValue() : 0;
         List<String> tags = new ArrayList<>();
         tags.add("内部人才");
-        String dept = resolveDeptName(e.getDeptId());
+        String dept = resolveDeptName(e.getDeptId(), deptNames);
         if (!"—".equals(dept)) {
             tags.add(dept);
         }
@@ -764,10 +787,10 @@ public class TalentService {
 
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", "EMP" + String.format("%03d", e.getId()));
-        m.put("name", resolveUserName(e.getUserId()));
+        m.put("name", resolveUserName(e.getUserId(), userNames));
         m.put("score", profileGrade(score) + " · " + (int) score);
         m.put("dept", dept);
-        m.put("pos", resolvePositionName(e.getPositionId()));
+        m.put("pos", resolvePositionName(e.getPositionId(), positionNames));
         m.put("years", (e.getWorkYears() != null ? e.getWorkYears() : 0) + "年");
         m.put("perf", perfLabel(e.getPerfScore()));
         m.put("tags", tags);
@@ -890,8 +913,15 @@ public class TalentService {
     }
 
     private String resolveUserName(Long userId) {
+        return resolveUserName(userId, null);
+    }
+
+    private String resolveUserName(Long userId, Map<Long, String> userNames) {
         if (userId == null) {
             return "—";
+        }
+        if (userNames != null) {
+            return userNames.getOrDefault(userId, "员工" + userId);
         }
         return iamUserRepository.findById(userId)
                 .map(IamUser::getRealName)
@@ -900,8 +930,15 @@ public class TalentService {
     }
 
     private String resolveDeptName(Long deptId) {
+        return resolveDeptName(deptId, null);
+    }
+
+    private String resolveDeptName(Long deptId, Map<Long, String> deptNames) {
         if (deptId == null) {
             return "—";
+        }
+        if (deptNames != null) {
+            return deptNames.getOrDefault(deptId, "—");
         }
         return iamDeptRepository.findById(deptId)
                 .map(IamDept::getDeptName)
@@ -910,13 +947,62 @@ public class TalentService {
     }
 
     private String resolvePositionName(Long positionId) {
+        return resolvePositionName(positionId, null);
+    }
+
+    private String resolvePositionName(Long positionId, Map<Long, String> positionNames) {
         if (positionId == null) {
             return "—";
+        }
+        if (positionNames != null) {
+            return positionNames.getOrDefault(positionId, "—");
         }
         return iamPositionRepository.findById(positionId)
                 .map(IamPosition::getPositionName)
                 .filter(name -> name != null && !name.isBlank())
                 .orElse("—");
+    }
+
+    private Map<Long, String> fetchUserNames(List<Long> userIds) {
+        Map<Long, String> map = new HashMap<>();
+        if (userIds == null || userIds.isEmpty()) {
+            return map;
+        }
+        for (IamUser u : iamUserRepository.findAllById(userIds)) {
+            String name = u.getRealName();
+            if (name != null && !name.isBlank()) {
+                map.put(u.getUserId(), name);
+            }
+        }
+        return map;
+    }
+
+    private Map<Long, String> fetchDeptNames(List<Long> deptIds) {
+        Map<Long, String> map = new HashMap<>();
+        if (deptIds == null || deptIds.isEmpty()) {
+            return map;
+        }
+        for (IamDept d : iamDeptRepository.findAllById(deptIds)) {
+            String name = d.getDeptName();
+            if (name != null && !name.isBlank()) {
+                map.put(d.getDeptId(), name);
+            }
+        }
+        return map;
+    }
+
+    private Map<Long, String> fetchPositionNames(List<Long> positionIds) {
+        Map<Long, String> map = new HashMap<>();
+        if (positionIds == null || positionIds.isEmpty()) {
+            return map;
+        }
+        for (IamPosition p : iamPositionRepository.findAllById(positionIds)) {
+            String name = p.getPositionName();
+            if (name != null && !name.isBlank()) {
+                map.put(p.getPositionId(), name);
+            }
+        }
+        return map;
     }
 
     private String perfLabel(BigDecimal perfScore) {

@@ -9,4 +9,7 @@ import java.util.List;
 public interface ResumeRepository extends JpaRepository<Resume, Long>, JpaSpecificationExecutor<Resume> {
 
     List<Resume> findByCandidateIdAndIsDeletedOrderByStorageTimeDesc(Long candidateId, Integer isDeleted);
+
+    List<Resume> findByCandidateIdInAndIsDeletedOrderByStorageTimeDesc(
+            java.util.Collection<Long> candidateIds, Integer isDeleted);
 }
