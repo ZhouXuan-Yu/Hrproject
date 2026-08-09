@@ -735,6 +735,25 @@ public class TalentService {
         return out;
     }
 
+    /**
+     * 解析候选人标识为数字主键（对齐 Flask：先按 candidate_no，再按数字 id）。
+     */
+    public Long resolveCandidateId(String identifier) {
+        if (identifier == null || identifier.isBlank()) {
+            throw BusinessException.notFound("候选人不存在");
+        }
+        String idStr = identifier.trim();
+        if (!idStr.chars().allMatch(Character::isDigit)) {
+            return candidateRepository.findAll((root, query, cb) -> cb.and(
+                            cb.equal(root.get("candidateNo"), idStr),
+                            cb.equal(root.get("isDeleted"), 0)))
+                    .stream().findFirst()
+                    .map(Candidate::getId)
+                    .orElseThrow(() -> BusinessException.notFound("候选人不存在"));
+        }
+        return Long.parseLong(idStr);
+    }
+
     private Long parseId(String s) {
         try {
             return Long.parseLong(s);

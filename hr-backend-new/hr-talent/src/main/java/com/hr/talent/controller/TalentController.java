@@ -55,11 +55,11 @@ public class TalentController {
     }
 
     /**
-     * GET /api/talent/candidate/{id} — 候选人详情。
+     * GET /api/talent/candidate/{id} — 候选人详情（支持 candidateNo 或数字主键）。
      */
     @GetMapping("/candidate/{id}")
-    public ApiResponse<Map<String, Object>> candidateDetail(@PathVariable Long id) {
-        return ApiResponse.success(talentService.getCandidateDetail(id));
+    public ApiResponse<Map<String, Object>> candidateDetail(@PathVariable String id) {
+        return ApiResponse.success(talentService.getCandidateDetail(talentService.resolveCandidateId(id)));
     }
 
     /**
@@ -109,9 +109,9 @@ public class TalentController {
      * GET /api/talent/candidate/{id}/contact-info — 完整联系方式（HR 及以上角色）。
      */
     @GetMapping("/candidate/{id}/contact-info")
-    public ApiResponse<Map<String, Object>> contactInfo(@PathVariable Long id) {
+    public ApiResponse<Map<String, Object>> contactInfo(@PathVariable String id) {
         requireHrLevel();
-        return ApiResponse.success(talentService.getCandidateContact(id));
+        return ApiResponse.success(talentService.getCandidateContact(talentService.resolveCandidateId(id)));
     }
 
     /**
