@@ -147,13 +147,17 @@ public class DemandService {
     }
 
     /**
+     * 解析需求标识为数字主键（对齐 Flask _resolve_demand_id：先按 demand_no，再按数字 id）。
+     */
+    public Long resolveDemandId(String identifier) {
+        return getEntityByIdentifier(identifier).getId();
+    }
+
+    /**
      * 需求详情。
      */
     public Map<String, Object> getDemandDetail(Long demandId) {
-        RecruitDemand demand = demandRepository.findById(demandId)
-                .filter(d -> d.getIsDeleted() == null || d.getIsDeleted() == 0)
-                .orElseThrow(() -> BusinessException.notFound("需求不存在"));
-        return detailMap(demand);
+        return detailMap(getEntity(demandId));
     }
 
     /**
@@ -716,6 +720,27 @@ public class DemandService {
                 .orElseThrow(() -> BusinessException.notFound("需求不存在"));
     }
 
+    /**
+     * 按 demand_no 或数字主键解析需求（对齐 Flask _resolve_demand_id）。
+     */
+    private RecruitDemand getEntityByIdentifier(String identifier) {
+        if (identifier == null || identifier.isBlank()) {
+            throw BusinessException.notFound("需求不存在");
+        }
+        Optional<RecruitDemand> byNo = demandRepository.findAll((root, query, cb) -> cb.and(
+                        cb.equal(root.get("demandNo"), identifier.trim()),
+                        cb.equal(root.get("isDeleted"), 0)))
+                .stream().findFirst();
+        if (byNo.isPresent()) {
+            return byNo.get();
+        }
+        try {
+            return getEntity(Long.parseLong(identifier.trim()));
+        } catch (NumberFormatException e) {
+            throw BusinessException.notFound("需求不存在");
+        }
+    }
+
     private boolean isScopeLimited(String roleCode) {
         return !("admin".equals(roleCode) || "hr".equals(roleCode));
     }
@@ -963,13 +988,25 @@ public class DemandService {
 
     private Map<String, Object> detailMap(RecruitDemand d) {
         Map<String, Object> m = toSimpleMap(d);
-        m.put("jdContent", d.getJdContent());
+        m.put("urgency", URGENCY_LABELS.getOrDefault(d.getUrgency() != null ? d.getUrgency() : "normal", "普通"));
+        m.put("salary", d.getSalaryRange() != null ? d.getSalaryRange() : "面议");
+        m.put("submitDate", d.getCreatedAt() != null ? d.getCreatedAt().toLocalDate().toString() : "");
+        m.put("channels", parseJson(d.getPublishingChannels()));
+        int total = d.getPlanHeadcount() != null ? d.getPlanHeadcount() : 0;
+        int hired = d.getFilledCount() != null ? d.getFilledCount() : 0;
+        Map<String, Object> progress = new LinkedHashMap<>();
+        progress.put("hired", hired);
+        progress.put("total", total);
+        progress.put("pct", total > 0 ? (int) Math.round(hired * 100.0 / total) : 0);
+        m.put("progress", progress);
+        m.put("description", d.getJdContent() != null ? d.getJdContent() : "");
+        m.put("requiredSkills", parseJson(d.getRequiredSkills()));
+        m.put("plusSkills", parseJson(d.getPlusSkills()));
+        m.put("approvalNodes", approvalNodes(d));
         m.put("eduMin", d.getEduMin());
         m.put("expMin", d.getExpMin());
         m.put("workCity", d.getWorkCity());
         m.put("expectEntryDate", d.getExpectEntryDate() != null ? d.getExpectEntryDate().toString() : null);
-        m.put("requiredSkills", parseJson(d.getRequiredSkills()));
-        m.put("plusSkills", parseJson(d.getPlusSkills()));
         m.put("cancelReason", d.getCancelReason());
         m.put("approvedAt", d.getApprovedAt() != null ? d.getApprovedAt().toString() : null);
         m.put("hrOwnerId", d.getHrOwnerId());

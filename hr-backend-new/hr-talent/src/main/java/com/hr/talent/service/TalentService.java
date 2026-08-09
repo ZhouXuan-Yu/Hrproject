@@ -106,7 +106,13 @@ public class TalentService {
         Page<Candidate> result = candidateRepository.findAll(spec,
                 PageRequest.of(Math.max(0, page - 1), pageSize, Sort.by(Sort.Direction.DESC, "id")));
 
-        List<Map<String, Object>> list = result.getContent().stream().map(this::toCandidateMap).toList();
+        List<Candidate> content = result.getContent();
+        // 批量预取本页全部简历，避免每行 2 次查询（N+1）
+        Map<Long, List<Resume>> resumeByCandidate = fetchResumesByCandidateIds(
+                content.stream().map(Candidate::getId).toList());
+
+        List<Map<String, Object>> list = content.stream()
+                .map(c -> toCandidateMap(c, resumeByCandidate)).toList();
         return pageData(list, result.getTotalElements(), page, pageSize);
     }
 
@@ -718,6 +724,10 @@ public class TalentService {
     }
 
     private Map<String, Object> toCandidateMap(Candidate c) {
+        return toCandidateMap(c, null);
+    }
+
+    private Map<String, Object> toCandidateMap(Candidate c, Map<Long, List<Resume>> resumeByCandidate) {
         double score = c.getStaticAbilityScore() != null ? c.getStaticAbilityScore().doubleValue() : 0;
         int eduLevel = c.getEduLevel() != null ? c.getEduLevel() : 0;
         int workYears = c.getWorkYears() != null ? c.getWorkYears() : 0;
@@ -731,8 +741,8 @@ public class TalentService {
         m.put("portrait", score > 0 ? profileGrade(score) + " · " + (int) score : "—");
         m.put("edu", EDU_LABELS.getOrDefault(eduLevel, "本科"));
         m.put("years", workYears < 1 ? "应届" : workYears + "年");
-        m.put("skills", resolveSkills(c));
-        m.put("company", resolveCompany(c));
+        m.put("skills", resolveSkills(c, resumeByCandidate));
+        m.put("company", resolveCompany(c, resumeByCandidate));
         m.put("source", c.getSourceChannel() != null ? c.getSourceChannel() : "邮箱");
         m.put("inDate", c.getCreatedAt() != null ? c.getCreatedAt().toLocalDate().toString() : "—");
         m.put("status", status);
@@ -786,8 +796,8 @@ public class TalentService {
         return m;
     }
 
-    private List<String> resolveSkills(Candidate c) {
-        List<Resume> resumes = resumeRepository.findByCandidateIdAndIsDeletedOrderByStorageTimeDesc(c.getId(), 0);
+    private List<String> resolveSkills(Candidate c, Map<Long, List<Resume>> resumeByCandidate) {
+        List<Resume> resumes = getResumes(c.getId(), resumeByCandidate);
         for (Resume r : resumes) {
             List<String> skills = extractSkillList(parseJson(r.getExtractJson()));
             if (!skills.isEmpty()) {
@@ -797,8 +807,8 @@ public class TalentService {
         return List.of("—");
     }
 
-    private String resolveCompany(Candidate c) {
-        List<Resume> resumes = resumeRepository.findByCandidateIdAndIsDeletedOrderByStorageTimeDesc(c.getId(), 0);
+    private String resolveCompany(Candidate c, Map<Long, List<Resume>> resumeByCandidate) {
+        List<Resume> resumes = getResumes(c.getId(), resumeByCandidate);
         for (Resume r : resumes) {
             JsonNode ext = parseJson(r.getExtractJson());
             if (ext != null) {
@@ -809,6 +819,25 @@ public class TalentService {
             }
         }
         return "—";
+    }
+
+    /** 批量预取页内候选人简历：一次 IN 查询 → Map<candidateId, List<Resume>>。 */
+    private Map<Long, List<Resume>> fetchResumesByCandidateIds(List<Long> candidateIds) {
+        if (candidateIds == null || candidateIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, List<Resume>> map = new HashMap<>();
+        for (Resume r : resumeRepository.findByCandidateIdInAndIsDeletedOrderByStorageTimeDesc(candidateIds, 0)) {
+            map.computeIfAbsent(r.getCandidateId(), k -> new ArrayList<>()).add(r);
+        }
+        return map;
+    }
+
+    private List<Resume> getResumes(Long candidateId, Map<Long, List<Resume>> resumeByCandidate) {
+        if (resumeByCandidate != null) {
+            return resumeByCandidate.getOrDefault(candidateId, List.of());
+        }
+        return resumeRepository.findByCandidateIdAndIsDeletedOrderByStorageTimeDesc(candidateId, 0);
     }
 
     private List<String> extractSkillList(JsonNode ext) {
