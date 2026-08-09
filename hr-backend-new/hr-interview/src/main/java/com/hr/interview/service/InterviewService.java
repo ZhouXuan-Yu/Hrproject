@@ -37,10 +37,13 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 
 /**
  * 面试管理服务，对齐 Flask interview_service.py 核心逻辑。
@@ -203,17 +206,40 @@ public class InterviewService {
         List<Map<String, Object>> alerts = new ArrayList<>();
         LocalDateTime now = LocalDateTime.now();
 
+        // 批量预取：全部有效 book + 全部 record，一次查询替代循环内 N+1
+        List<InterviewBook> allBooks = bookRepository.findAll(
+                (root, query, cb) -> cb.equal(root.get("isDeleted"), 0));
+        Map<Long, InterviewRecord> recordByBook = new HashMap<>();
+        for (InterviewRecord r : recordRepository.findByBookIdInAndIsDeleted(
+                allBooks.stream().map(InterviewBook::getId).toList(), 0)) {
+            recordByBook.putIfAbsent(r.getBookId(), r);
+        }
+        Map<Long, Resume> resumeMap = new HashMap<>();
+        for (Resume r : resumeRepository.findAllById(allBooks.stream().map(InterviewBook::getResumeId)
+                .filter(id -> id != null && id > 0).distinct().toList())) {
+            if (r.getIsDeleted() == null || r.getIsDeleted() == 0) {
+                resumeMap.put(r.getId(), r);
+            }
+        }
+        Map<Long, Candidate> candidateMap = new HashMap<>();
+        for (Candidate c : candidateRepository.findAllById(
+                resumeMap.values().stream().map(Resume::getCandidateId).filter(java.util.Objects::nonNull).toList())) {
+            if (c.getIsDeleted() == null || c.getIsDeleted() == 0) {
+                candidateMap.put(c.getId(), c);
+            }
+        }
+
         // 1) 超 2 天未评价
-        for (InterviewBook book : bookRepository.findAll(
-                (root, query, cb) -> cb.equal(root.get("isDeleted"), 0))) {
+        for (InterviewBook book : allBooks) {
             if (book.getBookTime() == null || !book.getBookTime().isBefore(now)) {
                 continue;
             }
             long daysAgo = java.time.Duration.between(book.getBookTime(), now).toDays();
-            boolean evaluated = recordRepository.findFirstByBookIdAndIsDeleted(book.getId(), 0).isPresent();
+            boolean evaluated = recordByBook.containsKey(book.getId());
             if (!evaluated && daysAgo > 2) {
                 Map<String, Object> a = new LinkedHashMap<>();
-                a.put("text", resolveCandidate(book.getResumeId())[0] + " · 面试超" + daysAgo + "天未评价");
+                a.put("text", resolveCandidate(book.getResumeId(), resumeMap, candidateMap)[0]
+                        + " · 面试超" + daysAgo + "天未评价");
                 a.put("type", "reject");
                 a.put("action", "去评价");
                 a.put("actionMsg", "填写面试评价");
@@ -224,13 +250,13 @@ public class InterviewService {
         // 2) 今日面试
         LocalDateTime todayStart = now.toLocalDate().atStartOfDay();
         LocalDateTime todayEnd = todayStart.plusDays(1).minusSeconds(1);
-        for (InterviewBook book : bookRepository.findAll(
-                (root, query, cb) -> cb.and(
-                        cb.equal(root.get("isDeleted"), 0),
-                        cb.greaterThanOrEqualTo(root.get("bookTime"), todayStart),
-                        cb.lessThanOrEqualTo(root.get("bookTime"), todayEnd)))) {
+        for (InterviewBook book : allBooks) {
+            if (book.getBookTime() == null || book.getBookTime().isBefore(todayStart)
+                    || book.getBookTime().isAfter(todayEnd)) {
+                continue;
+            }
             Map<String, Object> a = new LinkedHashMap<>();
-            a.put("text", resolveCandidate(book.getResumeId())[0] + " · "
+            a.put("text", resolveCandidate(book.getResumeId(), resumeMap, candidateMap)[0] + " · "
                     + book.getBookTime().format(DateTimeFormatter.ofPattern("HH:mm")) + " 面试");
             a.put("type", "warn");
             a.put("action", "查看");
@@ -240,22 +266,31 @@ public class InterviewService {
 
         // 3) 已通过但未发 Offer
         if (alerts.size() < 8) {
-            for (InterviewRecord rec : recordRepository.findAll(
+            List<InterviewRecord> passedRecords = recordRepository.findAll(
                     (root, query, cb) -> cb.and(
                             cb.equal(root.get("isDeleted"), 0),
-                            cb.equal(root.get("interviewResult"), 1)))) {
-                boolean hasOffer = offerRepository.findAll(
-                                (root, query, cb) -> cb.equal(root.get("lastInterviewId"), rec.getId()))
-                        .stream().anyMatch(o -> o.getIsDeleted() == null || o.getIsDeleted() == 0);
-                if (!hasOffer) {
-                    bookRepository.findById(rec.getBookId()).ifPresent(book -> {
-                        Map<String, Object> a = new LinkedHashMap<>();
-                        a.put("text", resolveCandidate(book.getResumeId())[0] + " · 待发放Offer");
-                        a.put("type", "offer");
-                        a.put("action", "去发放");
-                        a.put("actionMsg", "填写 Offer 信息");
-                        alerts.add(a);
-                    });
+                            cb.equal(root.get("interviewResult"), 1)));
+            if (!passedRecords.isEmpty()) {
+                Set<Long> offeredInterviewIds = new HashSet<>();
+                for (Offer o : offerRepository.findByLastInterviewIdInAndIsDeleted(
+                        passedRecords.stream().map(InterviewRecord::getId).toList(), 0)) {
+                    offeredInterviewIds.add(o.getLastInterviewId());
+                }
+                for (InterviewRecord rec : passedRecords) {
+                    if (offeredInterviewIds.contains(rec.getId())) {
+                        continue;
+                    }
+                    InterviewBook book = allBooks.stream()
+                            .filter(b -> b.getId().equals(rec.getBookId())).findFirst().orElse(null);
+                    if (book == null) {
+                        continue;
+                    }
+                    Map<String, Object> a = new LinkedHashMap<>();
+                    a.put("text", resolveCandidate(book.getResumeId(), resumeMap, candidateMap)[0] + " · 待发放Offer");
+                    a.put("type", "offer");
+                    a.put("action", "去发放");
+                    a.put("actionMsg", "填写 Offer 信息");
+                    alerts.add(a);
                 }
             }
         }
@@ -468,14 +503,23 @@ public class InterviewService {
             rangeEnd = rangeStart.plusDays(7).minusSeconds(1);
         }
 
-        List<Map<String, Object>> events = new ArrayList<>();
-        for (InterviewBook book : bookRepository.findAll(
+        List<InterviewBook> rangeBooks = bookRepository.findAll(
                 (root, query, cb) -> cb.and(
                         cb.equal(root.get("isDeleted"), 0),
                         cb.greaterThanOrEqualTo(root.get("bookTime"), rangeStart),
                         cb.lessThanOrEqualTo(root.get("bookTime"), rangeEnd)),
-                Sort.by(Sort.Direction.ASC, "bookTime"))) {
-            Map<String, Object> m = toBookMap(book);
+                Sort.by(Sort.Direction.ASC, "bookTime"));
+        Map<Long, Map<String, Object>> bookMaps = toBookMaps(rangeBooks).stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        m -> Long.parseLong(String.valueOf(m.get("id")).replace("INT", "")),
+                        m -> m));
+
+        List<Map<String, Object>> events = new ArrayList<>();
+        for (InterviewBook book : rangeBooks) {
+            Map<String, Object> m = bookMaps.get(book.getId());
+            if (m == null) {
+                continue;
+            }
             Map<String, Object> e = new LinkedHashMap<>();
             e.put("id", m.get("id"));
             e.put("title", m.get("name"));

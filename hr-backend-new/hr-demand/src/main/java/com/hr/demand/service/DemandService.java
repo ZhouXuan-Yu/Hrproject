@@ -326,10 +326,16 @@ public class DemandService {
         }
 
         List<Map<String, Object>> candidates = new ArrayList<>();
+        // 批量预取候选人，避免循环内 findById（N+1）
+        Map<Long, Candidate> candidateById = new HashMap<>();
+        for (Candidate cand : candidateRepository.findAllById(
+                processes.stream().map(RecruitProcess::getCandidateId).toList())) {
+            if (cand.getIsDeleted() == null || cand.getIsDeleted() == 0) {
+                candidateById.put(cand.getId(), cand);
+            }
+        }
         for (RecruitProcess p : processes) {
-            Candidate cand = candidateRepository.findById(p.getCandidateId())
-                    .filter(c -> c.getIsDeleted() == null || c.getIsDeleted() == 0)
-                    .orElse(null);
+            Candidate cand = candidateById.get(p.getCandidateId());
             if (cand == null) {
                 continue;
             }
@@ -337,18 +343,28 @@ public class DemandService {
             candidates.add(c);
         }
 
-        // 真实 JD 匹配打分优先（t_hr_resume_match），没有则退回确定性估算
+        // 真实 JD 匹配打分优先（t_hr_resume_match），没有则退回确定性估算。
+        // 一次 IN 查询全部 resumeId，按计算时间取首条（保持 findFirstBy 语义）
+        List<Long> resumeIds = candidates.stream()
+                .map(c -> c.get("_resumeId"))
+                .filter(java.util.Objects::nonNull)
+                .map(o -> (Long) o)
+                .filter(id -> id > 0)
+                .distinct().toList();
+        Map<Long, ResumeMatch> matchByResume = new HashMap<>();
+        if (!resumeIds.isEmpty()) {
+            for (ResumeMatch rm : resumeMatchRepository.findByResumeIdInAndDemandIdAndIsDeleted(
+                    resumeIds, demand.getId(), 0, Sort.by(Sort.Direction.DESC, "calculateTime"))) {
+                matchByResume.putIfAbsent(rm.getResumeId(), rm);
+            }
+        }
         for (Map<String, Object> c : candidates) {
             Object resumeIdObj = c.get("_resumeId");
             if (resumeIdObj != null) {
-                Long resumeId = (Long) resumeIdObj;
-                resumeMatchRepository.findAll((root, query, cb) -> cb.and(
-                                cb.equal(root.get("resumeId"), resumeId),
-                                cb.equal(root.get("demandId"), demand.getId()),
-                                cb.equal(root.get("isDeleted"), 0)),
-                        Sort.by(Sort.Direction.DESC, "calculateTime"))
-                        .stream().findFirst().ifPresent(rm -> c.put("matchScore",
-                                rm.getMatchScore() != null ? rm.getMatchScore().setScale(1).doubleValue() : null));
+                ResumeMatch rm = matchByResume.get((Long) resumeIdObj);
+                if (rm != null && rm.getMatchScore() != null) {
+                    c.put("matchScore", rm.getMatchScore().setScale(1).doubleValue());
+                }
             }
             c.remove("_resumeId");
         }
