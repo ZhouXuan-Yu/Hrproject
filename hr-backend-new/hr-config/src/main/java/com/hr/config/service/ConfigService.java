@@ -9,6 +9,7 @@ import com.hr.config.entity.AuditLog;
 import com.hr.config.entity.NotifyTemplate;
 import com.hr.config.entity.RecruitChannel;
 import com.hr.config.entity.RecruitMailAccount;
+import com.hr.config.entity.RoleMenuPermission;
 import com.hr.config.entity.ScoreRule;
 import com.hr.config.repository.AiKnowledgeBaseRepository;
 import com.hr.config.repository.ApiKeyConfigRepository;
@@ -16,6 +17,7 @@ import com.hr.config.repository.AuditLogRepository;
 import com.hr.config.repository.NotifyTemplateRepository;
 import com.hr.config.repository.RecruitChannelRepository;
 import com.hr.config.repository.RecruitMailAccountRepository;
+import com.hr.config.repository.RoleMenuPermissionRepository;
 import com.hr.config.repository.ScoreRuleRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
@@ -45,6 +47,7 @@ public class ConfigService {
     private final ScoreRuleRepository scoreRuleRepository;
     private final AuditLogRepository auditLogRepository;
     private final ApiKeyConfigRepository apiKeyRepository;
+    private final RoleMenuPermissionRepository roleMenuPermissionRepository;
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
@@ -189,6 +192,148 @@ public class ConfigService {
     }
 
     // ── 邮箱账号 ────────────────────────────────────────────
+
+    /**
+     * GET /api/config/email-accounts/resolve — 按邮箱域名识别服务商（MX 指纹/域名关键字兜底）。
+     */
+    public Map<String, Object> resolveEmailServer(String email) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("provider", "未知");
+        result.put("imap_host", "");
+        result.put("imap_port", 993);
+        result.put("encryption", "SSL/TLS");
+        result.put("confidence", "low");
+        result.put("detection", "unknown");
+
+        String domain = "";
+        if (email != null && email.contains("@")) {
+            domain = email.substring(email.indexOf('@') + 1).trim().toLowerCase();
+        }
+        if (domain.isEmpty()) {
+            return result;
+        }
+
+        // 域名关键字 → (服务商, IMAP 主机)，对齐 Flask _DOMAIN_KEYWORD_FALLBACK
+        for (Map.Entry<String, String[]> e : DOMAIN_FALLBACK.entrySet()) {
+            for (String kw : e.getValue()) {
+                if (domain.contains(kw)) {
+                    String[] p = e.getKey().split("\\|", 2);
+                    result.put("provider", p[0]);
+                    result.put("imap_host", p[1]);
+                    result.put("confidence", "medium");
+                    result.put("detection", "domain");
+                    return result;
+                }
+            }
+        }
+
+        // 通用猜测 imap.<domain>
+        if (domain.contains(".")) {
+            result.put("provider", "企业邮箱");
+            result.put("imap_host", "imap." + domain);
+            result.put("confidence", "low");
+            result.put("detection", "pattern");
+        }
+        return result;
+    }
+
+    private static final Map<String, String[]> DOMAIN_FALLBACK = new LinkedHashMap<>(Map.of(
+            "腾讯企业邮|imap.exmail.qq.com", new String[]{"exmail.qq"},
+            "网易企业邮|imap.qiye.163.com", new String[]{"qiye.163"},
+            "QQ邮箱|imap.qq.com", new String[]{"qq"},
+            "163邮箱|imap.163.com", new String[]{"163"},
+            "126邮箱|imap.126.com", new String[]{"126"},
+            "Gmail|imap.gmail.com", new String[]{"gmail", "googlemail"},
+            "Outlook|outlook.office365.com", new String[]{"outlook", "hotmail", "live"},
+            "阿里企业邮|imap.qiye.aliyun.com", new String[]{"aliyun", "hichina"},
+            "飞书邮箱|imap.feishu.cn", new String[]{"feishu", "larksuite"},
+            "Zoho Mail|imap.zoho.com", new String[]{"zoho"},
+            "263企业邮箱|imap.263.net", new String[]{"263"}));
+
+    /**
+     * GET /api/config/role-permissions — 角色菜单权限矩阵。
+     */
+    public List<Map<String, Object>> getRolePermissions() {
+        List<RoleMenuPermission> rows = roleMenuPermissionRepository.findByIsDeletedOrderByRoleCodeAsc(0);
+        Map<String, List<String>> dbMenus = new LinkedHashMap<>();
+        for (RoleMenuPermission r : rows) {
+            if (r.getEnabled() != null && r.getEnabled() == 1) {
+                dbMenus.computeIfAbsent(r.getRoleCode(), k -> new java.util.ArrayList<>()).add(r.getMenuId());
+            }
+        }
+
+        List<String> roles = List.of("admin", "hr", "dept_head", "employee", "interviewer", "no_recruit");
+        List<String> allMenus = List.of("recruit-dashboard", "recruit-demand", "recruit-talent",
+                "recruit-interview", "recruit-ai", "recruit-config");
+        Map<String, String> menuLabels = new LinkedHashMap<>();
+        menuLabels.put("recruit-dashboard", "招聘看板");
+        menuLabels.put("recruit-demand", "招聘需求");
+        menuLabels.put("recruit-talent", "人才库");
+        menuLabels.put("recruit-interview", "面试管理");
+        menuLabels.put("recruit-ai", "AI 助手");
+        menuLabels.put("recruit-config", "系统配置");
+
+        List<Map<String, Object>> result = new java.util.ArrayList<>();
+        for (String rk : roles) {
+            List<String> menuIds = dbMenus.containsKey(rk) ? dbMenus.get(rk)
+                    : com.hr.common.enums.RoleMenus.getMenus(rk);
+            List<String> labels = new java.util.ArrayList<>();
+            for (String m : menuIds) {
+                labels.add(menuLabels.getOrDefault(m, m));
+            }
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("roleCode", rk);
+            row.put("role", rk);
+            row.put("badgeClass", "");
+            row.put("menus", labels.isEmpty() ? "侧边栏隐藏" : String.join("、", labels));
+            row.put("menuIds", menuIds);
+            row.put("allMenuIds", allMenus);
+            row.put("allMenuLabels", menuLabels);
+            row.put("dataScope", "全部数据");
+            row.put("ops", "查看");
+            result.add(row);
+        }
+        return result;
+    }
+
+    /**
+     * PUT /api/config/role-permissions — 保存角色菜单权限。
+     */
+    @Transactional
+    public Map<String, Object> updateRolePermissions(Map<String, Object> data) {
+        if (data == null) {
+            data = new LinkedHashMap<>();
+        }
+        List<RoleMenuPermission> old = roleMenuPermissionRepository.findByIsDeletedOrderByRoleCodeAsc(0);
+        for (RoleMenuPermission r : old) {
+            r.setIsDeleted(1);
+            r.setUpdatedAt(LocalDateTime.now());
+        }
+        roleMenuPermissionRepository.saveAll(old);
+
+        LocalDateTime now = LocalDateTime.now();
+        for (Map.Entry<String, Object> e : data.entrySet()) {
+            String roleCode = e.getKey();
+            Object v = e.getValue();
+            if (!(v instanceof List<?> menuIds)) {
+                continue;
+            }
+            for (Object mid : menuIds) {
+                RoleMenuPermission p = new RoleMenuPermission();
+                p.setRoleCode(roleCode);
+                p.setMenuId(String.valueOf(mid));
+                p.setEnabled(1);
+                p.setCreatedAt(now);
+                p.setUpdatedAt(now);
+                p.setIsDeleted(0);
+                roleMenuPermissionRepository.save(p);
+            }
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("updated", true);
+        result.put("roles", new java.util.ArrayList<>(data.keySet()));
+        return result;
+    }
 
     public List<Map<String, Object>> getEmailAccounts() {
         return mailAccountRepository.findByIsDeletedOrderByIdAsc(0)
