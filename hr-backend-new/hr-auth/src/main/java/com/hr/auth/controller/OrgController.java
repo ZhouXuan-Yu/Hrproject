@@ -32,6 +32,7 @@ public class OrgController {
     private final IamUserRepository userRepository;
 
     @GetMapping("/departments")
+    @Cacheable(cacheNames = "org", key = "'departments'")
     public ApiResponse<List<IamDept>> departments() {
         return ApiResponse.success(deptRepository.findByStatusAndIsDeleted(1, 0));
     }
@@ -43,8 +44,15 @@ public class OrgController {
     }
 
     @GetMapping("/positions")
+    @Cacheable(cacheNames = "org", key = "'positions'")
     public ApiResponse<List<IamPosition>> positions() {
         return ApiResponse.success(positionRepository.findByStatusAndIsDeleted(1, 0));
+    }
+
+    @GetMapping("/positions/{positionId}")
+    public ApiResponse<IamPosition> positionDetail(@PathVariable Long positionId) {
+        return ApiResponse.success(positionRepository.findById(positionId)
+                .orElseThrow(() -> BusinessException.notFound("岗位不存在")));
     }
 
     /**

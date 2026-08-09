@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.bouncycastle.crypto.generators.SCrypt;
 import org.springframework.stereotype.Service;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
@@ -236,6 +237,7 @@ public class UserManagementService {
     // ── 部门管理 ──────────────────────────────────────────────
 
     @Transactional
+    @CacheEvict(cacheNames = "org", allEntries = true)
     public Map<String, Object> createDepartment(Map<String, Object> body) {
         String name = str(body.get("name"));
         if (name.isEmpty()) {
@@ -260,6 +262,7 @@ public class UserManagementService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = "org", allEntries = true)
     public Map<String, Object> updateDepartment(Long deptId, Map<String, Object> body) {
         IamDept d = deptRepository.findById(deptId)
                 .filter(x -> x.getIsDeleted() == null || x.getIsDeleted() == 0)
@@ -282,6 +285,7 @@ public class UserManagementService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = "org", allEntries = true)
     public void deleteDepartment(Long deptId) {
         IamDept d = deptRepository.findById(deptId)
                 .filter(x -> x.getIsDeleted() == null || x.getIsDeleted() == 0)
@@ -292,6 +296,7 @@ public class UserManagementService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = "org", allEntries = true)
     public Map<String, Object> toggleDepartmentStatus(Long deptId, int status) {
         IamDept d = deptRepository.findById(deptId)
                 .filter(x -> x.getIsDeleted() == null || x.getIsDeleted() == 0)
@@ -307,6 +312,7 @@ public class UserManagementService {
     // ── 岗位管理 ──────────────────────────────────────────────
 
     @Transactional
+    @CacheEvict(cacheNames = "org", allEntries = true)
     public Map<String, Object> createPosition(Map<String, Object> body) {
         String name = str(body.get("positionName"));
         if (name.isEmpty()) {
@@ -329,6 +335,7 @@ public class UserManagementService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = "org", allEntries = true)
     public Map<String, Object> updatePosition(Long positionId, Map<String, Object> body) {
         IamPosition p = positionRepository.findById(positionId)
                 .filter(x -> x.getIsDeleted() == null || x.getIsDeleted() == 0)
@@ -351,6 +358,7 @@ public class UserManagementService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = "org", allEntries = true)
     public void deletePosition(Long positionId) {
         IamPosition p = positionRepository.findById(positionId)
                 .filter(x -> x.getIsDeleted() == null || x.getIsDeleted() == 0)
@@ -361,6 +369,7 @@ public class UserManagementService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = "org", allEntries = true)
     public Map<String, Object> togglePositionStatus(Long positionId, int status) {
         IamPosition p = positionRepository.findById(positionId)
                 .filter(x -> x.getIsDeleted() == null || x.getIsDeleted() == 0)
@@ -397,13 +406,13 @@ public class UserManagementService {
         return m;
     }
 
-    /** werkzeug generate_password_hash 兼容的 scrypt 哈希。 */
+    /** werkzeug generate_password_hash 兼容的 scrypt 哈希（werkzeug 默认 n=16384 r=8 p=1 dklen=64）。 */
     public static String werkzeugScrypt(String password) {
         byte[] salt = new byte[16];
         SECURE_RANDOM.nextBytes(salt);
         byte[] hash = SCrypt.generate(
-                password.getBytes(StandardCharsets.UTF_8), salt, 16384, 16, 1, 64);
-        return "scrypt:16384:16:1$" + Base64.getEncoder().encodeToString(salt)
+                password.getBytes(StandardCharsets.UTF_8), salt, 16384, 8, 1, 64);
+        return "scrypt:16384:8:1$" + Base64.getEncoder().encodeToString(salt)
                 + "$" + Base64.getEncoder().encodeToString(hash);
     }
 
