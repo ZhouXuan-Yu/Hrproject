@@ -61,15 +61,12 @@ public class IamUser {
     @Column(name = "status")
     private Integer status;
 
-    @Column(name = "tenant_id")
-    private Long tenantId;
-
     @Column(name = "is_deleted")
     private Integer isDeleted;
 
-    @Column(name = "create_time")
+    @Column(name = "created_at")
     private LocalDateTime createTime;
 
-    @Column(name = "update_time")
+    @Column(name = "updated_at")
     private LocalDateTime updateTime;
 }

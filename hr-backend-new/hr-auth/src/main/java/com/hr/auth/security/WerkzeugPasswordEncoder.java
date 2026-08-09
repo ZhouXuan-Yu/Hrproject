@@ -57,13 +57,14 @@ public class WerkzeugPasswordEncoder {
                 return false;
             }
             String[] params = parts[0].split(":");
-            if (params.length != 4) {
+            if (params.length != 3 && params.length != 4) {
                 return false;
             }
             int n = Integer.parseInt(params[0]);
             int r = Integer.parseInt(params[1]);
             int p = Integer.parseInt(params[2]);
-            int dkLen = Integer.parseInt(params[3]);
+            // werkzeug scrypt 格式为 scrypt:n:r:p，dklen 固定 64 不入串
+            int dkLen = params.length == 4 ? Integer.parseInt(params[3]) : 64;
 
             byte[] salt = Base64.getDecoder().decode(parts[1]);
             byte[] expected = Base64.getDecoder().decode(parts[2]);

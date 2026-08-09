@@ -17,7 +17,6 @@ import lombok.Data;
 public class IamDept {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "dept_id")
     private Long deptId;
 
@@ -35,9 +34,6 @@ public class IamDept {
 
     @Column(name = "status")
     private Integer status;
-
-    @Column(name = "tenant_id")
-    private Long tenantId;
 
     @Column(name = "is_deleted")
     private Integer isDeleted;

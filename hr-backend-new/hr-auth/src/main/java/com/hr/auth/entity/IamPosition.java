@@ -17,7 +17,6 @@ import lombok.Data;
 public class IamPosition {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "position_id")
     private Long positionId;
 
@@ -27,14 +26,8 @@ public class IamPosition {
     @Column(name = "dept_id")
     private Long deptId;
 
-    @Column(name = "job_level")
-    private String jobLevel;
-
     @Column(name = "status")
     private Integer status;
-
-    @Column(name = "tenant_id")
-    private Long tenantId;
 
     @Column(name = "is_deleted")
     private Integer isDeleted;
