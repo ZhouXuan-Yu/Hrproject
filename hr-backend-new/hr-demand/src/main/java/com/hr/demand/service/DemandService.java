@@ -466,8 +466,11 @@ public class DemandService {
         }
 
         long linkedCount = processRepository.findByDemandIdAndIsDeletedOrderByIdDesc(demand.getId(), 0).size();
-        return Map.of("linked", true, "linkedCount", linkedCount, "matchScore",
-                matchScore != null ? matchScore.doubleValue() : null);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("linked", true);
+        result.put("linkedCount", linkedCount);
+        result.put("matchScore", matchScore != null ? matchScore.doubleValue() : null);
+        return result;
     }
 
     /**
