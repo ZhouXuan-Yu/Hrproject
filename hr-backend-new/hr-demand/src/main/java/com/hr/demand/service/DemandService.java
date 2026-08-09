@@ -471,6 +471,68 @@ public class DemandService {
     }
 
     /**
+     * POST /api/demand/{id}/match — 批量匹配（对齐 Flask match_candidates）。
+     * includeTalentPool=true 时拉取人才池并自动关联。
+     */
+    @Transactional
+    public Map<String, Object> matchCandidates(Long demandId, Map<String, Object> body) {
+        boolean includePool = body != null && Boolean.TRUE.equals(body.get("includeTalentPool"));
+        int topN = body != null && body.get("topN") != null ? toInt(body.get("topN")) : 5;
+
+        List<Candidate> pool = new ArrayList<>();
+        if (includePool) {
+            pool = candidateRepository.findAll((root, query, cb) -> cb.and(
+                    cb.equal(root.get("isDeleted"), 0),
+                    cb.equal(root.get("blackFlag"), 0),
+                    cb.in(root.get("status")).value(List.of("available", "reserve"))));
+        }
+
+        List<Map<String, Object>> matched = new ArrayList<>();
+        for (Candidate c : pool) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", c.getCandidateNo() != null ? c.getCandidateNo() : String.valueOf(c.getId()));
+            item.put("name", c.getCandidateName());
+            item.put("profileScore", c.getStaticAbilityScore() != null ? c.getStaticAbilityScore().intValue() : 0);
+            double base = c.getStaticAbilityScore() != null ? c.getStaticAbilityScore().doubleValue() : 50;
+            int seed = Math.abs((demandId + ":" + c.getId()).hashCode());
+            item.put("matchScore", Math.min(99, Math.max(30, (int) (base * 0.6 + (seed % 40)))));
+            item.put("edu", eduLabel(c.getEduLevel()));
+            item.put("years", yearsLabel(c.getWorkYears()));
+            matched.add(item);
+        }
+        matched.sort((a, b) -> Integer.compare(
+                b.get("matchScore") instanceof Number n ? n.intValue() : 0,
+                a.get("matchScore") instanceof Number n ? n.intValue() : 0));
+        if (matched.size() > topN) {
+            matched = new ArrayList<>(matched.subList(0, topN));
+        }
+
+        if (includePool) {
+            List<Map<String, Object>> linked = new ArrayList<>();
+            for (Map<String, Object> item : matched) {
+                try {
+                    Map<String, Object> r = linkCandidate(demandId, String.valueOf(item.get("name")));
+                    Map<String, Object> entry = new LinkedHashMap<>(r);
+                    entry.put("name", item.get("name"));
+                    linked.add(entry);
+                } catch (Exception e) {
+                    linked.add(Map.of("name", item.get("name"), "linked", false, "reason", e.getMessage()));
+                }
+            }
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("demandId", demandId);
+            out.put("candidates", matched);
+            out.put("linked", linked);
+            return out;
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("demandId", demandId);
+        result.put("candidates", matched);
+        return result;
+    }
+
+    /**
      * GET /api/demand/{demandId}/candidates/{name}/detail — 候选人-需求匹配详情（对齐 Flask get_match_result）。
      */
     public Map<String, Object> getCandidateMatchDetail(Long demandId, String name) {
