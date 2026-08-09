@@ -925,6 +925,21 @@ public class InterviewService {
                 .orElse("岗位#" + demandId);
     }
 
+    /**
+     * 解析预约标识为数字主键（对齐 Flask _normalize_book_id：'INT0043' -> 43）。
+     */
+    public Long normalizeBookId(String bookId) {
+        String s = String.valueOf(bookId).trim();
+        if (s.toUpperCase().startsWith("INT")) {
+            s = s.substring(3);
+        }
+        try {
+            return Long.parseLong(s);
+        } catch (NumberFormatException e) {
+            throw BusinessException.invalidInput("无效的面试预约ID: " + bookId);
+        }
+    }
+
     private InterviewBook getActiveBook(Long id) {
         return bookRepository.findById(id)
                 .filter(b -> b.getIsDeleted() == null || b.getIsDeleted() == 0)
