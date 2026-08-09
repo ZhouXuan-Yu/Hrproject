@@ -81,3 +81,6 @@ backend/*.db-wal
 backend/uploads/
 frontend/.claude/
 gstack开发流程/
+
+# --- Backend build artifacts ---
+.hr-builds/
