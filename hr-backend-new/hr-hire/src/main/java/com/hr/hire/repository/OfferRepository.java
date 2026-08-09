@@ -4,6 +4,7 @@ import com.hr.hire.entity.Offer;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -12,4 +13,7 @@ public interface OfferRepository extends JpaRepository<Offer, Long>, JpaSpecific
     Optional<Offer> findByOfferNoAndIsDeleted(String offerNo, Integer isDeleted);
 
     List<Offer> findByOfferStatusAndIsDeleted(Integer offerStatus, Integer isDeleted);
+
+    List<Offer> findByResumeIdAndDemandIdAndOfferStatusInAndIsDeleted(
+            Long resumeId, Long demandId, Collection<Integer> offerStatuses, Integer isDeleted);
 }

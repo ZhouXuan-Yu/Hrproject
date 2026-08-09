@@ -86,14 +86,21 @@ public class TalentService {
     }
 
     /**
-     * 内部员工列表（分页）。
+     * 内部员工列表（分页，keyword 匹配员工姓名）。
      */
     public Map<String, Object> listEmployees(int page, int pageSize, String keyword) {
         Specification<Employee> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
             predicates.add(cb.equal(root.get("isDeleted"), 0));
             if (keyword != null && !keyword.isBlank()) {
-                predicates.add(cb.like(root.get("transferRestrictReason"), "%" + keyword.trim() + "%"));
+                String like = "%" + keyword.trim() + "%";
+                jakarta.persistence.criteria.Subquery<Long> sub = query.subquery(Long.class);
+                jakarta.persistence.criteria.Root<IamUser> userRoot = sub.from(IamUser.class);
+                sub.select(userRoot.get("userId"));
+                sub.where(cb.and(
+                        cb.like(userRoot.get("realName"), like),
+                        cb.equal(userRoot.get("isDeleted"), 0)));
+                predicates.add(cb.in(root.get("userId")).value(sub));
             }
             return cb.and(predicates.toArray(new Predicate[0]));
         };
