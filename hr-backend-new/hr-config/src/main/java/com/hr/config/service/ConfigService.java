@@ -237,18 +237,23 @@ public class ConfigService {
         return result;
     }
 
-    private static final Map<String, String[]> DOMAIN_FALLBACK = new LinkedHashMap<>(Map.of(
-            "腾讯企业邮|imap.exmail.qq.com", new String[]{"exmail.qq"},
-            "网易企业邮|imap.qiye.163.com", new String[]{"qiye.163"},
-            "QQ邮箱|imap.qq.com", new String[]{"qq"},
-            "163邮箱|imap.163.com", new String[]{"163"},
-            "126邮箱|imap.126.com", new String[]{"126"},
-            "Gmail|imap.gmail.com", new String[]{"gmail", "googlemail"},
-            "Outlook|outlook.office365.com", new String[]{"outlook", "hotmail", "live"},
-            "阿里企业邮|imap.qiye.aliyun.com", new String[]{"aliyun", "hichina"},
-            "飞书邮箱|imap.feishu.cn", new String[]{"feishu", "larksuite"},
-            "Zoho Mail|imap.zoho.com", new String[]{"zoho"},
-            "263企业邮箱|imap.263.net", new String[]{"263"}));
+    private static final Map<String, String[]> DOMAIN_FALLBACK = buildDomainFallback();
+
+    private static Map<String, String[]> buildDomainFallback() {
+        Map<String, String[]> m = new LinkedHashMap<>();
+        m.put("腾讯企业邮|imap.exmail.qq.com", new String[]{"exmail.qq"});
+        m.put("网易企业邮|imap.qiye.163.com", new String[]{"qiye.163"});
+        m.put("QQ邮箱|imap.qq.com", new String[]{"qq"});
+        m.put("163邮箱|imap.163.com", new String[]{"163"});
+        m.put("126邮箱|imap.126.com", new String[]{"126"});
+        m.put("Gmail|imap.gmail.com", new String[]{"gmail", "googlemail"});
+        m.put("Outlook|outlook.office365.com", new String[]{"outlook", "hotmail", "live"});
+        m.put("阿里企业邮|imap.qiye.aliyun.com", new String[]{"aliyun", "hichina"});
+        m.put("飞书邮箱|imap.feishu.cn", new String[]{"feishu", "larksuite"});
+        m.put("Zoho Mail|imap.zoho.com", new String[]{"zoho"});
+        m.put("263企业邮箱|imap.263.net", new String[]{"263"});
+        return m;
+    }
 
     /**
      * GET /api/config/role-permissions — 角色菜单权限矩阵。

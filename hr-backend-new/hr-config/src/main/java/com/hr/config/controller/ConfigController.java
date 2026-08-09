@@ -50,6 +50,21 @@ public class ConfigController {
         return listResponse(configService.getEmailAccounts());
     }
 
+    @GetMapping("/email-accounts/resolve")
+    public ApiResponse<Map<String, Object>> resolveEmailServer(@RequestParam String email) {
+        return ApiResponse.success(configService.resolveEmailServer(email));
+    }
+
+    @GetMapping("/role-permissions")
+    public ApiResponse<List<Map<String, Object>>> rolePermissions() {
+        return ApiResponse.success(configService.getRolePermissions());
+    }
+
+    @PutMapping("/role-permissions")
+    public ApiResponse<Map<String, Object>> updateRolePermissions(@RequestBody Map<String, Object> body) {
+        return ApiResponse.success(configService.updateRolePermissions(body));
+    }
+
     @GetMapping("/notify-templates")
     public Map<String, Object> notifyTemplates() {
         return listResponse(configService.getNotifyTemplates());
