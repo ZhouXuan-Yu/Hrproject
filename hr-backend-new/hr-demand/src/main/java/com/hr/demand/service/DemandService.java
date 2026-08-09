@@ -237,6 +237,7 @@ public class DemandService {
             node.setApproveLevel(level);
             node.setApproveResult(1); // 待审批
             node.setCreatedAt(LocalDateTime.now());
+            node.setUpdatedAt(LocalDateTime.now());
             node.setIsDeleted(0);
             approvalRepository.save(node);
         }

@@ -667,7 +667,7 @@ public class TalentService {
         }
         deleted.add("resumes:" + resumes.size());
 
-        List<RecruitProcess> processes = recruitProcessRepository.findByDemandIdAndIsDeletedOrderByIdDesc(c.getId(), 0);
+        List<RecruitProcess> processes = recruitProcessRepository.findByCandidateIdAndIsDeletedOrderByIdDesc(c.getId(), 0);
         for (RecruitProcess p : processes) {
             recruitProcessRepository.delete(p);
         }
