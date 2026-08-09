@@ -71,14 +71,14 @@ public class TalentController {
     }
 
     /**
-     * PATCH /api/talent/{id}/note — 更新候选人备注。
+     * PATCH /api/talent/{id}/note — 更新候选人备注（支持 candidateNo 或数字主键）。
      */
     @PatchMapping("/{id}/note")
-    public ApiResponse<Map<String, Object>> updateNote(@PathVariable Long id,
+    public ApiResponse<Map<String, Object>> updateNote(@PathVariable String id,
                                                        @RequestBody Map<String, Object> body) {
         String note = body != null && body.get("note") != null
                 ? String.valueOf(body.get("note")) : "";
-        return ApiResponse.success(talentService.updateNote(id, note));
+        return ApiResponse.success(talentService.updateNote(talentService.resolveCandidateId(id), note));
     }
 
     /**

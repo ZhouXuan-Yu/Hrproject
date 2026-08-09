@@ -262,7 +262,7 @@ public class TalentService {
         if (candidateId.isBlank() || demandId.isBlank()) {
             throw BusinessException.invalidInput("缺少 candidateId 或 demandId 参数");
         }
-        Candidate c = candidateRepository.findById(parseId(candidateId))
+        Candidate c = candidateRepository.findById(resolveCandidateId(candidateId))
                 .filter(x -> x.getIsDeleted() == null || x.getIsDeleted() == 0)
                 .orElseThrow(() -> BusinessException.notFound("候选人不存在"));
         double base = c.getStaticAbilityScore() != null ? c.getStaticAbilityScore().doubleValue() : 0;
@@ -471,7 +471,7 @@ public class TalentService {
         String noteText = "[contact] HR via " + method
                 + "; sent=" + sendResult.get("sent")
                 + "; msg=" + sendResult.get("message");
-        updateNote(parseId(candidateId), noteText);
+        updateNote(resolveCandidateId(candidateId), noteText);
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("recorded", true);
@@ -752,14 +752,6 @@ public class TalentService {
                     .orElseThrow(() -> BusinessException.notFound("候选人不存在"));
         }
         return Long.parseLong(idStr);
-    }
-
-    private Long parseId(String s) {
-        try {
-            return Long.parseLong(s);
-        } catch (NumberFormatException e) {
-            throw BusinessException.invalidInput("无效的 ID: " + s);
-        }
     }
 
     private Map<String, Object> toCandidateMap(Candidate c) {
