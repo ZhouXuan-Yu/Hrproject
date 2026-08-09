@@ -34,6 +34,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -529,10 +530,13 @@ public class DemandService {
 
         List<Candidate> pool = new ArrayList<>();
         if (includePool) {
+            // 人才池最多取 200 条参与匹配，避免全量加载
             pool = candidateRepository.findAll((root, query, cb) -> cb.and(
-                    cb.equal(root.get("isDeleted"), 0),
-                    cb.equal(root.get("blackFlag"), 0),
-                    cb.in(root.get("status")).value(List.of("available", "reserve"))));
+                            cb.equal(root.get("isDeleted"), 0),
+                            cb.equal(root.get("blackFlag"), 0),
+                            cb.in(root.get("status")).value(List.of("available", "reserve"))),
+                    PageRequest.of(0, 200, Sort.by(Sort.Direction.DESC, "id")))
+                    .getContent();
         }
 
         List<Map<String, Object>> matched = new ArrayList<>();
