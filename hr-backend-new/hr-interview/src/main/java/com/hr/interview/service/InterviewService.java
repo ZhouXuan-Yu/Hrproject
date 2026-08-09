@@ -673,28 +673,36 @@ public class InterviewService {
         long resumeId = 0;
         long demandId = 0;
         try {
-            if (body.get("resumeId") instanceof Number n && n.longValue() > 0) {
-                resumeId = n.longValue();
-            } else if (body.get("candidateId") instanceof Number n2 && n2.longValue() > 0) {
-                resumeId = latestResumeId(n2.longValue());
-            } else {
-                String candidateNo = body.get("candidateNo") != null
-                        ? String.valueOf(body.get("candidateNo")).trim() : "";
-                if (candidateNo.isBlank() && body.get("candidate") != null) {
-                    candidateNo = String.valueOf(body.get("candidate")).trim();
-                }
+            Candidate candidate = null;
+            // 1) 数字 candidateId 优先
+            if (body.get("candidateId") instanceof Number n && n.longValue() > 0) {
+                candidate = candidateRepository.findById(n.longValue())
+                        .filter(c -> c.getIsDeleted() == null || c.getIsDeleted() == 0)
+                        .orElse(null);
+            }
+            // 2) candidateNo（候选人编号 C2026xxx）精确匹配
+            if (candidate == null && body.get("candidateNo") != null) {
+                String candidateNo = String.valueOf(body.get("candidateNo")).trim();
                 if (!candidateNo.isBlank()) {
-                    String searchNo = candidateNo;
-                    Candidate c = candidateRepository.findAll(
+                    String no = candidateNo;
+                    candidate = candidateRepository.findAll(
                                     (root, query, cb) -> cb.and(
-                                            cb.equal(root.get("candidateNo"), searchNo),
+                                            cb.equal(root.get("candidateNo"), no),
                                             cb.equal(root.get("isDeleted"), 0)))
                             .stream().findFirst().orElse(null);
-                    if (c != null) {
-                        resumeId = latestResumeId(c.getId());
-                    }
                 }
             }
+            // 3) 按姓名兜底（面试计划页只传名字时）
+            if (candidate == null && body.get("candidate") != null) {
+                String name = String.valueOf(body.get("candidate")).trim();
+                if (!name.isBlank()) {
+                    candidate = candidateRepository.findFirstByCandidateNameAndIsDeleted(name, 0).orElse(null);
+                }
+            }
+            if (candidate != null) {
+                resumeId = latestResumeId(candidate.getId());
+            }
+
             if (body.get("demandId") instanceof Number n3 && n3.longValue() > 0) {
                 demandId = n3.longValue();
             } else {
