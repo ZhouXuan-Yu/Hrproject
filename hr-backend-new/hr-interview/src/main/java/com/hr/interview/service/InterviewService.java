@@ -76,6 +76,7 @@ public class InterviewService {
      * 面试列表（分页 + 状态筛选）。
      * 状态为派生状态：pending/scheduled/evaluating/offer/done。
      */
+    @org.springframework.cache.annotation.Cacheable(cacheNames = "list", key = "'interview:' + #page + ':' + #pageSize + ':' + (#status != null ? #status : '')")
     public Map<String, Object> listInterviews(int page, int pageSize, String status) {
         Specification<InterviewBook> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
@@ -202,6 +203,7 @@ public class InterviewService {
     /**
      * GET /api/interview/alerts — 面试预警（超期未评价 / 今日面试 / 待发 Offer）。
      */
+    @org.springframework.cache.annotation.Cacheable(cacheNames = "list", key = "'alerts'")
     public List<Map<String, Object>> getAlerts() {
         List<Map<String, Object>> alerts = new ArrayList<>();
         LocalDateTime now = LocalDateTime.now();
@@ -479,6 +481,7 @@ public class InterviewService {
     /**
      * GET /api/interview/calendar — 面试日历（month 或 week_start 视图）。
      */
+    @org.springframework.cache.annotation.Cacheable(cacheNames = "list", key = "'calendar:' + (#weekStart != null ? #weekStart : '') + ':' + (#month != null ? #month : '')")
     public Map<String, Object> getCalendar(String weekStart, String month) {
         boolean monthView = month != null && !month.isBlank();
         LocalDateTime start;

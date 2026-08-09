@@ -175,6 +175,7 @@ public class DashboardService {
 
     // ── 部门编制进度 ──────────────────────────────────────────
 
+    @Cacheable(cacheNames = "dashboard", key = "'dept-progress'")
     public List<Map<String, Object>> getDeptProgress() {
         try {
             List<?> rows = entityManager.createNativeQuery("""
@@ -187,13 +188,19 @@ public class DashboardService {
                     ORDER BY dept_id""").getResultList();
 
             List<Map<String, Object>> result = new ArrayList<>();
+            // 批量预取部门名，避免每行 1 次查询（N+1）
+            List<Long> deptIds = rows.stream()
+                    .map(row -> ((Number) ((Object[]) row)[0]).longValue())
+                    .distinct().toList();
+            Map<Long, String> deptNames = batchResolveDeptNames(deptIds);
             for (Object row : rows) {
                 Object[] cols = (Object[]) row;
                 long deptId = ((Number) cols[0]).longValue();
                 long totalHc = ((Number) cols[1]).longValue();
                 long filledHc = ((Number) cols[2]).longValue();
                 Map<String, Object> m = new LinkedHashMap<>();
-                m.put("dept", resolveDeptName(deptId));
+                m.put("dept", deptNames.getOrDefault(deptId,
+                        DEPT_FALLBACK.getOrDefault((int) deptId, "部门(" + deptId + ")")));
                 m.put("hired", filledHc);
                 m.put("total", totalHc);
                 m.put("pct", totalHc > 0 ? Math.round(filledHc * 100.0 / totalHc) : 0);
@@ -206,8 +213,29 @@ public class DashboardService {
         }
     }
 
+    /** 一次 IN 查询解析多个部门名。 */
+    private Map<Long, String> batchResolveDeptNames(List<Long> deptIds) {
+        Map<Long, String> map = new java.util.HashMap<>();
+        if (deptIds == null || deptIds.isEmpty()) {
+            return map;
+        }
+        try {
+            List<?> rows = entityManager.createNativeQuery(
+                    "SELECT dept_id, dept_name FROM t_core_dept WHERE dept_id IN (:ids) AND is_deleted = 0")
+                    .setParameter("ids", deptIds)
+                    .getResultList();
+            for (Object row : rows) {
+                Object[] cols = (Object[]) row;
+                map.put(((Number) cols[0]).longValue(), String.valueOf(cols[1]));
+            }
+        } catch (Exception ignored) {
+        }
+        return map;
+    }
+
     // ── 渠道统计 ──────────────────────────────────────────────
 
+    @Cacheable(cacheNames = "dashboard", key = "'channel'")
     public List<Map<String, Object>> getChannel() {
         try {
             List<?> rows = entityManager.createNativeQuery("""
@@ -274,6 +302,7 @@ public class DashboardService {
 
     // ── 风险预警 ──────────────────────────────────────────────
 
+    @Cacheable(cacheNames = "dashboard", key = "'risk-alerts'")
     public List<Map<String, Object>> getRiskAlerts() {
         try {
             List<Map<String, Object>> alerts = new ArrayList<>();
@@ -380,6 +409,7 @@ public class DashboardService {
 
     // ── 月度趋势（柱状图） ─────────────────────────────────────
 
+    @Cacheable(cacheNames = "dashboard", key = "'monthly:' + T(java.lang.String).valueOf(#year != null ? #year : T(java.time.LocalDate).now().getYear()) + ':' + (#deptId != null ? #deptId : '') + ':' + (#positionId != null ? #positionId : '')")
     public Map<String, Object> getMonthlyStats(Integer year, Long deptId, Long positionId) {
         int y = year != null ? year : LocalDate.now().getYear();
         List<Map<String, Object>> months = new ArrayList<>();

@@ -86,6 +86,7 @@ public class TalentService {
     /**
      * 候选人列表（分页 + keyword + status 筛选）。
      */
+    @org.springframework.cache.annotation.Cacheable(cacheNames = "list", key = "'talent:' + #page + ':' + #pageSize + ':' + (#keyword != null ? #keyword : '') + ':' + (#status != null ? #status : '')")
     public Map<String, Object> listCandidates(int page, int pageSize, String keyword, String status) {
         Specification<Candidate> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
@@ -119,6 +120,7 @@ public class TalentService {
     /**
      * 内部员工列表（分页，keyword 匹配员工姓名）。
      */
+    @org.springframework.cache.annotation.Cacheable(cacheNames = "list", key = "'employees:' + #page + ':' + #pageSize + ':' + (#keyword != null ? #keyword : '')")
     public Map<String, Object> listEmployees(int page, int pageSize, String keyword) {
         Specification<Employee> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();

@@ -41,15 +41,15 @@
     <!-- ===== Tab 1: 简历储备库（外部） ===== -->
     <div class="tab-panel" :class="{ active: activeTab === 'external' }">
       <div class="filter-bar">
-        <input type="text" placeholder="姓名 / 手机号 / 技能关键字..." id="extSearch" v-model="extFilters.search" @input="renderExt">
-        <select id="extStatus" v-model="extFilters.status" @change="renderExt"><option value="all">全部状态</option><option value="available">可联系</option><option value="locked">面试中(锁定)</option><option value="reserve">储备</option><option value="archived">已封存</option></select>
-        <select id="extSource" v-model="extFilters.source" @change="renderExt"><option value="all">全部来源</option><option value="mail">邮箱采集</option><option value="boss">Boss直聘</option><option value="liepin">猎聘</option><option value="refer">内推</option><option value="upload">手动上传</option></select>
-        <select id="extSkill" v-model="extFilters.skill" @change="renderExt"><option value="all">全部技能</option><option>Java</option><option>K8s</option><option>React</option><option>Vue</option><option>Python</option><option>SQL</option><option>Go</option></select>
-        <select id="extEdu" v-model="extFilters.edu" @change="renderExt"><option value="all">全部学历</option><option>大专</option><option>本科</option><option>硕士</option><option>博士</option></select>
-        <select id="extYears" v-model="extFilters.years" @change="renderExt"><option value="all">全部年限</option><option value="fresh">应届</option><option value="1-3">1-3年</option><option value="3-5">3-5年</option><option value="5+">5年+</option></select>
-        <select id="extProfile" v-model="extFilters.profile" @change="renderExt"><option value="0">画像分不限</option><option value="80">&ge;80</option><option value="60">&ge;60</option></select>
-        <select id="extNote" v-model="extFilters.note" @change="renderExt"><option value="all">备注不限</option><option value="yes">有备注</option><option value="no">无备注</option></select>
-        <select id="extSort" v-model="extFilters.sort" @change="renderExt"><option value="default">默认排序</option><option value="profile_desc">画像分从高到低</option><option value="time_desc">入库时间最新</option></select>
+        <input type="text" placeholder="姓名 / 手机号 / 技能关键字..." id="extSearch" v-model="extFilters.search" >
+        <select id="extStatus" v-model="extFilters.status" ><option value="all">全部状态</option><option value="available">可联系</option><option value="locked">面试中(锁定)</option><option value="reserve">储备</option><option value="archived">已封存</option></select>
+        <select id="extSource" v-model="extFilters.source" ><option value="all">全部来源</option><option value="mail">邮箱采集</option><option value="boss">Boss直聘</option><option value="liepin">猎聘</option><option value="refer">内推</option><option value="upload">手动上传</option></select>
+        <select id="extSkill" v-model="extFilters.skill" ><option value="all">全部技能</option><option>Java</option><option>K8s</option><option>React</option><option>Vue</option><option>Python</option><option>SQL</option><option>Go</option></select>
+        <select id="extEdu" v-model="extFilters.edu" ><option value="all">全部学历</option><option>大专</option><option>本科</option><option>硕士</option><option>博士</option></select>
+        <select id="extYears" v-model="extFilters.years" ><option value="all">全部年限</option><option value="fresh">应届</option><option value="1-3">1-3年</option><option value="3-5">3-5年</option><option value="5+">5年+</option></select>
+        <select id="extProfile" v-model="extFilters.profile" ><option value="0">画像分不限</option><option value="80">&ge;80</option><option value="60">&ge;60</option></select>
+        <select id="extNote" v-model="extFilters.note" ><option value="all">备注不限</option><option value="yes">有备注</option><option value="no">无备注</option></select>
+        <select id="extSort" v-model="extFilters.sort" ><option value="default">默认排序</option><option value="profile_desc">画像分从高到低</option><option value="time_desc">入库时间最新</option></select>
         <span style="flex:1"></span>
         <span style="font-size:11px;color:var(--c-sub)" id="extCount">共 {{ extFiltered.length }} 人</span>
       </div>
@@ -647,6 +647,8 @@ function clearSelectionInt() {
   Object.keys(checkedInt).forEach(k => delete checkedInt[k]);
 }
 
+// 客户端筛选由 extFiltered computed 自动响应 v-model 变化；
+// renderExt 仅用于显式刷新（翻页、操作后）时重新拉取服务端数据
 function renderExt() { loadFromApi(); }
 
 // Note modal

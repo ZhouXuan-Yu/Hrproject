@@ -75,6 +75,7 @@ public class DemandService {
     /**
      * 需求列表（分页 + 筛选 + 数据范围）。
      */
+    @org.springframework.cache.annotation.Cacheable(cacheNames = "list", key = "'demand:' + #page + ':' + #pageSize + ':' + (#keyword != null ? #keyword : '') + ':' + (#status != null ? #status : '') + ':' + (#deptId != null ? #deptId : '') + ':' + #roleCode + ':' + #userId")
     public Map<String, Object> listDemands(int page, int pageSize, String keyword, Integer status,
                                            Long deptId, String roleCode, Long userId, Long userDeptId) {
         Specification<RecruitDemand> spec = (root, query, cb) -> {
@@ -999,9 +1000,7 @@ public class DemandService {
         if (userId == null) {
             return "系统";
         }
-        return userRepository.findById(userId)
-                .filter(u -> u.getStatus() != null && u.getStatus() == 1)
-                .filter(u -> u.getIsDeleted() == null || u.getIsDeleted() == 0)
+        return userRepository.findFirstActiveByUserId(userId)
                 .map(IamUser::getRealName)
                 .orElseGet(() -> String.valueOf(userId));
     }

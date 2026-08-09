@@ -19,6 +19,8 @@ import org.springframework.data.redis.serializer.RedisSerializationContext;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 
 import java.time.Duration;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Redis 缓存配置：Spring Cache + Redisson 分布式锁 + RedisTemplate。
@@ -63,14 +65,26 @@ public class RedisConfig {
     public CacheManager cacheManager(RedisConnectionFactory factory) {
         // GenericJackson2JsonRedisSerializer 反序列化泛型集合时需要保留类型信息
         RedisCacheConfiguration config = RedisCacheConfiguration.defaultCacheConfig()
-                .entryTtl(Duration.ofSeconds(60))
+                .entryTtl(Duration.ofSeconds(300))
                 .disableCachingNullValues()
                 .serializeKeysWith(RedisSerializationContext.SerializationPair
                         .fromSerializer(new StringRedisSerializer()))
                 .serializeValuesWith(RedisSerializationContext.SerializationPair
                         .fromSerializer(new GenericJackson2JsonRedisSerializer()));
+
+        // TTL 分级：config/org 热点配置 5min；list 列表类 30s 短 TTL 兜底脏读；
+        // 其余（dashboard 等）默认 300s
+        Map<String, Duration> ttlByCache = Map.of(
+                "config", Duration.ofMinutes(5),
+                "org", Duration.ofMinutes(5),
+                "list", Duration.ofSeconds(30));
+
+        Map<String, RedisCacheConfiguration> configs = new HashMap<>();
+        ttlByCache.forEach((name, ttl) -> configs.put(name, config.entryTtl(ttl)));
+
         return RedisCacheManager.builder(factory)
                 .cacheDefaults(config)
+                .withInitialCacheConfigurations(configs)
                 .transactionAware()
                 .build();
     }

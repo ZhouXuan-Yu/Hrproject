@@ -73,11 +73,52 @@ function setCache(key, data) {
   }
 }
 
-function invalidateCache(method, url) {
-  if (method === 'POST' || method === 'PATCH' || method === 'PUT' || method === 'DELETE') {
-    // Invalidate all GET cache entries (conservative: clear all)
-    responseCache.clear()
+/**
+ * 写操作后按 URL 前缀精准失效 GET 缓存。
+ * 映射表：写操作路径前缀 → 受影响列表缓存前缀。
+ */
+const MUTATION_CACHE_MAP = [
+  { write: '/talent', read: ['/talent/list', '/talent/ingest-log'] },
+  { write: '/demand', read: ['/demand/list', '/demand/'] },
+  { write: '/interview', read: ['/interview/list', '/interview/alerts', '/interview/calendar'] },
+  { write: '/config', read: ['/config/channels', '/config/email-accounts', '/config/notify-templates', '/config/knowledge-base', '/config/score-rules'] },
+  { write: '/auth', read: ['/auth/users', '/auth/departments', '/auth/positions'] },
+  { write: '/hire', read: ['/hire/offers', '/hire/entries'] },
+  { write: '/dashboard', read: ['/dashboard'] },
+]
+
+function invalidateAfterMutation(method, path) {
+  if (!['POST', 'PATCH', 'PUT', 'DELETE'].includes(method)) return
+  for (const entry of MUTATION_CACHE_MAP) {
+    if (path.startsWith(entry.write)) {
+      invalidateCache(entry.read)
+      return
+    }
   }
+  // 未匹配的写操作保守全清
+  responseCache.clear()
+}
+
+/**
+ * 按 URL 前缀精准失效 GET 缓存。
+ * 写操作（POST/PATCH/PUT/DELETE）后只清除相关列表缓存，而非全表清空。
+ * 也可由模块主动调用（如原生 fetch 上传后 invalidateCache('/talent/list')）。
+ * @param {string|string[]} urlPrefixes - 单个或一组 URL 前缀（含 /api 前路径，如 '/talent/list'）
+ */
+export function invalidateCache(urlPrefixes) {
+  const prefixes = Array.isArray(urlPrefixes) ? urlPrefixes : [urlPrefixes]
+  for (const key of [...responseCache.keys()]) {
+    if (prefixes.some(p => key.includes(`:${p}`))) {
+      responseCache.delete(key)
+    }
+  }
+}
+
+/**
+ * 清除全部 GET 缓存（登录/登出时使用）。
+ */
+export function clearCache() {
+  responseCache.clear()
 }
 
 // ── Core request ──────────────────────────────────────────────────────────
@@ -142,8 +183,8 @@ async function request(path, options = {}) {
         const resp = await doFetch(attempt)
         const json = await handleResponse(resp, method, path, options)
 
-        // On successful mutation, invalidate cache
-        invalidateCache(method, path)
+      // On successful mutation, invalidate related GET caches by URL prefix
+      invalidateAfterMutation(method, path)
 
         return json
       })()

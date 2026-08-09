@@ -247,7 +247,7 @@ public class UserManagementService {
     // ── 部门管理 ──────────────────────────────────────────────
 
     @Transactional
-    @CacheEvict(cacheNames = "org", allEntries = true)
+    @CacheEvict(cacheNames = "org", key = "'departments'")
     public Map<String, Object> createDepartment(Map<String, Object> body) {
         String name = str(body.get("name"));
         if (name.isEmpty()) {
@@ -272,7 +272,7 @@ public class UserManagementService {
     }
 
     @Transactional
-    @CacheEvict(cacheNames = "org", allEntries = true)
+    @CacheEvict(cacheNames = "org", key = "'departments'")
     public Map<String, Object> updateDepartment(Long deptId, Map<String, Object> body) {
         IamDept d = deptRepository.findById(deptId)
                 .filter(x -> x.getIsDeleted() == null || x.getIsDeleted() == 0)
@@ -295,7 +295,7 @@ public class UserManagementService {
     }
 
     @Transactional
-    @CacheEvict(cacheNames = "org", allEntries = true)
+    @CacheEvict(cacheNames = "org", key = "'departments'")
     public void deleteDepartment(Long deptId) {
         IamDept d = deptRepository.findById(deptId)
                 .filter(x -> x.getIsDeleted() == null || x.getIsDeleted() == 0)
@@ -306,7 +306,7 @@ public class UserManagementService {
     }
 
     @Transactional
-    @CacheEvict(cacheNames = "org", allEntries = true)
+    @CacheEvict(cacheNames = "org", key = "'departments'")
     public Map<String, Object> toggleDepartmentStatus(Long deptId, int status) {
         IamDept d = deptRepository.findById(deptId)
                 .filter(x -> x.getIsDeleted() == null || x.getIsDeleted() == 0)
@@ -322,7 +322,7 @@ public class UserManagementService {
     // ── 岗位管理 ──────────────────────────────────────────────
 
     @Transactional
-    @CacheEvict(cacheNames = "org", allEntries = true)
+    @CacheEvict(cacheNames = "org", key = "'positions'")
     public Map<String, Object> createPosition(Map<String, Object> body) {
         String name = str(body.get("positionName"));
         if (name.isEmpty()) {
@@ -345,7 +345,7 @@ public class UserManagementService {
     }
 
     @Transactional
-    @CacheEvict(cacheNames = "org", allEntries = true)
+    @CacheEvict(cacheNames = "org", key = "'positions'")
     public Map<String, Object> updatePosition(Long positionId, Map<String, Object> body) {
         IamPosition p = positionRepository.findById(positionId)
                 .filter(x -> x.getIsDeleted() == null || x.getIsDeleted() == 0)
@@ -368,7 +368,7 @@ public class UserManagementService {
     }
 
     @Transactional
-    @CacheEvict(cacheNames = "org", allEntries = true)
+    @CacheEvict(cacheNames = "org", key = "'positions'")
     public void deletePosition(Long positionId) {
         IamPosition p = positionRepository.findById(positionId)
                 .filter(x -> x.getIsDeleted() == null || x.getIsDeleted() == 0)
@@ -379,7 +379,7 @@ public class UserManagementService {
     }
 
     @Transactional
-    @CacheEvict(cacheNames = "org", allEntries = true)
+    @CacheEvict(cacheNames = "org", key = "'positions'")
     public Map<String, Object> togglePositionStatus(Long positionId, int status) {
         IamPosition p = positionRepository.findById(positionId)
                 .filter(x -> x.getIsDeleted() == null || x.getIsDeleted() == 0)

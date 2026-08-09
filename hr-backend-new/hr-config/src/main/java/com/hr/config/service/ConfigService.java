@@ -123,7 +123,7 @@ public class ConfigService {
     }
 
     @Transactional
-    @CacheEvict(cacheNames = "config", allEntries = true)
+    @CacheEvict(cacheNames = "config", key = "'channels'")
     public Map<String, Object> createChannel(Map<String, Object> body) {
         String name = body.get("name") == null ? null : String.valueOf(body.get("name")).trim();
         if (name == null || name.isEmpty()) {
@@ -156,7 +156,7 @@ public class ConfigService {
     }
 
     @Transactional
-    @CacheEvict(cacheNames = "config", allEntries = true)
+    @CacheEvict(cacheNames = "config", key = "'channels'")
     public Map<String, Object> updateChannel(String code, Map<String, Object> body) {
         String name = REVERSE_CHANNEL_CODE.getOrDefault(code, code);
         RecruitChannel channel = channelRepository.findByChannelNameAndIsDeleted(name, 0)
@@ -645,7 +645,7 @@ public class ConfigService {
     }
 
     @Transactional
-    @CacheEvict(cacheNames = "config", allEntries = true)
+    @CacheEvict(cacheNames = "config", key = "'knowledge-base'")
     public Map<String, Object> updateKnowledgeBase(Map<String, Object> body) {
         AiKnowledgeBase kb = knowledgeBaseRepository.findFirstByStatusAndIsDeletedOrderByIdDesc(1, 0)
                 .orElseGet(() -> {
