@@ -7,6 +7,11 @@ import com.hr.common.util.LockUtil;
 import com.hr.common.util.Sha256Util;
 import com.hr.demand.entity.RecruitDemand;
 import com.hr.demand.repository.RecruitDemandRepository;
+import com.hr.hire.entity.Offer;
+import com.hr.hire.entity.HireEvent;
+import com.hr.hire.repository.OfferRepository;
+import com.hr.hire.repository.HireEventRepository;
+import com.hr.hire.service.HireService;
 import com.hr.interview.entity.InterviewBook;
 import com.hr.interview.entity.InterviewRecord;
 import com.hr.interview.repository.InterviewBookRepository;
@@ -28,6 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -56,6 +62,9 @@ public class InterviewService {
     private final CandidateRepository candidateRepository;
     private final ResumeRepository resumeRepository;
     private final RecruitDemandRepository demandRepository;
+    private final OfferRepository offerRepository;
+    private final HireEventRepository hireEventRepository;
+    private final HireService hireService;
     private final LockUtil lockUtil;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Random random = new Random();
@@ -186,6 +195,312 @@ public class InterviewService {
     }
 
     // ── 私有方法 ──────────────────────────────────────────────
+
+    /**
+     * GET /api/interview/alerts — 面试预警（超期未评价 / 今日面试 / 待发 Offer）。
+     */
+    public List<Map<String, Object>> getAlerts() {
+        List<Map<String, Object>> alerts = new ArrayList<>();
+        LocalDateTime now = LocalDateTime.now();
+
+        // 1) 超 2 天未评价
+        for (InterviewBook book : bookRepository.findAll(
+                (root, query, cb) -> cb.equal(root.get("isDeleted"), 0))) {
+            if (book.getBookTime() == null || !book.getBookTime().isBefore(now)) {
+                continue;
+            }
+            long daysAgo = java.time.Duration.between(book.getBookTime(), now).toDays();
+            boolean evaluated = recordRepository.findFirstByBookIdAndIsDeleted(book.getId(), 0).isPresent();
+            if (!evaluated && daysAgo > 2) {
+                Map<String, Object> a = new LinkedHashMap<>();
+                a.put("text", resolveCandidate(book.getResumeId())[0] + " · 面试超" + daysAgo + "天未评价");
+                a.put("type", "reject");
+                a.put("action", "去评价");
+                a.put("actionMsg", "填写面试评价");
+                alerts.add(a);
+            }
+        }
+
+        // 2) 今日面试
+        LocalDateTime todayStart = now.toLocalDate().atStartOfDay();
+        LocalDateTime todayEnd = todayStart.plusDays(1).minusSeconds(1);
+        for (InterviewBook book : bookRepository.findAll(
+                (root, query, cb) -> cb.and(
+                        cb.equal(root.get("isDeleted"), 0),
+                        cb.greaterThanOrEqualTo(root.get("bookTime"), todayStart),
+                        cb.lessThanOrEqualTo(root.get("bookTime"), todayEnd)))) {
+            Map<String, Object> a = new LinkedHashMap<>();
+            a.put("text", resolveCandidate(book.getResumeId())[0] + " · "
+                    + book.getBookTime().format(DateTimeFormatter.ofPattern("HH:mm")) + " 面试");
+            a.put("type", "warn");
+            a.put("action", "查看");
+            a.put("actionMsg", "");
+            alerts.add(a);
+        }
+
+        // 3) 已通过但未发 Offer
+        if (alerts.size() < 8) {
+            for (InterviewRecord rec : recordRepository.findAll(
+                    (root, query, cb) -> cb.and(
+                            cb.equal(root.get("isDeleted"), 0),
+                            cb.equal(root.get("interviewResult"), 1)))) {
+                boolean hasOffer = offerRepository.findAll(
+                                (root, query, cb) -> cb.equal(root.get("lastInterviewId"), rec.getId()))
+                        .stream().anyMatch(o -> o.getIsDeleted() == null || o.getIsDeleted() == 0);
+                if (!hasOffer) {
+                    bookRepository.findById(rec.getBookId()).ifPresent(book -> {
+                        Map<String, Object> a = new LinkedHashMap<>();
+                        a.put("text", resolveCandidate(book.getResumeId())[0] + " · 待发放Offer");
+                        a.put("type", "offer");
+                        a.put("action", "去发放");
+                        a.put("actionMsg", "填写 Offer 信息");
+                        alerts.add(a);
+                    });
+                }
+            }
+        }
+
+        if (alerts.size() > 10) {
+            return alerts.subList(0, 10);
+        }
+        return alerts;
+    }
+
+    /**
+     * POST /api/interview/schedule — 批量安排面试（支持单条或数组）。
+     */
+    @Transactional
+    public Map<String, Object> scheduleInterviews(Map<String, Object> body) {
+        Object itemsObj = body != null ? body.get("items") : null;
+        List<Map<String, Object>> items = new ArrayList<>();
+        if (itemsObj instanceof List<?> list) {
+            for (Object o : list) {
+                if (o instanceof Map<?, ?> m) {
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    m.forEach((k, v) -> item.put(String.valueOf(k), v));
+                    items.add(item);
+                }
+            }
+        } else if (body != null && !body.isEmpty()) {
+            items.add(body);
+        }
+        if (items.isEmpty()) {
+            throw BusinessException.invalidInput("缺少面试安排数据");
+        }
+
+        List<Map<String, Object>> results = new ArrayList<>();
+        for (Map<String, Object> item : items) {
+            results.add(doCreate(item, null));
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("created", true);
+        out.put("count", results.size());
+        out.put("results", results);
+        return out;
+    }
+
+    /**
+     * GET /api/interview/{id} — 单个面试详情。
+     */
+    public Map<String, Object> getInterviewDetail(Long bookId) {
+        InterviewBook book = getActiveBook(bookId);
+        return toBookMap(book);
+    }
+
+    /**
+     * POST /api/interview/{id}/complete — 标记面试完成（scheduled -> evaluating）。
+     */
+    @Transactional
+    public Map<String, Object> completeInterview(Long bookId, Map<String, Object> body) {
+        InterviewBook book = getActiveBook(bookId);
+        if (recordRepository.findFirstByBookIdAndIsDeleted(book.getId(), 0).isPresent()) {
+            throw new BusinessException("ALREADY_COMPLETED", "面试预约 " + bookId + " 已完成，请勿重复操作", 400);
+        }
+
+        InterviewRecord record = new InterviewRecord();
+        record.setBookId(book.getId());
+        record.setProcessId(book.getProcessId() != null ? book.getProcessId() : 0L);
+        record.setInterviewerIds(body != null && body.get("interviewerIds") != null
+                ? String.valueOf(body.get("interviewerIds")) : "[]");
+        record.setSubmitInterviewerId(body != null && body.get("interviewerId") != null
+                ? ((Number) body.get("interviewerId")).longValue() : 0L);
+        record.setIsArrive(body != null && body.get("isArrive") != null
+                ? ((Number) body.get("isArrive")).intValue() : 1);
+        record.setInterviewResult(0);
+        record.setEndTime(LocalDateTime.now());
+        record.setCreatedAt(LocalDateTime.now());
+        record.setUpdatedAt(LocalDateTime.now());
+        record.setIsDeleted(0);
+        recordRepository.save(record);
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("completed", true);
+        out.put("recordId", record.getId());
+        return out;
+    }
+
+    /**
+     * POST /api/interview/{id}/offer — 面试通过后发放 Offer。
+     */
+    @Transactional
+    public Map<String, Object> sendOffer(Long bookId, Map<String, Object> body) {
+        InterviewBook book = getActiveBook(bookId);
+        InterviewRecord record = recordRepository.findFirstByBookIdAndIsDeleted(book.getId(), 0)
+                .orElseThrow(() -> BusinessException.invalidInput("面试预约尚未完成面试"));
+        if (record.getInterviewResult() == null || record.getInterviewResult() != 1) {
+            throw new BusinessException("INVALID_STATE", "面试预约 " + bookId + " 尚未通过评价", 400);
+        }
+
+        Map<String, Object> offerData = new LinkedHashMap<>();
+        offerData.put("resumeId", book.getResumeId());
+        offerData.put("processId", book.getProcessId());
+        offerData.put("demandId", book.getDemandId());
+        offerData.put("lastInterviewId", record.getId());
+        offerData.put("offerContent", body != null ? body.get("offer_content") : null);
+        offerData.put("salaryJson", body != null ? body.get("salary_json") : null);
+        offerData.put("validDeadline", body != null ? body.get("valid_deadline") : null);
+        offerData.put("sendUserId", body != null ? body.get("send_user_id") : null);
+
+        String offerNo = null;
+        try {
+            Map<String, Object> created = hireService.createOffer(offerData);
+            offerNo = String.valueOf(created.get("id"));
+            hireService.sendOffer(offerNo);
+        } catch (BusinessException e) {
+            if (!"INVALID_INPUT".equals(e.getCode()) || !String.valueOf(e.getMessage()).contains("进行中")) {
+                throw e;
+            }
+            // 幂等复用：草稿 Offer 更新后重发
+            Offer existing = offerRepository.findAll(
+                            (root, query, cb) -> cb.and(
+                                    cb.equal(root.get("resumeId"), book.getResumeId()),
+                                    cb.equal(root.get("demandId"), book.getDemandId()),
+                                    cb.equal(root.get("isDeleted"), 0)))
+                    .stream().findFirst().orElseThrow(() -> e);
+            if (existing.getOfferStatus() != null && existing.getOfferStatus() != 0) {
+                throw new BusinessException("DUPLICATE_OFFER", "该候选人已存在进行中的 Offer，请勿重复发送", 400);
+            }
+            if (offerData.get("offerContent") != null) {
+                existing.setOfferContent(String.valueOf(offerData.get("offerContent")));
+                existing.setUpdatedAt(LocalDateTime.now());
+                offerRepository.save(existing);
+            }
+            offerNo = existing.getOfferNo();
+            hireService.sendOffer(offerNo);
+        }
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("sent", true);
+        out.put("offerNo", offerNo);
+        return out;
+    }
+
+    /**
+     * POST /api/interview/{id}/onboard — 确认候选人入职。
+     */
+    @Transactional
+    public Map<String, Object> confirmOnboard(Long bookId, Map<String, Object> body) {
+        InterviewBook book = getActiveBook(bookId);
+        InterviewRecord record = recordRepository.findFirstByBookIdAndIsDeleted(book.getId(), 0)
+                .orElseThrow(() -> BusinessException.invalidInput("面试预约尚未完成面试"));
+        if (record.getInterviewResult() == null || record.getInterviewResult() != 1) {
+            throw new BusinessException("INVALID_STATE", "候选人尚未通过面试，无法确认入职", 400);
+        }
+
+        // 联动人才库：候选人状态置为 hired
+        resumeRepository.findByCandidateIdAndIsDeletedOrderByStorageTimeDesc(
+                        book.getResumeId() != null ? book.getResumeId() : 0L, 0)
+                .stream().findFirst()
+                .map(Resume::getCandidateId)
+                .flatMap(candidateRepository::findById)
+                .filter(c -> c.getIsDeleted() == null || c.getIsDeleted() == 0)
+                .ifPresent(c -> {
+                    c.setStatus("hired");
+                    c.setUpdatedAt(LocalDateTime.now());
+                    candidateRepository.save(c);
+                });
+
+        // 联动录用事件状态
+        if (record.getId() != null) {
+            hireEventRepository.findAll(
+                            (root, query, cb) -> cb.equal(root.get("offerId"), book.getResumeId()))
+                    .stream().findFirst().ifPresent(event -> {
+                        event.setEventStatus(1);
+                        event.setUpdatedAt(LocalDateTime.now());
+                        hireEventRepository.save(event);
+                    });
+        }
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("onboarded", true);
+        out.put("bookId", book.getId());
+        return out;
+    }
+
+    /**
+     * GET /api/interview/calendar — 面试日历（month 或 week_start 视图）。
+     */
+    public Map<String, Object> getCalendar(String weekStart, String month) {
+        boolean monthView = month != null && !month.isBlank();
+        LocalDateTime start;
+        LocalDateTime rangeStart;
+        LocalDateTime rangeEnd;
+
+        if (monthView) {
+            try {
+                start = LocalDate.parse(month, DateTimeFormatter.ofPattern("yyyy-MM")).atStartOfDay();
+            } catch (Exception e) {
+                start = LocalDate.now().withDayOfMonth(1).atStartOfDay();
+            }
+            rangeStart = start.withDayOfMonth(1);
+            rangeEnd = start.plusMonths(1).minusSeconds(1);
+        } else {
+            try {
+                start = LocalDate.parse(weekStart, DateTimeFormatter.ISO_LOCAL_DATE).atStartOfDay();
+            } catch (Exception e) {
+                start = LocalDateTime.now();
+            }
+            rangeStart = start.minusDays(start.getDayOfWeek().getValue() - 1L);
+            rangeEnd = rangeStart.plusDays(7).minusSeconds(1);
+        }
+
+        List<Map<String, Object>> events = new ArrayList<>();
+        for (InterviewBook book : bookRepository.findAll(
+                (root, query, cb) -> cb.and(
+                        cb.equal(root.get("isDeleted"), 0),
+                        cb.greaterThanOrEqualTo(root.get("bookTime"), rangeStart),
+                        cb.lessThanOrEqualTo(root.get("bookTime"), rangeEnd)),
+                Sort.by(Sort.Direction.ASC, "bookTime"))) {
+            Map<String, Object> m = toBookMap(book);
+            Map<String, Object> e = new LinkedHashMap<>();
+            e.put("id", m.get("id"));
+            e.put("title", m.get("name"));
+            e.put("position", m.get("position"));
+            e.put("start", book.getBookTime() != null
+                    ? book.getBookTime().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")) : "");
+            e.put("end", book.getBookTime() != null
+                    ? book.getBookTime().plusHours(1).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")) : "");
+            e.put("status", m.get("status"));
+            e.put("statusLabel", m.get("statusLabel"));
+            e.put("round", m.get("round"));
+            e.put("interviewer", m.get("interviewer"));
+            e.put("method", m.get("method"));
+            e.put("meetingUrl", m.get("meetingUrl"));
+            e.put("meetingCode", m.get("meetingCode"));
+            e.put("meetingPwd", m.get("meetingPwd"));
+            e.put("emailSent", m.get("emailSent"));
+            events.add(e);
+        }
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("month", rangeStart.format(DateTimeFormatter.ofPattern("yyyy-MM")));
+        out.put("monthStart", rangeStart.format(DateTimeFormatter.ISO_LOCAL_DATE));
+        out.put("monthEnd", rangeEnd.format(DateTimeFormatter.ISO_LOCAL_DATE));
+        out.put("weekStart", rangeStart.format(DateTimeFormatter.ISO_LOCAL_DATE));
+        out.put("weekEnd", rangeEnd.format(DateTimeFormatter.ISO_LOCAL_DATE));
+        out.put("events", events);
+        return out;
+    }
 
     private Map<String, Object> doCreate(Map<String, Object> body, Long userId) {
         LocalDateTime bookTime = parseBookTime(body);
