@@ -103,6 +103,7 @@ public class InterviewService {
      * 创建面试预约（含去重锁，防止重复提交）。
      */
     @Transactional
+    @org.springframework.cache.annotation.CacheEvict(cacheNames = "list", allEntries = true)
     public Map<String, Object> createInterview(Map<String, Object> body, Long userId) {
         String digest = Sha256Util.shortHash(String.valueOf(body), 24);
         Map<String, Object> result = lockUtil.withLock("interview:create:" + digest, 5, () -> doCreate(body, userId));
@@ -116,6 +117,7 @@ public class InterviewService {
      * 提交面试评价。
      */
     @Transactional
+    @org.springframework.cache.annotation.CacheEvict(cacheNames = "list", allEntries = true)
     public Map<String, Object> evaluateInterview(Long bookId, Map<String, Object> body, Long userId) {
         InterviewBook book = getActiveBook(bookId);
         InterviewRecord record = recordRepository.findFirstByBookIdAndIsDeleted(book.getId(), 0)
