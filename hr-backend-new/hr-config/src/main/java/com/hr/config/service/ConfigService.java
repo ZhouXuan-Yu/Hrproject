@@ -290,6 +290,7 @@ public class ConfigService {
 
     // ── 打分规则 ───────────────────────────────────────────
 
+    @Cacheable(cacheNames = "config", key = "'score-rules'")
     public Map<String, Object> getScoreRules() {
         Optional<ScoreRule> ruleOpt = scoreRuleRepository.findFirstByStatusAndIsDeletedOrderByIdDesc(1, 0);
         Map<String, Object> m = new LinkedHashMap<>();

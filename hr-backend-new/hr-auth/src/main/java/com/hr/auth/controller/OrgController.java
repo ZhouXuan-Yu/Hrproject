@@ -9,6 +9,8 @@ import com.hr.auth.repository.IamUserRepository;
 import com.hr.common.dto.ApiResponse;
 import com.hr.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;

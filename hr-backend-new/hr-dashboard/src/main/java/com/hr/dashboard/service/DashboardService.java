@@ -3,6 +3,7 @@ package com.hr.dashboard.service;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -32,6 +33,7 @@ public class DashboardService {
 
     // ── KPI（按角色） ─────────────────────────────────────────
 
+    @Cacheable(cacheNames = "dashboard", key = "'kpi:' + #role + ':' + #userId")
     public List<Map<String, Object>> getKpi(String role, Long userId) {
         try {
             long candidates = count("SELECT COUNT(*) FROM t_hr_candidate WHERE status != 'archived' AND is_deleted = 0");
@@ -114,6 +116,7 @@ public class DashboardService {
 
     // ── 招聘漏斗 ──────────────────────────────────────────────
 
+    @Cacheable(cacheNames = "dashboard", key = "'funnel'")
     public Map<String, Object> getFunnel() {
         try {
             long resumes = count("SELECT COUNT(*) FROM t_hr_resume WHERE is_deleted = 0");
