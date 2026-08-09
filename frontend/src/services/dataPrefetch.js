@@ -1,16 +1,6 @@
-import { fetchKpi, fetchFunnel, fetchDeptProgress, fetchChannel, fetchRiskAlerts } from '../api/dashboard.js';
-import { fetchDemands } from '../api/demand.js';
-import { fetchTalent, fetchMailLog } from '../api/talent.js';
-import { fetchInterviews, fetchInterviewAlerts, fetchInterviewCalendar } from '../api/interview.js';
+import { fetchKpi, fetchFunnel } from '../api/dashboard.js';
 
 let prefetchStarted = false;
-
-function currentWeekStart() {
-  const d = new Date();
-  const day = d.getDay() || 7;
-  d.setDate(d.getDate() - day + 1);
-  return d.toISOString().slice(0, 10);
-}
 
 export function prefetchWorkbenchData() {
   if (navigator.webdriver) return;
@@ -18,18 +8,11 @@ export function prefetchWorkbenchData() {
   prefetchStarted = true;
 
   const run = () => {
+    // 只预取已缓存的热点看板接口（后端 Redis 300s TTL），
+    // 避免登录后并发 11 个请求打满数据库；列表类接口由页面按需加载（30s 短缓存）
     const tasks = [
       fetchKpi(),
       fetchFunnel(),
-      fetchDeptProgress(),
-      fetchChannel(),
-      fetchRiskAlerts(),
-      fetchDemands({ page: 1, pageSize: 50 }),
-      fetchTalent({ page: 1, pageSize: 20, sort: 'default' }),
-      fetchInterviews({ tab: 'all' }),
-      fetchInterviewAlerts(),
-      fetchInterviewCalendar({ week_start: currentWeekStart() }),
-      fetchMailLog(50),
     ];
     Promise.allSettled(tasks).catch(() => {});
   };

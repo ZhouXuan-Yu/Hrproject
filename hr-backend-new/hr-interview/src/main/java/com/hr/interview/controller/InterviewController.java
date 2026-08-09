@@ -49,9 +49,9 @@ public class InterviewController {
      * POST /api/interview/{id}/evaluate — 提交面试评价。
      */
     @PostMapping("/{id}/evaluate")
-    public ApiResponse<Map<String, Object>> evaluate(@PathVariable Long id,
+    public ApiResponse<Map<String, Object>> evaluate(@PathVariable String id,
                                                      @RequestBody Map<String, Object> body) {
-        return ApiResponse.success(interviewService.evaluateInterview(id, body, SecurityUtils.getUserId()));
+        return ApiResponse.success(interviewService.evaluateInterview(interviewService.normalizeBookId(id), body, SecurityUtils.getUserId()));
     }
 
     /**
@@ -74,35 +74,35 @@ public class InterviewController {
      * GET /api/interview/{id} — 面试详情。
      */
     @GetMapping("/{id}")
-    public ApiResponse<Map<String, Object>> detail(@PathVariable Long id) {
-        return ApiResponse.success(interviewService.getInterviewDetail(id));
+    public ApiResponse<Map<String, Object>> detail(@PathVariable String id) {
+        return ApiResponse.success(interviewService.getInterviewDetail(interviewService.normalizeBookId(id)));
     }
 
     /**
      * POST /api/interview/{id}/complete — 标记面试完成。
      */
     @PostMapping("/{id}/complete")
-    public ApiResponse<Map<String, Object>> complete(@PathVariable Long id,
+    public ApiResponse<Map<String, Object>> complete(@PathVariable String id,
                                                      @RequestBody(required = false) Map<String, Object> body) {
-        return ApiResponse.success(interviewService.completeInterview(id, body == null ? Map.of() : body));
+        return ApiResponse.success(interviewService.completeInterview(interviewService.normalizeBookId(id), body == null ? Map.of() : body));
     }
 
     /**
      * POST /api/interview/{id}/offer — 面试通过后发放 Offer。
      */
     @PostMapping("/{id}/offer")
-    public ApiResponse<Map<String, Object>> sendOffer(@PathVariable Long id,
+    public ApiResponse<Map<String, Object>> sendOffer(@PathVariable String id,
                                                       @RequestBody(required = false) Map<String, Object> body) {
-        return ApiResponse.success(interviewService.sendOffer(id, body == null ? Map.of() : body));
+        return ApiResponse.success(interviewService.sendOffer(interviewService.normalizeBookId(id), body == null ? Map.of() : body));
     }
 
     /**
      * POST /api/interview/{id}/onboard — 确认候选人入职。
      */
     @PostMapping("/{id}/onboard")
-    public ApiResponse<Map<String, Object>> onboard(@PathVariable Long id,
+    public ApiResponse<Map<String, Object>> onboard(@PathVariable String id,
                                                     @RequestBody(required = false) Map<String, Object> body) {
-        return ApiResponse.success(interviewService.confirmOnboard(id, body == null ? Map.of() : body));
+        return ApiResponse.success(interviewService.confirmOnboard(interviewService.normalizeBookId(id), body == null ? Map.of() : body));
     }
 
     /**
@@ -118,10 +118,10 @@ public class InterviewController {
      * DELETE /api/interview/{id} — 取消面试。
      */
     @DeleteMapping("/{id}")
-    public ApiResponse<Map<String, Object>> cancel(@PathVariable Long id,
+    public ApiResponse<Map<String, Object>> cancel(@PathVariable String id,
                                                    @RequestBody(required = false) Map<String, Object> body) {
         String reason = body != null && body.get("reason") != null
                 ? String.valueOf(body.get("reason")) : "";
-        return ApiResponse.success(interviewService.cancelInterview(id, reason));
+        return ApiResponse.success(interviewService.cancelInterview(interviewService.normalizeBookId(id), reason));
     }
 }

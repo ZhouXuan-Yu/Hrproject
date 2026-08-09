@@ -178,7 +178,8 @@ function onFilterChange() {
 async function loadFilterOptions() {
   try {
     const { fetchDepartments } = await import('../api/config.js');
-    deptOptions.value = Array.isArray(await fetchDepartments()) ? await fetchDepartments() : [];
+    const depts = await fetchDepartments();
+    deptOptions.value = Array.isArray(depts) ? depts : [];
   } catch { deptOptions.value = []; }
   try {
     positionOptions.value = Array.isArray(await fetchPositions()) ? await fetchPositions() : [];
