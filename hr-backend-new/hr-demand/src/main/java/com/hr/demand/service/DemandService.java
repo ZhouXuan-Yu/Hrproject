@@ -1,5 +1,11 @@
 package com.hr.demand.service;
 
+import com.hr.auth.entity.IamDept;
+import com.hr.auth.entity.IamPosition;
+import com.hr.auth.entity.IamUser;
+import com.hr.auth.repository.IamDeptRepository;
+import com.hr.auth.repository.IamPositionRepository;
+import com.hr.auth.repository.IamUserRepository;
 import com.hr.common.exception.BusinessException;
 import com.hr.common.util.SnowflakeIdGenerator;
 import com.hr.demand.entity.DemandApproval;
@@ -31,6 +37,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * 需求管理服务，对齐 Flask demand_service.py 核心逻辑。
@@ -45,6 +52,24 @@ public class DemandService {
     private final RecruitProcessRepository processRepository;
     private final ResumeRepository resumeRepository;
     private final ResumeMatchRepository resumeMatchRepository;
+    private final IamUserRepository userRepository;
+    private final IamDeptRepository deptRepository;
+    private final IamPositionRepository positionRepository;
+
+    private static final Map<Integer, String> STATUS_LABELS = Map.of(
+            0, "草稿", 1, "审批中", 2, "招聘中", 3, "已驳回", 4, "已关闭", 5, "已取消");
+    private static final Map<Integer, String> STATUS_TYPES = Map.of(
+            0, "draft", 1, "warn", 2, "progress", 3, "reject", 4, "draft", 5, "draft");
+    private static final Map<Integer, String> STATUS_CODES = Map.of(
+            0, "draft", 1, "approval", 2, "open", 3, "rejected", 4, "closed", 5, "cancelled");
+    private static final Map<String, String> URGENCY_LABELS = Map.of(
+            "very", "非常紧急", "high", "紧急", "normal", "普通");
+    private static final Map<String, String> URGENCY_TYPES = Map.of(
+            "very", "reject", "high", "warn", "normal", "draft");
+    private static final Map<Integer, String> APPROVAL_LEVELS = Map.of(
+            1, "部门负责人", 2, "HR", 3, "总监");
+    private static final Map<String, String> STATE_LABELS = Map.of(
+            "done", "已通过", "current", "审批中", "pending", "待审批", "rejected", "已驳回");
 
     /**
      * 需求列表（分页 + 筛选 + 数据范围）。
@@ -729,21 +754,211 @@ public class DemandService {
 
     private Map<String, Object> toSimpleMap(RecruitDemand d) {
         Map<String, Object> m = new LinkedHashMap<>();
-        m.put("id", d.getId());
-        m.put("demandNo", d.getDemandNo());
-        m.put("positionName", d.getPositionName());
-        m.put("deptName", d.getDeptName());
-        m.put("deptId", d.getDeptId());
-        m.put("positionId", d.getPositionId());
-        m.put("recruitType", d.getRecruitType());
-        m.put("planHeadcount", d.getPlanHeadcount());
-        m.put("filledCount", d.getFilledCount());
-        m.put("demandStatus", d.getDemandStatus());
-        m.put("urgency", d.getUrgency());
-        m.put("salaryRange", d.getSalaryRange());
-        m.put("creatorId", d.getCreatorId());
-        m.put("createdAt", d.getCreatedAt() != null ? d.getCreatedAt().toString() : null);
+        m.put("id", d.getDemandNo());
+        m.put("position", resolvePositionName(d));
+        m.put("dept", resolveDeptName(d));
+        m.put("hc", d.getPlanHeadcount());
+        String urgency = d.getUrgency() != null ? d.getUrgency() : "normal";
+        m.put("urgency", urgency);
+        m.put("urgencyLabel", URGENCY_LABELS.getOrDefault(urgency, "普通"));
+        m.put("urgencyType", URGENCY_TYPES.getOrDefault(urgency, "draft"));
+        m.put("submitter", resolveUserName(d.getCreatorId()));
+        int st = d.getDemandStatus() != null ? d.getDemandStatus() : 0;
+        m.put("status", STATUS_CODES.getOrDefault(st, "draft"));
+        m.put("statusLabel", STATUS_LABELS.getOrDefault(st, "草稿"));
+        m.put("statusType", STATUS_TYPES.getOrDefault(st, "draft"));
+        m.put("salary", d.getSalaryRange() != null ? d.getSalaryRange() : "");
+        m.put("date", d.getExpectEntryDate() != null ? d.getExpectEntryDate().toString() : "");
+        m.put("desc", d.getJdContent() != null ? d.getJdContent() : "");
+
+        Map<String, Object> live = livePipelineCounts(d.getId());
+        m.put("linkedCount", live.get("linked"));
+
+        // 审批进度 — 草稿不展示，审批中/招聘中读真实节点，其他状态用默认节点
+        if (st == 1 || st == 2) {
+            m.put("approvalNodes", approvalNodes(d));
+        } else if (st == 0) {
+            m.put("approvalNodes", new ArrayList<>());
+        } else {
+            m.put("approvalNodes", defaultApprovalNodes(st));
+        }
+
+        if (st == 2) { // open
+            m.put("directApply", live.get("direct"));
+            m.put("systemRecommend", live.get("recommend"));
+            m.put("internalMatch", live.get("internal"));
+            m.put("internalNames", new ArrayList<>());
+            m.put("interviewing", live.get("interviewing"));
+        }
         return m;
+    }
+
+    /**
+     * 实时统计该需求候选人漏斗计数（对齐 Flask _live_pipeline_counts）。
+     * 淘汰(4)/放弃(7)不计入进行中。
+     */
+    private Map<String, Object> livePipelineCounts(Long demandId) {
+        Map<String, Object> counts = new LinkedHashMap<>();
+        counts.put("linked", 0);
+        counts.put("interviewing", 0);
+        counts.put("direct", 0);
+        counts.put("recommend", 0);
+        counts.put("internal", 0);
+        try {
+            List<RecruitProcess> processes = processRepository
+                    .findByDemandIdAndIsDeletedOrderByIdDesc(demandId, 0);
+            for (RecruitProcess p : processes) {
+                int ps = p.getProcessStatus() != null ? p.getProcessStatus() : 0;
+                if (ps == 4 || ps == 7) {
+                    continue;
+                }
+                counts.put("linked", (Integer) counts.get("linked") + 1);
+                if (ps == 2 || ps == 3) {
+                    counts.put("interviewing", (Integer) counts.get("interviewing") + 1);
+                }
+                Candidate cand = candidateRepository.findById(p.getCandidateId())
+                        .filter(c -> c.getIsDeleted() == null || c.getIsDeleted() == 0)
+                        .orElse(null);
+                String ch = cand != null && cand.getSourceChannel() != null
+                        ? cand.getSourceChannel() : "";
+                if (ch.contains("内推") || ch.contains("内部推荐")) {
+                    counts.put("internal", (Integer) counts.get("internal") + 1);
+                } else if (ch.equals("邮箱") || ch.equals("Boss") || ch.equals("猎聘")) {
+                    counts.put("direct", (Integer) counts.get("direct") + 1);
+                } else {
+                    counts.put("recommend", (Integer) counts.get("recommend") + 1);
+                }
+            }
+        } catch (Exception ignored) {
+            // 统计失败不影响列表
+        }
+        return counts;
+    }
+
+    /**
+     * 审批节点（对齐 Flask get_approval_progress）。
+     */
+    private List<Map<String, Object>> approvalNodes(RecruitDemand d) {
+        List<DemandApproval> records = approvalRepository
+                .findByDemandIdOrderByApproveLevelAsc(d.getId());
+        if (records.isEmpty()) {
+            return defaultApprovalNodes(d.getDemandStatus() != null ? d.getDemandStatus() : 0);
+        }
+        int currentIdx = -1;
+        for (int i = 0; i < records.size(); i++) {
+            if (records.get(i).getApproveResult() != null && records.get(i).getApproveResult() == 1) {
+                currentIdx = i;
+                break;
+            }
+        }
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (int i = 0; i < records.size(); i++) {
+            DemandApproval r = records.get(i);
+            String state = deriveState(r, i, currentIdx);
+            Integer level = r.getApproveLevel() != null ? r.getApproveLevel() : i + 1;
+            String label = APPROVAL_LEVELS.getOrDefault(level, "层级" + level);
+            String actor = null;
+            if (r.getApproveUserId() != null && r.getApproveResult() != null && r.getApproveResult() != 1) {
+                actor = resolveUserName(r.getApproveUserId());
+            }
+            Map<String, Object> node = new LinkedHashMap<>();
+            node.put("label", label);
+            node.put("role", label);
+            node.put("level", level);
+            node.put("state", state);
+            node.put("status", STATE_LABELS.getOrDefault(state, state));
+            node.put("actor", actor);
+            node.put("date", r.getApproveTime() != null ? r.getApproveTime().toString() : null);
+            node.put("opinion", r.getApproveOpinion());
+            result.add(node);
+        }
+        return result;
+    }
+
+    private String deriveState(DemandApproval record, int index, int currentIdx) {
+        int result = record.getApproveResult() != null ? record.getApproveResult() : 1;
+        if (result == 3) {
+            return "rejected";
+        }
+        if (result == 2) {
+            return "done";
+        }
+        // result == 1 (pending)
+        if (currentIdx < 0) {
+            return "pending";
+        }
+        if (index == currentIdx) {
+            return "current";
+        }
+        return index < currentIdx ? "done" : "pending";
+    }
+
+    /**
+     * 默认审批节点（对齐 Flask _default_approval_nodes）。
+     */
+    private List<Map<String, Object>> defaultApprovalNodes(int status) {
+        String[] defs = {"部门负责人", "HR", "总监"};
+        List<Map<String, Object>> nodes = new ArrayList<>();
+        for (int i = 0; i < defs.length; i++) {
+            String state;
+            if (status == 2) {
+                state = "done";
+            } else if (status == 1) {
+                state = i == 0 ? "current" : "pending";
+            } else {
+                state = "pending";
+            }
+            Map<String, Object> node = new LinkedHashMap<>();
+            node.put("label", defs[i]);
+            node.put("role", defs[i]);
+            node.put("level", 0);
+            node.put("state", state);
+            node.put("status", STATE_LABELS.getOrDefault(state, state));
+            node.put("actor", null);
+            node.put("date", null);
+            node.put("opinion", null);
+            nodes.add(node);
+        }
+        return nodes;
+    }
+
+    private String resolvePositionName(RecruitDemand d) {
+        if (d.getPositionName() != null && !d.getPositionName().isBlank()) {
+            return d.getPositionName();
+        }
+        if (d.getPositionId() != null) {
+            return positionRepository.findById(d.getPositionId())
+                    .filter(p -> p.getStatus() != null && p.getStatus() == 1)
+                    .filter(p -> p.getIsDeleted() == null || p.getIsDeleted() == 0)
+                    .map(IamPosition::getPositionName)
+                    .orElseGet(() -> String.valueOf(d.getPositionId()));
+        }
+        return "—";
+    }
+
+    private String resolveDeptName(RecruitDemand d) {
+        if (d.getDeptName() != null && !d.getDeptName().isBlank()) {
+            return d.getDeptName();
+        }
+        if (d.getDeptId() != null) {
+            return deptRepository.findById(d.getDeptId())
+                    .filter(dep -> dep.getStatus() != null && dep.getStatus() == 1)
+                    .filter(dep -> dep.getIsDeleted() == null || dep.getIsDeleted() == 0)
+                    .map(IamDept::getDeptName)
+                    .orElseGet(() -> String.valueOf(d.getDeptId()));
+        }
+        return "—";
+    }
+
+    private String resolveUserName(Long userId) {
+        if (userId == null) {
+            return "系统";
+        }
+        return userRepository.findById(userId)
+                .filter(u -> u.getStatus() != null && u.getStatus() == 1)
+                .filter(u -> u.getIsDeleted() == null || u.getIsDeleted() == 0)
+                .map(IamUser::getRealName)
+                .orElseGet(() -> String.valueOf(userId));
     }
 
     private Map<String, Object> detailMap(RecruitDemand d) {
