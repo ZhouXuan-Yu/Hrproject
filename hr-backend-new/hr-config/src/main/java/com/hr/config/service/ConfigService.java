@@ -969,6 +969,20 @@ public class ConfigService {
         return def;
     }
 
+    private Long toLong(Object o) {
+        if (o instanceof Number n) {
+            return n.longValue();
+        }
+        if (o != null) {
+            try {
+                return Long.parseLong(String.valueOf(o));
+            } catch (NumberFormatException e) {
+                // fallthrough
+            }
+        }
+        return null;
+    }
+
     private Integer parseStatus(Object raw) {
         if (raw instanceof Boolean b) {
             return b ? 1 : 0;

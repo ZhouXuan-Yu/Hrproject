@@ -516,7 +516,11 @@ public class DemandService {
                     entry.put("name", item.get("name"));
                     linked.add(entry);
                 } catch (Exception e) {
-                    linked.add(Map.of("name", item.get("name"), "linked", false, "reason", e.getMessage()));
+                    Map<String, Object> fail = new LinkedHashMap<>();
+                    fail.put("name", item.get("name"));
+                    fail.put("linked", false);
+                    fail.put("reason", e.getMessage());
+                    linked.add(fail);
                 }
             }
             Map<String, Object> out = new LinkedHashMap<>();
@@ -564,14 +568,19 @@ public class DemandService {
                 (double) matchScore, (double) profileScore, decayApplied ? "（时间衰减×" + decayRate + "）" : "");
 
         Map<String, Object> breakdown = new LinkedHashMap<>();
+        Map<String, Object> profileComp = new LinkedHashMap<>();
+        profileComp.put("education", Map.of(
+                "label", cand.get("edu") != null ? String.valueOf(cand.get("edu")) : "—",
+                "max", 30, "score", profileComponent("edu", cand)));
+        profileComp.put("schoolTier", Map.of("label", "—", "max", 15, "score", 0));
+        profileComp.put("workYears", Map.of(
+                "label", cand.get("years") != null ? String.valueOf(cand.get("years")) : "—",
+                "max", 20, "score", profileComponent("years", cand)));
+        profileComp.put("bigCompany", Map.of("label", "—", "max", 15, "score", 0));
+        profileComp.put("certificates", Map.of("label", "—", "max", 10, "score", 0));
         breakdown.put("profile", Map.of(
                 "score", profileScore, "grade", profileGrade, "class", matchColor(profileScore),
-                "components", Map.of(
-                        "education", Map.of("label", cand.get("edu"), "max", 30, "score", profileComponent("edu", cand)),
-                        "schoolTier", Map.of("label", "—", "max", 15, "score", 0),
-                        "workYears", Map.of("label", cand.get("years"), "max", 20, "score", profileComponent("years", cand)),
-                        "bigCompany", Map.of("label", "—", "max", 15, "score", 0),
-                        "certificates", Map.of("label", "—", "max", 10, "score", 0))));
+                "components", profileComp));
         breakdown.put("match", Map.of(
                 "score", matchScore, "grade", matchGrade, "class", matchColor(matchScore),
                 "reason", "岗位技能与 JD 关键词匹配", "detail", "综合画像分与 JD 要求对齐"));
@@ -588,8 +597,10 @@ public class DemandService {
                 "profileScore", profileScore, "profileGrade", profileGrade,
                 "matchScore", matchScore, "matchGrade", matchGrade,
                 "comprehensiveScore", comp));
-        result.put("hardFilter", Map.of("passed", cand.get("notRecReason") == null,
-                "reason", cand.get("notRecReason")));
+        Map<String, Object> hardFilter = new LinkedHashMap<>();
+        hardFilter.put("passed", cand.get("notRecReason") == null);
+        hardFilter.put("reason", cand.get("notRecReason"));
+        result.put("hardFilter", hardFilter);
         return result;
     }
 

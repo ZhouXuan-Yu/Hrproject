@@ -4,6 +4,7 @@ import com.hr.common.annotation.RequireRole;
 import com.hr.common.dto.ApiResponse;
 import com.hr.config.service.ConfigService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -141,6 +142,21 @@ public class ConfigController {
     @GetMapping("/api-keys")
     public ApiResponse<Map<String, Object>> apiKeys() {
         return ApiResponse.success(configService.getApiKeys());
+    }
+
+    @PutMapping("/api-keys")
+    public ApiResponse<Map<String, Object>> saveApiKeys(@RequestBody Map<String, Object> body) {
+        return ApiResponse.success(configService.saveApiKeys(body));
+    }
+
+    @PostMapping("/api-keys/test")
+    public ApiResponse<Map<String, Object>> testApiKey(@RequestBody(required = false) Map<String, Object> body) {
+        String keyName = body != null && body.get("key_name") != null
+                ? String.valueOf(body.get("key_name")) : "";
+        if (keyName.isBlank()) {
+            return ApiResponse.success(Map.of("ok", false, "supported", false, "message", "缺少 key_name"));
+        }
+        return ApiResponse.success(configService.testApiKey(keyName));
     }
 
     private Map<String, Object> listResponse(List<Map<String, Object>> data) {
