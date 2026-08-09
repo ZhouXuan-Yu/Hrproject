@@ -108,8 +108,11 @@ public class ConfigService {
 
     @Cacheable(cacheNames = "config", key = "'channels'")
     public List<Map<String, Object>> getChannels() {
-        return channelRepository.findByIsDeletedOrderByIdAsc(0)
-                .stream().map(this::channelToMap).toList();
+        // 用 ArrayList 而非 Stream.toList()：后者返回 final 类型 ListN，
+        // GenericJackson2JsonRedisSerializer 的 NON_FINAL 类型标记不会写入，
+        // 导致缓存反序列化失败
+        return new java.util.ArrayList<>(channelRepository.findByIsDeletedOrderByIdAsc(0)
+                .stream().map(this::channelToMap).toList());
     }
 
     @Transactional
