@@ -656,18 +656,14 @@ async function deleteSelectedInterviews(ids, reason) {
   let ok = 0;
   let fail = 0;
   try {
-    for (const id of ids) {
-      try {
-        await cancelInterview(id, reason || 'HR 批量删除');
-        ok++;
-      } catch (e) {
-        console.warn('[RecruitInterview] batch delete failed:', id, e);
-        fail++;
-      }
-    }
+    const results = await Promise.allSettled(
+      ids.map(id => cancelInterview(id, reason || 'HR 批量删除'))
+    );
+    ok = results.filter(r => r.status === 'fulfilled').length;
+    fail = results.filter(r => r.status === 'rejected').length;
     toast[fail ? 'warning' : 'success']('删除完成：成功 ' + ok + ' 条，失败 ' + fail + ' 条');
     clearInterviewSelection();
-    await loadFromApi();
+    await loadListAndAlerts();
   } finally {
     batchDeleting.value = false;
   }
@@ -826,7 +822,7 @@ async function submitEvaluation() {
     const label = { pass: '通过，进入待录用', fail: '不通过，已回流人才库', hold: '暂缓，保持待评价' }[evalForm.result];
     toast.success(`【面试评价】${evalTarget.value.name}：${label}`);
     showEvalModal.value = false;
-    await loadFromApi();
+    await loadListAndAlerts();
   } catch (err) {
     handleError(err, 'RecruitInterview.submitEvaluation');
     toast.error('评价提交失败：' + (err?.response?.data?.message || err.message || '未知错误'));
@@ -939,13 +935,13 @@ async function submitActionModal() {
       await completeInterview(actionTarget.value.id, { is_arrive: actionForm.arrive });
       const suffix = actionForm.arrive ? '已进入待评价，请面试官提交评价' : '已记录未到场，请继续补充评价说明';
       toast.success('【面试完成】' + actionTarget.value.name + ' ' + suffix);
-      await loadFromApi();
+      await loadListAndAlerts();
     } else if (actionMode.value === 'batch-delete') {
       await deleteSelectedInterviews(actionTarget.value.ids, actionForm.reason);
     } else {
       await cancelInterview(actionTarget.value.id, actionForm.reason);
       toast.success('已取消 ' + actionTarget.value.name + ' 的面试');
-      await loadFromApi();
+      await loadListAndAlerts();
     }
     showActionModal.value = false;
   } catch (err) {
@@ -1013,6 +1009,25 @@ async function loadFromApi() {
   } finally {
     loading.value = false;
     calendarLoading.value = false;
+  }
+}
+
+// 操作后局部刷新：只重拉列表 + 预警，不动日历（日历仅月份切换时拉）
+async function loadListAndAlerts() {
+  loading.value = true;
+  loadError.value = '';
+  try {
+    const [listRes, alertRes] = await Promise.all([
+      fetchInterviews({ tab: activeTab.value }),
+      fetchInterviewAlerts()
+    ]);
+    apiInterviewData.value = Array.isArray(listRes?.data) ? listRes.data : (Array.isArray(listRes) ? listRes : []);
+    apiAlertData.value = Array.isArray(alertRes) ? alertRes : [];
+  } catch (e) {
+    loadError.value = e.message || '面试数据加载失败';
+    console.warn('[Interview] reload failed:', e.message);
+  } finally {
+    loading.value = false;
   }
 }
 

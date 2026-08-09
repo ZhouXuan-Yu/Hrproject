@@ -747,24 +747,25 @@ async function addToDemand(demandId, demandName) {
   const names = checkedIds.map(id => { const c = EXT_DATA_SOURCE.value.find(x => x.id === id); return c ? c.name : ''; }).filter(Boolean);
   if (names.length === 0) return;
 
-  // 逐个调用真实 link 接口，按返回的 linked 判定成败，汇总提示
+  // 并行调用真实 link 接口，按返回的 linked 判定成败，汇总提示
   const okNames = [];
   const failReasons = [];
   let latestLinkedCount = null;
-  for (const name of names) {
-    try {
-      const r = await linkCandidateToDemand(demandId, name);
-      if (r && r.linked) {
-        okNames.push(name);
-        if (typeof r.linkedCount === 'number') latestLinkedCount = r.linkedCount;
-      } else {
-        failReasons.push(name + '：' + ((r && r.reason) || '加入失败'));
-      }
-    } catch (e) {
-      console.warn('[RecruitTalent] linkCandidateToDemand failed for', name, e);
-      failReasons.push(name + '：接口异常');
+  const results = await Promise.allSettled(
+    names.map(name => linkCandidateToDemand(demandId, name).then(r => ({ name, r })))
+  );
+  results.forEach((res) => {
+    const name = res.status === 'fulfilled' ? res.value.name : '';
+    if (res.status === 'fulfilled' && res.value.r && res.value.r.linked) {
+      okNames.push(name);
+      if (typeof res.value.r.linkedCount === 'number') latestLinkedCount = res.value.r.linkedCount;
+    } else {
+      const reason = res.status === 'fulfilled'
+        ? (res.value.r && res.value.r.reason) || '加入失败'
+        : '接口异常';
+      failReasons.push(name + '：' + reason);
     }
-  }
+  });
 
   if (okNames.length) {
     demandOptions.value = demandOptions.value.map(d =>

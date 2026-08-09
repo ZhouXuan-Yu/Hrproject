@@ -1,5 +1,5 @@
 // api/talent.js — talent API calls
-import { api } from './index.js';
+import { api, invalidateCache } from './index.js';
 
 export async function fetchTalent(params = {}) {
   const qs = new URLSearchParams({ pageSize: 20, ...params }).toString();
@@ -81,6 +81,8 @@ export async function uploadResumeFile(file, position = '', note = '') {
     throw new Error(msg);
   }
   const json = await resp.json();
+  // 原生 fetch 不走 api 封装的失效逻辑，上传成功后手动失效人才库列表缓存
+  invalidateCache('/talent/list');
   return json.data;
 }
 
