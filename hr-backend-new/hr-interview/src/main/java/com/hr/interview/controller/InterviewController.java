@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -51,6 +52,66 @@ public class InterviewController {
     public ApiResponse<Map<String, Object>> evaluate(@PathVariable Long id,
                                                      @RequestBody Map<String, Object> body) {
         return ApiResponse.success(interviewService.evaluateInterview(id, body, SecurityUtils.getUserId()));
+    }
+
+    /**
+     * GET /api/interview/alerts — 面试预警。
+     */
+    @GetMapping("/alerts")
+    public ApiResponse<List<Map<String, Object>>> alerts() {
+        return ApiResponse.success(interviewService.getAlerts());
+    }
+
+    /**
+     * POST /api/interview/schedule — 批量安排面试。
+     */
+    @PostMapping("/schedule")
+    public ApiResponse<Map<String, Object>> schedule(@RequestBody Map<String, Object> body) {
+        return ApiResponse.success(interviewService.scheduleInterviews(body));
+    }
+
+    /**
+     * GET /api/interview/{id} — 面试详情。
+     */
+    @GetMapping("/{id}")
+    public ApiResponse<Map<String, Object>> detail(@PathVariable Long id) {
+        return ApiResponse.success(interviewService.getInterviewDetail(id));
+    }
+
+    /**
+     * POST /api/interview/{id}/complete — 标记面试完成。
+     */
+    @PostMapping("/{id}/complete")
+    public ApiResponse<Map<String, Object>> complete(@PathVariable Long id,
+                                                     @RequestBody(required = false) Map<String, Object> body) {
+        return ApiResponse.success(interviewService.completeInterview(id, body == null ? Map.of() : body));
+    }
+
+    /**
+     * POST /api/interview/{id}/offer — 面试通过后发放 Offer。
+     */
+    @PostMapping("/{id}/offer")
+    public ApiResponse<Map<String, Object>> sendOffer(@PathVariable Long id,
+                                                      @RequestBody(required = false) Map<String, Object> body) {
+        return ApiResponse.success(interviewService.sendOffer(id, body == null ? Map.of() : body));
+    }
+
+    /**
+     * POST /api/interview/{id}/onboard — 确认候选人入职。
+     */
+    @PostMapping("/{id}/onboard")
+    public ApiResponse<Map<String, Object>> onboard(@PathVariable Long id,
+                                                    @RequestBody(required = false) Map<String, Object> body) {
+        return ApiResponse.success(interviewService.confirmOnboard(id, body == null ? Map.of() : body));
+    }
+
+    /**
+     * GET /api/interview/calendar — 面试日历。
+     */
+    @GetMapping("/calendar")
+    public ApiResponse<Map<String, Object>> calendar(@RequestParam(required = false) String weekStart,
+                                                     @RequestParam(required = false) String month) {
+        return ApiResponse.success(interviewService.getCalendar(weekStart, month));
     }
 
     /**

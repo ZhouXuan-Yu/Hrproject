@@ -408,28 +408,32 @@ public class InterviewService {
         }
 
         // 联动人才库：候选人状态置为 hired
-        resumeRepository.findByCandidateIdAndIsDeletedOrderByStorageTimeDesc(
-                        book.getResumeId() != null ? book.getResumeId() : 0L, 0)
-                .stream().findFirst()
-                .map(Resume::getCandidateId)
-                .flatMap(candidateRepository::findById)
-                .filter(c -> c.getIsDeleted() == null || c.getIsDeleted() == 0)
-                .ifPresent(c -> {
-                    c.setStatus("hired");
-                    c.setUpdatedAt(LocalDateTime.now());
-                    candidateRepository.save(c);
-                });
-
-        // 联动录用事件状态
-        if (record.getId() != null) {
-            hireEventRepository.findAll(
-                            (root, query, cb) -> cb.equal(root.get("offerId"), book.getResumeId()))
-                    .stream().findFirst().ifPresent(event -> {
-                        event.setEventStatus(1);
-                        event.setUpdatedAt(LocalDateTime.now());
-                        hireEventRepository.save(event);
+        if (book.getResumeId() != null && book.getResumeId() > 0) {
+            resumeRepository.findById(book.getResumeId())
+                    .filter(r -> r.getIsDeleted() == null || r.getIsDeleted() == 0)
+                    .map(Resume::getCandidateId)
+                    .flatMap(candidateRepository::findById)
+                    .filter(c -> c.getIsDeleted() == null || c.getIsDeleted() == 0)
+                    .ifPresent(c -> {
+                        c.setStatus("hired");
+                        c.setUpdatedAt(LocalDateTime.now());
+                        candidateRepository.save(c);
                     });
         }
+
+        // 联动录用事件状态：找到该面试记录对应的 Offer，再将事件置为已入职
+        offerRepository.findAll(
+                        (root, query, cb) -> cb.equal(root.get("lastInterviewId"), record.getId()))
+                .stream().filter(o -> o.getIsDeleted() == null || o.getIsDeleted() == 0)
+                .findFirst()
+                .flatMap(o -> hireEventRepository.findAll(
+                        (root, query, cb) -> cb.equal(root.get("offerId"), o.getId()))
+                        .stream().findFirst())
+                .ifPresent(event -> {
+                    event.setEventStatus(1);
+                    event.setUpdatedAt(LocalDateTime.now());
+                    hireEventRepository.save(event);
+                });
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("onboarded", true);
