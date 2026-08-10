@@ -209,13 +209,13 @@ git checkout hr-bootstrap/src/main/java/com/hr/bootstrap/controller/ConfirmContr
 | `hr-demand/.../RecruitApprovalIdentity.java` | t_hr_approval_identity | 审批身份 |
 | `hr-config/.../TagDict.java` | t_hr_tag_dict | 标签字典 |
 
-### 仍缺失（低优先级 — 日志/分析表）
-| Entity | 表 | 注 |
-|--------|-----|-----|
-| EmployeeTagRel | t_hr_employee_tag_rel | 内部员工标签 |
-| InternalMatchLog | t_hr_internal_match_log | 内部匹配日志 |
-| SearchLog | t_hr_search_log | 搜索日志 |
-| ChatLog | t_hr_chat_log | AI 对话日志 |
+### ~~仍缺失~~ → 已补齐于 Phase 6
+| Entity | 表 | 文件 |
+|--------|-----|------|
+| EmployeeTagRel | t_hr_employee_tag_rel | `hr-talent/.../EmployeeTagRel.java` |
+| InternalMatchLog | t_hr_internal_match_log | `hr-demand/.../InternalMatchLog.java` |
+| SearchLog | t_hr_search_log | `hr-talent/.../SearchLog.java` |
+| ChatLog | t_hr_chat_log | `hr-talent/.../ChatLog.java` |
 
 ### 回退
 ```bash
