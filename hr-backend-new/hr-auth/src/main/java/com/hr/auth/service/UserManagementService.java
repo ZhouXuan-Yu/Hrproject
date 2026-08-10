@@ -7,6 +7,7 @@ import com.hr.auth.repository.IamDeptRepository;
 import com.hr.auth.repository.IamPositionRepository;
 import com.hr.auth.repository.IamUserRepository;
 import com.hr.common.exception.BusinessException;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.bouncycastle.crypto.generators.SCrypt;
@@ -17,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -39,6 +41,7 @@ public class UserManagementService {
     private final IamUserRepository userRepository;
     private final IamDeptRepository deptRepository;
     private final IamPositionRepository positionRepository;
+    private final EntityManager entityManager;
 
     // ── 用户管理 ──────────────────────────────────────────────
 
@@ -214,6 +217,77 @@ public class UserManagementService {
         out.put("total", users.size());
         out.put("results", results);
         return out;
+    }
+
+    /**
+     * 查询待激活账号：已入职/已接受 Offer 但尚无系统账号的候选人。
+     * 使用原生 SQL 跨表 JOIN 对齐 Flask pending_accounts() 逻辑。
+     */
+    @SuppressWarnings("unchecked")
+    public List<Map<String, Object>> findPendingAccounts() {
+        String sql = """
+                SELECT c.id AS candidate_id, c.candidate_name, c.mobile, c.email,
+                       rp.process_status, d.id AS dept_id, d.dept_name,
+                       d.position_id, p.position_name
+                FROM t_hr_candidate c
+                JOIN t_hr_resume r ON r.candidate_id = c.id AND r.is_deleted = 0
+                JOIN t_hr_recruit_process rp ON rp.resume_id = r.id AND rp.is_deleted = 0
+                JOIN t_hr_recruit_demand d ON d.id = rp.demand_id AND d.is_deleted = 0
+                LEFT JOIN t_hr_iam_position p ON p.position_id = d.position_id AND p.is_deleted = 0
+                WHERE c.status = 'hired'
+                  AND c.is_deleted = 0
+                  AND rp.process_status IN (6, 8)
+                ORDER BY c.id DESC
+                LIMIT 100""";
+
+        List<Object[]> rows = entityManager.createNativeQuery(sql).getResultList();
+        List<Map<String, Object>> result = new ArrayList<>();
+
+        for (Object[] row : rows) {
+            Long candidateId = ((Number) row[0]).longValue();
+            String candidateName = (String) row[1];
+            String mobile = (String) row[2];
+            String email = (String) row[3];
+            Integer processStatus = row[4] != null ? ((Number) row[4]).intValue() : null;
+
+            // 检查是否已有 IamUser 账号（按 mobile 或 email 匹配）
+            boolean hasAccount = false;
+            if (mobile != null && !mobile.isEmpty()) {
+                hasAccount = userRepository.findAll((root, query, cb) -> cb.and(
+                        cb.equal(root.get("mobile"), mobile),
+                        cb.equal(root.get("isDeleted"), 0))).stream().findAny().isPresent();
+            }
+            if (!hasAccount && email != null && !email.isEmpty()) {
+                hasAccount = userRepository.findAll((root, query, cb) -> cb.and(
+                        cb.equal(root.get("email"), email),
+                        cb.equal(root.get("isDeleted"), 0))).stream().findAny().isPresent();
+            }
+
+            if (hasAccount) {
+                continue; // 已有账号，跳过
+            }
+
+            Long deptId = row[5] != null ? ((Number) row[5]).longValue() : null;
+            String deptName = (String) row[6];
+            Long positionId = row[7] != null ? ((Number) row[7]).longValue() : null;
+            String positionName = (String) row[8];
+
+            String statusLabel = processStatus != null && processStatus == 8 ? "已入职" : "已接受Offer";
+
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("candidateId", candidateId);
+            m.put("candidateName", candidateName != null ? candidateName : "");
+            m.put("mobile", mobile != null ? mobile : "");
+            m.put("email", email != null ? email : "");
+            m.put("deptId", deptId);
+            m.put("deptName", deptName != null ? deptName : "");
+            m.put("positionId", positionId);
+            m.put("positionName", positionName != null ? positionName : "");
+            m.put("processStatus", processStatus);
+            m.put("statusLabel", statusLabel);
+            result.add(m);
+        }
+        return result;
     }
 
     private Long nextUserId() {

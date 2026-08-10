@@ -1,11 +1,5 @@
 package com.hr.auth.controller;
 
-import com.hr.auth.entity.IamDept;
-import com.hr.auth.entity.IamPosition;
-import com.hr.auth.entity.IamUser;
-import com.hr.auth.repository.IamDeptRepository;
-import com.hr.auth.repository.IamPositionRepository;
-import com.hr.auth.repository.IamUserRepository;
 import com.hr.auth.service.UserManagementService;
 import com.hr.common.annotation.RequireRole;
 import com.hr.common.dto.ApiResponse;
@@ -18,7 +12,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.ArrayList;
@@ -36,9 +29,6 @@ import java.util.Map;
 public class UserManagementController {
 
     private final UserManagementService managementService;
-    private final IamUserRepository userRepository;
-    private final IamDeptRepository deptRepository;
-    private final IamPositionRepository positionRepository;
 
     // ── 用户管理 ──────────────────────────────────────────────
 
@@ -96,46 +86,7 @@ public class UserManagementController {
 
     @GetMapping("/pending-accounts")
     public ApiResponse<List<Map<String, Object>>> pendingAccounts() {
-        return ApiResponse.success(findPendingAccounts());
-    }
-
-    private List<Map<String, Object>> findPendingAccounts() {
-        List<Map<String, Object>> result = new ArrayList<>();
-        List<IamUser> allUsers = userRepository.findAll(
-                (root, query, cb) -> cb.equal(root.get("isDeleted"), 0));
-        for (IamUser u : allUsers) {
-            if (u.getStatus() != null && u.getStatus() == 1 && u.getMustChangePassword() != null
-                    && u.getMustChangePassword() == 1) {
-                Map<String, Object> m = new LinkedHashMap<>();
-                m.put("candidateId", u.getUserId());
-                m.put("candidateName", u.getRealName());
-                m.put("mobile", u.getMobile() != null ? u.getMobile() : "");
-                m.put("email", u.getEmail() != null ? u.getEmail() : "");
-                m.put("deptId", u.getDeptId());
-                m.put("deptName", resolveDeptName(u.getDeptId()));
-                m.put("positionId", u.getPositionId());
-                m.put("positionName", resolvePositionName(u.getPositionId()));
-                m.put("statusLabel", "待首次登录");
-                result.add(m);
-            }
-        }
-        return result;
-    }
-
-    private String resolveDeptName(Long deptId) {
-        if (deptId == null) {
-            return "";
-        }
-        return deptRepository.findById(deptId)
-                .map(IamDept::getDeptName).orElse("");
-    }
-
-    private String resolvePositionName(Long positionId) {
-        if (positionId == null) {
-            return "";
-        }
-        return positionRepository.findById(positionId)
-                .map(IamPosition::getPositionName).orElse("");
+        return ApiResponse.success(managementService.findPendingAccounts());
     }
 
     // ── 部门管理 ──────────────────────────────────────────────

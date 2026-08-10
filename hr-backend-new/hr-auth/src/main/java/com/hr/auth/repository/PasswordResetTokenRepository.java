@@ -22,4 +22,7 @@ public interface PasswordResetTokenRepository extends JpaRepository<PasswordRese
     @Query("update PasswordResetToken t set t.status = 'expired', t.updatedAt = :now " +
             "where t.userId = :userId and t.status = 'pending' and t.isDeleted = 0")
     int expirePendingTokens(@Param("userId") Long userId, @Param("now") LocalDateTime now);
+
+    Optional<PasswordResetToken> findFirstByTargetAndTokenAndStatusAndIsDeletedOrderByIdDesc(
+            String target, String token, String status, Integer isDeleted);
 }

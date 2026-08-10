@@ -88,4 +88,13 @@ public class AuthController {
     public ApiResponse<Map<String, Object>> setup(@RequestBody(required = false) Map<String, Object> body) {
         return ApiResponse.success(authService.firstTimeSetup(body));
     }
+
+    /**
+     * POST /api/auth/register — 自助注册。
+     * Body: { email, code, realName, mobile?, password }
+     */
+    @PostMapping("/register")
+    public ApiResponse<Map<String, Object>> register(@RequestBody(required = false) Map<String, Object> body) {
+        return ApiResponse.success(authService.register(body));
+    }
 }

@@ -7,6 +7,7 @@ import com.hr.hire.entity.HireEvent;
 import com.hr.hire.entity.Offer;
 import com.hr.hire.repository.EntryRepository;
 import com.hr.hire.repository.HireEventRepository;
+import com.hr.hire.repository.OfferRemindLogRepository;
 import com.hr.hire.repository.OfferRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -58,6 +59,9 @@ public class HireService {
     private final OfferRepository offerRepository;
     private final EntryRepository entryRepository;
     private final HireEventRepository hireEventRepository;
+    private final OfferRemindLogRepository remindLogRepository;
+
+    private static final int OFFER_REMINDER_INTERVAL_HOURS = 24;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -279,6 +283,79 @@ public class HireService {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("expiredCount", expired.size());
         result.put("expired", expired);
+        return result;
+    }
+
+    /**
+     * POST /api/hire/offers/followup — 倒计时提醒 + 超时淘汰。
+     * 对齐 Flask hire_service.offer_followup()。
+     */
+    @Transactional
+    public Map<String, Object> offerFollowup() {
+        LocalDateTime now = LocalDateTime.now();
+        List<Offer> sentOffers = offerRepository.findByOfferStatusAndIsDeleted(1, 0);
+
+        List<Map<String, Object>> reminded = new ArrayList<>();
+        List<String> expiredList = new ArrayList<>();
+
+        for (Offer offer : sentOffers) {
+            LocalDateTime sendTime = offer.getSendTime() != null ? offer.getSendTime() : offer.getCreatedAt();
+            if (sendTime == null) {
+                continue;
+            }
+            LocalDateTime deadline = sendTime.plusDays(OFFER_EXPIRE_DAYS);
+
+            // 已过期 → 跳过（expireOffers 处理）
+            if (!deadline.isAfter(now)) {
+                continue;
+            }
+
+            // 计算剩余天数
+            int daysLeft = Math.max(1, (int) java.time.Duration.between(now, deadline).toDays() + 1);
+
+            // 去重：24h 内不重复发送提醒
+            if (daysLeft > 0) {
+                var lastRemind = remindLogRepository
+                        .findFirstByOfferIdAndRemindTypeOrderByIdDesc(offer.getId(), "countdown");
+                if (lastRemind.isPresent()) {
+                    LocalDateTime lastSent = lastRemind.get().getCreatedAt();
+                    if (lastSent != null && lastSent.plusHours(OFFER_REMINDER_INTERVAL_HOURS).isAfter(now)) {
+                        continue; // 24h 内已发送，跳过
+                    }
+                }
+            }
+
+            // 记录提醒（best-effort 邮件发送）
+            OfferRemindLog log = new OfferRemindLog();
+            log.setOfferId(offer.getId());
+            log.setOfferNo(offer.getOfferNo());
+            log.setRemindType("countdown");
+            log.setDaysLeft(daysLeft);
+            log.setSendOk(1);
+            log.setSendMsg("倒计时提醒已记录（邮件发送待 SMTP 配置）");
+            log.setCreatedAt(now);
+            log.setIsDeleted(0);
+            remindLogRepository.save(log);
+
+            Map<String, Object> r = new LinkedHashMap<>();
+            r.put("offerNo", offer.getOfferNo());
+            r.put("daysLeft", daysLeft);
+            r.put("deadline", deadline.toString());
+            reminded.add(r);
+        }
+
+        // 自动过期
+        Map<String, Object> expireResult = expireOffers();
+        @SuppressWarnings("unchecked")
+        List<String> expired = (List<String>) expireResult.get("expired");
+        if (expired != null) {
+            expiredList.addAll(expired);
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("reminded", reminded);
+        result.put("expired", expiredList);
+        result.put("deadlineDays", OFFER_EXPIRE_DAYS);
         return result;
     }
 

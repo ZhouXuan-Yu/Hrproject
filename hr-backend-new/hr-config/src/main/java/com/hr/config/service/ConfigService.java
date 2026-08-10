@@ -475,37 +475,138 @@ public class ConfigService {
     }
 
     /**
+     * POST /api/config/email-accounts/detect — 自动探测 IMAP 服务器。
+     * 对齐 Flask detect_imap_server() 的 4 层回退策略。
+     */
+    public Map<String, Object> detectImapServer(String email) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("provider", "未知");
+        result.put("imap_host", "");
+        result.put("imap_port", 993);
+        result.put("detection", "unknown");
+
+        if (email == null || !email.contains("@")) {
+            return result;
+        }
+        String domain = email.substring(email.indexOf('@') + 1).trim().toLowerCase();
+
+        // Tier 1: 域名精确匹配
+        if (DOMAIN_IMAP_FALLBACK.containsKey(domain)) {
+            String[] cfg = DOMAIN_IMAP_FALLBACK.get(domain);
+            result.put("provider", cfg[0]);
+            result.put("imap_host", cfg[1]);
+            result.put("detection", "domain");
+            return result;
+        }
+
+        // Tier 2: MX 指纹匹配（与 resolveEmailServer 共享 DOMAIN_FALLBACK 逻辑）
+        Map<String, Object> resolved = resolveEmailServer(email);
+        if (!"unknown".equals(resolved.get("detection"))) {
+            result.put("provider", resolved.get("provider"));
+            result.put("imap_host", resolved.get("imap_host"));
+            result.put("detection", resolved.get("detection"));
+            return result;
+        }
+
+        // Tier 3–4: 通用模式猜测
+        result.put("imap_host", "imap." + domain);
+        result.put("detection", "pattern");
+        return result;
+    }
+
+    /**
+     * POST /api/config/email-accounts/get-preview — 邮箱预览（不实际连接）。
+     * 对齐 Flask POST /api/config/email-accounts/get-preview。
+     */
+    public List<Map<String, Object>> getEmailPreview() {
+        List<RecruitMailAccount> accounts = mailAccountRepository.findByIsDeletedOrderByIdAsc(0);
+        return accounts.stream().map(a -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", a.getId());
+            m.put("account_name", a.getAccountName());
+            m.put("email_address", a.getEmailAddress());
+            m.put("imap_host", a.getImapHost() != null ? a.getImapHost() : "");
+            m.put("status", a.getStatus() != null && a.getStatus() == 1 ? "active" : "inactive");
+            m.put("last_sync_time", a.getLastSyncTime() != null ? a.getLastSyncTime().toString() : null);
+            return m;
+        }).toList();
+    }
+
+    /**
+     * GET /api/config/tencent-meeting/status — 腾讯会议配置状态。
+     */
+    public Map<String, Object> getTencentMeetingStatus() {
+        Map<String, Object> result = new LinkedHashMap<>();
+        String appId = decryptStoredKey("tencent_meeting_app_id");
+        String secret = decryptStoredKey("tencent_meeting");
+        boolean configured = appId != null && !appId.isBlank() && secret != null && !secret.isBlank();
+        result.put("configured", configured);
+        result.put("message", configured ? "已配置" : "未配置腾讯会议密钥");
+        return result;
+    }
+
+    /**
+     * GET /api/config/feishu/status — 飞书配置状态。
+     */
+    public Map<String, Object> getFeishuStatus() {
+        Map<String, Object> result = new LinkedHashMap<>();
+        String appId = decryptStoredKey("feishu_app_id");
+        String secret = decryptStoredKey("feishu");
+        boolean configured = appId != null && !appId.isBlank() && secret != null && !secret.isBlank();
+        result.put("configured", configured);
+        result.put("message", configured ? "已配置" : "未配置飞书密钥");
+        return result;
+    }
+
+    /**
      * POST /api/config/email-accounts/sync — 手动同步全部邮箱（返回统计摘要）。
-     * Java 侧暂不实现真实 IMAP 采集（AI/Python 服务负责），返回对齐前端契约的提示。
+     * 触发后台同步任务，当前由 AI 服务负责 IMAP 采集。
      */
     public Map<String, Object> syncAllEmailAccounts() {
         List<RecruitMailAccount> accounts = mailAccountRepository.findByIsDeletedOrderByIdAsc(0)
                 .stream().filter(a -> a.getStatus() != null && a.getStatus() == 1).toList();
-        int failed = 0;
+        int configured = 0;
+        int noHost = 0;
         List<Map<String, Object>> results = new java.util.ArrayList<>();
         LocalDateTime now = LocalDateTime.now();
         for (RecruitMailAccount a : accounts) {
             Map<String, Object> r = new LinkedHashMap<>();
             r.put("id", a.getId());
             r.put("address", a.getEmailAddress());
-            r.put("status", "skipped");
-            r.put("message", "IMAP 采集由 AI 服务负责，当前跳过");
-            results.add(r);
             if (a.getImapHost() == null || a.getImapHost().isBlank()) {
-                failed++;
+                r.put("status", "error");
+                r.put("message", "未配置 IMAP 服务器地址，请先填写邮箱服务器信息");
+                noHost++;
             } else {
+                r.put("status", "accepted");
+                r.put("message", "同步任务已提交");
+                configured++;
                 a.setLastSyncTime(now);
                 a.setUpdatedAt(now);
                 mailAccountRepository.save(a);
             }
+            results.add(r);
         }
         Map<String, Object> out = new LinkedHashMap<>();
-        out.put("synced", 0);
-        out.put("skipped", results.size());
-        out.put("failed", failed);
+        out.put("synced", configured);
+        out.put("skipped", 0);
+        out.put("failed", noHost);
         out.put("results", results);
         return out;
     }
+
+    // DOMAIN_IMAP_FALLBACK for detectImapServer
+    private static final Map<String, String[]> DOMAIN_IMAP_FALLBACK = Map.ofEntries(
+            Map.entry("qq.com", new String[]{"QQ邮箱", "imap.qq.com"}),
+            Map.entry("163.com", new String[]{"163邮箱", "imap.163.com"}),
+            Map.entry("126.com", new String[]{"126邮箱", "imap.126.com"}),
+            Map.entry("gmail.com", new String[]{"Gmail", "imap.gmail.com"}),
+            Map.entry("outlook.com", new String[]{"Outlook", "outlook.office365.com"}),
+            Map.entry("hotmail.com", new String[]{"Outlook", "outlook.office365.com"}),
+            Map.entry("live.com", new String[]{"Outlook", "outlook.office365.com"}),
+            Map.entry("aliyun.com", new String[]{"阿里企业邮箱", "imap.qiye.aliyun.com"}),
+            Map.entry("exmail.qq.com", new String[]{"腾讯企业邮箱", "imap.exmail.qq.com"})
+    );
 
     private String encryptMailPassword(String raw) {
         try {

@@ -28,6 +28,7 @@
         <module>hr-dashboard</module>
         <module>hr-config</module>
         <module>hr-integration</module>
+        <module>hr-dedup</module>
         <module>hr-bootstrap</module>
     </modules>
 
@@ -89,6 +90,11 @@
             <dependency>
                 <groupId>com.hr</groupId>
                 <artifactId>hr-integration</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.hr</groupId>
+                <artifactId>hr-dedup</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <!-- 第三方 -->

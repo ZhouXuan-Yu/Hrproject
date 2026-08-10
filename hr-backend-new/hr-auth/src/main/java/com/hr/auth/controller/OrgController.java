@@ -6,6 +6,7 @@ import com.hr.auth.entity.IamUser;
 import com.hr.auth.repository.IamDeptRepository;
 import com.hr.auth.repository.IamPositionRepository;
 import com.hr.auth.repository.IamUserRepository;
+import com.hr.common.annotation.RequireRole;
 import com.hr.common.dto.ApiResponse;
 import com.hr.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -56,24 +58,22 @@ public class OrgController {
     }
 
     /**
-     * 面试官下拉（HR/dept_head/director 角色用户）。
+     * 面试官下拉（对齐 Flask GET /api/auth/interviewers）。
+     * 角色：admin, hr, dept_head, director, interviewer, temp_interviewer
      */
     @GetMapping("/interviewers")
+    @RequireRole({"admin", "hr", "dept_head", "director"})
     public ApiResponse<List<Map<String, Object>>> interviewers() {
-        List<IamUser> users = userRepository.findByStatusAndIsDeleted(1, 0);
+        List<String> roles = List.of("interviewer", "temp_interviewer", "dept_head", "hr", "admin");
+        List<IamUser> users = userRepository.findByRoleCodeInAndStatusAndIsDeleted(roles, 1, 0);
         List<Map<String, Object>> result = users.stream()
-                .filter(u -> isInterviewerRole(u.getRoleCode()))
-                .map(u -> Map.<String, Object>of(
-                        "id", u.getUserId(),
-                        "name", u.getRealName(),
-                        "role", u.getRoleCode(),
-                        "deptId", u.getDeptId() == null ? 0L : u.getDeptId()))
+                .map(u -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("id", String.valueOf(u.getUserId()));
+                    m.put("name", u.getRealName());
+                    return m;
+                })
                 .toList();
         return ApiResponse.success(result);
-    }
-
-    private boolean isInterviewerRole(String roleCode) {
-        return "hr".equals(roleCode) || "dept_head".equals(roleCode)
-                || "director".equals(roleCode) || "interviewer".equals(roleCode);
     }
 }

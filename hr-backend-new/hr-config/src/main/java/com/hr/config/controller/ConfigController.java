@@ -83,6 +83,42 @@ public class ConfigController {
         return ApiResponse.success(configService.resolveEmailServer(email));
     }
 
+    /**
+     * POST /api/config/email-accounts/detect — 自动探测 IMAP 服务器。
+     * 对齐 Flask POST /api/config/email-accounts/detect。
+     */
+    @PostMapping("/email-accounts/detect")
+    public ApiResponse<Map<String, Object>> detectImapServer(@RequestBody(required = false) Map<String, Object> body) {
+        String email = body != null && body.get("email") != null
+                ? String.valueOf(body.get("email")).trim() : "";
+        return ApiResponse.success(configService.detectImapServer(email));
+    }
+
+    /**
+     * POST /api/config/email-accounts/get-preview — 邮箱预览（不实际连接）。
+     * 对齐 Flask POST /api/config/email-accounts/get-preview。
+     */
+    @PostMapping("/email-accounts/get-preview")
+    public ApiResponse<List<Map<String, Object>>> getEmailPreview() {
+        return ApiResponse.success(configService.getEmailPreview());
+    }
+
+    /**
+     * GET /api/config/tencent-meeting/status — 腾讯会议配置状态。
+     */
+    @GetMapping("/tencent-meeting/status")
+    public ApiResponse<Map<String, Object>> tencentMeetingStatus() {
+        return ApiResponse.success(configService.getTencentMeetingStatus());
+    }
+
+    /**
+     * GET /api/config/feishu/status — 飞书配置状态。
+     */
+    @GetMapping("/feishu/status")
+    public ApiResponse<Map<String, Object>> feishuStatus() {
+        return ApiResponse.success(configService.getFeishuStatus());
+    }
+
     @GetMapping("/role-permissions")
     public ApiResponse<List<Map<String, Object>>> rolePermissions() {
         return ApiResponse.success(configService.getRolePermissions());
