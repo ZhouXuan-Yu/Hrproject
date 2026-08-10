@@ -74,8 +74,7 @@ public class ConfigController {
 
     @PostMapping("/email-accounts/{id}/sync")
     public ApiResponse<Map<String, Object>> syncEmailAccount(@PathVariable Long id) {
-        return ApiResponse.success(Map.of("accepted", true, "mode", "async",
-                "taskId", "sync-" + id, "message", "同步已开始，请稍后刷新查看结果"));
+        return ApiResponse.success(configService.syncEmailAccountById(id));
     }
 
     @GetMapping("/email-accounts/resolve")

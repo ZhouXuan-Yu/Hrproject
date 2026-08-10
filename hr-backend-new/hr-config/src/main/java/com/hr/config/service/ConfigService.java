@@ -20,23 +20,41 @@ import com.hr.config.repository.RecruitChannelRepository;
 import com.hr.config.repository.RecruitMailAccountRepository;
 import com.hr.config.repository.RoleMenuPermissionRepository;
 import com.hr.config.repository.ScoreRuleRepository;
+import jakarta.mail.Folder;
+import jakarta.mail.Message;
+import jakarta.mail.MessagingException;
+import jakarta.mail.Multipart;
+import jakarta.mail.Part;
+import jakarta.mail.Session;
+import jakarta.mail.Store;
+import jakarta.mail.internet.MimeMessage;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Properties;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 基础配置服务，对齐 Flask config_service.py。
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ConfigService {
@@ -49,6 +67,9 @@ public class ConfigService {
     private final AuditLogRepository auditLogRepository;
     private final ApiKeyConfigRepository apiKeyRepository;
     private final RoleMenuPermissionRepository roleMenuPermissionRepository;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
@@ -559,41 +580,412 @@ public class ConfigService {
     }
 
     /**
-     * POST /api/config/email-accounts/sync — 手动同步全部邮箱（返回统计摘要）。
-     * 触发后台同步任务，当前由 AI 服务负责 IMAP 采集。
+     * POST /api/config/email-accounts/sync — 手动同步全部邮箱。
+     * 逐个连接 IMAP 拉取未读邮件，提取简历信息并入库。
      */
     public Map<String, Object> syncAllEmailAccounts() {
         List<RecruitMailAccount> accounts = mailAccountRepository.findByIsDeletedOrderByIdAsc(0)
                 .stream().filter(a -> a.getStatus() != null && a.getStatus() == 1).toList();
-        int configured = 0;
-        int noHost = 0;
         List<Map<String, Object>> results = new java.util.ArrayList<>();
-        LocalDateTime now = LocalDateTime.now();
+        int synced = 0, failed = 0, noHost = 0;
         for (RecruitMailAccount a : accounts) {
-            Map<String, Object> r = new LinkedHashMap<>();
-            r.put("id", a.getId());
-            r.put("address", a.getEmailAddress());
             if (a.getImapHost() == null || a.getImapHost().isBlank()) {
+                Map<String, Object> r = new LinkedHashMap<>();
+                r.put("id", a.getId());
+                r.put("address", a.getEmailAddress());
                 r.put("status", "error");
-                r.put("message", "未配置 IMAP 服务器地址，请先填写邮箱服务器信息");
+                r.put("message", "未配置 IMAP 服务器地址");
+                results.add(r);
                 noHost++;
-            } else {
-                r.put("status", "accepted");
-                r.put("message", "同步任务已提交");
-                configured++;
-                a.setLastSyncTime(now);
-                a.setUpdatedAt(now);
-                mailAccountRepository.save(a);
+                continue;
             }
+            Map<String, Object> r = syncSingleAccount(a);
             results.add(r);
+            if ("ok".equals(r.get("status"))) {
+                synced++;
+            } else {
+                failed++;
+            }
         }
         Map<String, Object> out = new LinkedHashMap<>();
-        out.put("synced", configured);
-        out.put("skipped", 0);
-        out.put("failed", noHost);
+        out.put("synced", synced);
+        out.put("failed", failed);
+        out.put("noHost", noHost);
         out.put("results", results);
         return out;
     }
+
+    /**
+     * 按 ID 同步单个邮箱账号。
+     */
+    public Map<String, Object> syncEmailAccountById(Long id) {
+        RecruitMailAccount account = mailAccountRepository.findById(id)
+                .orElse(null);
+        if (account == null) {
+            Map<String, Object> err = new LinkedHashMap<>();
+            err.put("id", id);
+            err.put("status", "error");
+            err.put("message", "邮箱账号不存在");
+            return err;
+        }
+        return syncSingleAccount(account);
+    }
+
+    /**
+     * 同步单个邮箱账号 — IMAP 连接 + 未读邮件采集 + 简历解析入库。
+     */
+    public Map<String, Object> syncSingleAccount(RecruitMailAccount account) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("id", account.getId());
+        out.put("address", account.getEmailAddress());
+        int count = 0;
+        int ingested = 0;
+        Store store = null;
+        try {
+            // 解密密码
+            String password = account.getPasswordEncrypted();
+            if (password != null && !password.isBlank()) {
+                try {
+                    password = AesUtil.decrypt(password, cryptoSecret());
+                } catch (Exception e) {
+                    password = account.getPasswordEncrypted(); // 明文回退
+                }
+            }
+            if (password == null || password.isBlank()) {
+                out.put("status", "error");
+                out.put("message", "邮箱密码未配置");
+                return out;
+            }
+
+            // IMAP 连接
+            int port = account.getImapPort() != null && account.getImapPort() > 0
+                    ? account.getImapPort() : 993;
+            Properties props = new Properties();
+            props.put("mail.store.protocol", "imaps");
+            props.put("mail.imaps.host", account.getImapHost());
+            props.put("mail.imaps.port", String.valueOf(port));
+            props.put("mail.imaps.ssl.enable", "true");
+            props.put("mail.imaps.connectiontimeout", "10000");
+            props.put("mail.imaps.timeout", "30000");
+
+            Session session = Session.getInstance(props);
+            store = session.getStore("imaps");
+            store.connect(account.getImapHost(), account.getEmailAddress(), password);
+
+            String folderName = account.getMonitorFolder() != null && !account.getMonitorFolder().isBlank()
+                    ? account.getMonitorFolder() : "INBOX";
+            Folder folder = store.getFolder(folderName);
+            folder.open(Folder.READ_WRITE);
+
+            Message[] messages = folder.getMessages();
+            for (Message msg : messages) {
+                if (!msg.isSet(jakarta.mail.Flags.Flag.SEEN)) {
+                    count++;
+                    boolean ok = processEmailMessage(msg, account);
+                    if (ok) {
+                        ingested++;
+                        msg.setFlag(jakarta.mail.Flags.Flag.SEEN, true);
+                    }
+                }
+            }
+            folder.close(false);
+            store.close();
+
+            // 更新最后同步时间
+            LocalDateTime now = LocalDateTime.now();
+            account.setLastSyncTime(now);
+            account.setUpdatedAt(now);
+            mailAccountRepository.save(account);
+
+            out.put("status", "ok");
+            out.put("totalMessages", count);
+            out.put("ingested", ingested);
+            out.put("message", "扫描 " + count + " 封未读邮件，入库 " + ingested + " 份简历");
+            log.info("邮箱 {} 同步完成: 扫描{}封, 入库{}份", account.getEmailAddress(), count, ingested);
+        } catch (Exception e) {
+            log.error("邮箱 {} 同步失败: {}", account.getEmailAddress(), e.getMessage());
+            out.put("status", "error");
+            out.put("message", "连接失败: " + e.getMessage());
+            out.put("totalMessages", count);
+            out.put("ingested", ingested);
+            if (store != null && store.isConnected()) {
+                try { store.close(); } catch (Exception ignored) { }
+            }
+        }
+        return out;
+    }
+
+    /**
+     * 处理单封邮件：检测简历关键词 → 提取文本 → 解析候选人信息 → 入库。
+     *
+     * @return true 如果成功解析并入库了简历
+     */
+    private boolean processEmailMessage(Message msg, RecruitMailAccount account) {
+        try {
+            String subject = msg.getSubject() != null ? msg.getSubject() : "";
+            String from = msg.getFrom() != null && msg.getFrom().length > 0
+                    ? msg.getFrom()[0].toString() : "";
+            String bodyText = extractTextFromPart(msg);
+
+            // 简历关键词检测（主题 + 正文 + 发件人）
+            if (!looksLikeResume(subject, bodyText, from)) {
+                return false;
+            }
+
+            // 提取候选人基本信息
+            String fullText = subject + "\n" + bodyText;
+            String name = extractName(fullText, from);
+            String phone = extractPhone(fullText);
+            String email = extractEmail(fullText, from);
+            String targetPosition = extractPosition(subject);
+            String eduLevel = extractEduLevel(fullText);
+
+            if (phone == null || phone.isBlank()) {
+                return false; // 至少要有手机号
+            }
+
+            // 计算手机哈希
+            String mobileHash = sha256(phone.replaceAll("[^0-9]", ""));
+
+            // 去重检查
+            if (candidateExistsByHash(mobileHash, email)) {
+                return false;
+            }
+
+            // 入库：Candidate + Resume
+            insertCandidateAndResume(name, phone, email, mobileHash, eduLevel,
+                    targetPosition, subject, bodyText, account.getOwnerUserId());
+            return true;
+        } catch (Exception e) {
+            log.warn("处理邮件失败: subject={}, error={}",
+                    msg.getSubject() != null ? msg.getSubject() : "(无主题)", e.getMessage());
+            return false;
+        }
+    }
+
+    // ── 简历关键词检测 ──────────────────────────────────────────
+
+    private static final String[] RESUME_KEYWORDS = {
+            "简历", "应聘", "求职", "个人简历", "resume", "CV",
+            "工作申请", "岗位申请", "投递", "自荐", "人才"
+    };
+    private static final String[] RESUME_SENDERS = {
+            "boss", "zhaopin", "liepin", "51job", "前程无忧", "智联", "猎聘",
+            "hr", "recruit", "招聘"
+    };
+
+    private boolean looksLikeResume(String subject, String body, String from) {
+        String lowerSubject = subject.toLowerCase();
+        String lowerBody = body.toLowerCase();
+        String lowerFrom = from.toLowerCase();
+
+        for (String kw : RESUME_KEYWORDS) {
+            if (lowerSubject.contains(kw) || lowerBody.contains(kw)) {
+                return true;
+            }
+        }
+        for (String s : RESUME_SENDERS) {
+            if (lowerFrom.contains(s) || lowerSubject.contains(s)) {
+                return true;
+            }
+        }
+        // 有 .pdf / .docx / .doc 附件也视为简历投递
+        return lowerSubject.endsWith(".pdf") || lowerSubject.endsWith(".docx") || lowerSubject.endsWith(".doc");
+    }
+
+    // ── 文本提取 ────────────────────────────────────────────────
+
+    private String extractTextFromPart(Part part) throws Exception {
+        if (part.isMimeType("text/plain")) {
+            return part.getContent() != null ? String.valueOf(part.getContent()) : "";
+        }
+        if (part.isMimeType("text/html")) {
+            String html = part.getContent() != null ? String.valueOf(part.getContent()) : "";
+            return html.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ").trim();
+        }
+        if (part.isMimeType("multipart/*")) {
+            Multipart mp = (Multipart) part.getContent();
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < mp.getCount(); i++) {
+                String text = extractTextFromPart(mp.getBodyPart(i));
+                if (!text.isBlank()) {
+                    sb.append(text).append("\n");
+                }
+            }
+            return sb.toString();
+        }
+        return "";
+    }
+
+    // ── 信息提取 ────────────────────────────────────────────────
+
+    private static final Pattern PAT_PHONE = Pattern.compile("1[3-9]\\d{9}");
+    private static final Pattern PAT_EMAIL = Pattern.compile("[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}");
+
+    private String extractName(String text, String from) {
+        // 优先从文本中提取"姓名"后的内容
+        Pattern p = Pattern.compile("姓[\\s]*名[：:]*\\s*(\\S{2,4})");
+        Matcher m = p.matcher(text);
+        if (m.find()) {
+            return m.group(1).trim();
+        }
+        // 回退：从发件人中提取
+        if (from.contains("<")) {
+            String part = from.substring(0, from.indexOf('<')).trim();
+            if (!part.isBlank()) {
+                return part;
+            }
+        }
+        // 从邮件地址提取
+        Matcher em = PAT_EMAIL.matcher(from);
+        if (em.find()) {
+            String[] parts = em.group().split("@")[0].split("[._-]");
+            for (String part : parts) {
+                if (part.length() >= 2 && part.length() <= 5) {
+                    return part;
+                }
+            }
+        }
+        return from;
+    }
+
+    private String extractPhone(String text) {
+        Matcher m = PAT_PHONE.matcher(text);
+        return m.find() ? m.group() : null;
+    }
+
+    private String extractEmail(String text, String from) {
+        Matcher m = PAT_EMAIL.matcher(from);
+        if (m.find()) {
+            return m.group().toLowerCase();
+        }
+        Matcher tm = PAT_EMAIL.matcher(text);
+        return tm.find() ? tm.group().toLowerCase() : "";
+    }
+
+    private String extractPosition(String subject) {
+        Pattern p = Pattern.compile("([\\u4e00-\\u9fa5]{2,8}(工程师|经理|总监|专员|主管|开发|设计|运营|销售|HR|hr))");
+        Matcher m = p.matcher(subject);
+        if (m.find()) {
+            return m.group(1);
+        }
+        // 回退：主题中 "-" "—" 前的部分（去除姓名和动作词）
+        String s = subject.replaceAll("(简历|应聘|求职|投递|申请|个人)", "").trim();
+        if (s.contains("-")) {
+            s = s.substring(s.indexOf('-') + 1).trim();
+        }
+        if (s.contains("—")) {
+            s = s.substring(s.indexOf('—') + 1).trim();
+        }
+        return s.length() > 32 ? s.substring(0, 32) : s;
+    }
+
+    private String extractEduLevel(String text) {
+        String[] levels = {"博士", "硕士", "研究生", "本科", "大专", "高中"};
+        for (String lv : levels) {
+            if (text.contains(lv)) {
+                return lv;
+            }
+        }
+        return "本科"; // 默认
+    }
+
+    // ── 去重与入库 ──────────────────────────────────────────────
+
+    private boolean candidateExistsByHash(String mobileHash, String email) {
+        try {
+            List<?> rows = entityManager.createNativeQuery(
+                    "SELECT 1 FROM t_hr_candidate WHERE mobile_hash = :hash AND is_deleted = 0 LIMIT 1")
+                    .setParameter("hash", mobileHash)
+                    .getResultList();
+            if (!rows.isEmpty()) {
+                return true;
+            }
+        } catch (Exception ignored) { }
+        if (email != null && !email.isBlank()) {
+            try {
+                List<?> rows = entityManager.createNativeQuery(
+                        "SELECT 1 FROM t_hr_candidate WHERE email = :email AND is_deleted = 0 LIMIT 1")
+                        .setParameter("email", email.toLowerCase())
+                        .getResultList();
+                if (!rows.isEmpty()) {
+                    return true;
+                }
+            } catch (Exception ignored) { }
+        }
+        return false;
+    }
+
+    private void insertCandidateAndResume(String name, String phone, String email,
+                                           String mobileHash, String eduLevel, String targetPosition,
+                                           String subject, String bodyText, Long ownerUserId) {
+        LocalDateTime now = LocalDateTime.now();
+        try {
+            // 1. 插入 Candidate
+            entityManager.createNativeQuery(
+                    "INSERT INTO t_hr_candidate (candidate_no, candidate_name, mobile, email, " +
+                    "mobile_hash, edu_level, current_position, status, source, note, " +
+                    "created_at, updated_at, is_deleted) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, 'available', 'email', ?, ?, ?, 0)")
+                    .setParameter(1, "C" + now.format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss")))
+                    .setParameter(2, name != null ? name : "未知")
+                    .setParameter(3, phone)
+                    .setParameter(4, email)
+                    .setParameter(5, mobileHash)
+                    .setParameter(6, eduLevel)
+                    .setParameter(7, targetPosition != null ? targetPosition : "未知")
+                    .setParameter(8, "邮件主题: " + (subject.length() > 256 ? subject.substring(0, 256) : subject))
+                    .setParameter(9, now)
+                    .setParameter(10, now)
+                    .executeUpdate();
+
+            // 2. 获取 candidate_id
+            List<?> ids = entityManager.createNativeQuery(
+                    "SELECT id FROM t_hr_candidate WHERE mobile_hash = :hash AND is_deleted = 0 ORDER BY id DESC LIMIT 1")
+                    .setParameter("hash", mobileHash)
+                    .getResultList();
+            if (ids.isEmpty()) {
+                return;
+            }
+            long candidateId = ((Number) ids.get(0)).longValue();
+
+            // 3. 插入 Resume（文本提取结果作为简历内容）
+            String resumeContent = subject + "\n\n" + (bodyText.length() > 5000 ? bodyText.substring(0, 5000) : bodyText);
+            entityManager.createNativeQuery(
+                    "INSERT INTO t_hr_resume (candidate_id, file_name, file_type, content_text, " +
+                    "storage_time, source, source_channel, owner_user_id, " +
+                    "created_at, updated_at, is_deleted) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)")
+                    .setParameter(1, candidateId)
+                    .setParameter(2, subject.length() > 128 ? subject.substring(0, 128) : subject)
+                    .setParameter(3, "email")
+                    .setParameter(4, resumeContent)
+                    .setParameter(5, now)
+                    .setParameter(6, "mail")
+                    .setParameter(7, "邮件投递")
+                    .setParameter(8, ownerUserId != null ? ownerUserId : 1L)
+                    .setParameter(9, now)
+                    .setParameter(10, now)
+                    .executeUpdate();
+
+            log.info("邮件简历入库: name={}, phone={}, position={}", name, phone, targetPosition);
+        } catch (Exception e) {
+            log.warn("入库失败: name={}, error={}", name, e.getMessage());
+        }
+    }
+
+    // ── 工具方法 ────────────────────────────────────────────────
+
+    private static String sha256(String input) {
+        try {
+            byte[] hash = MessageDigest.getInstance("SHA-256").digest(
+                    input.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hash);
+        } catch (NoSuchAlgorithmException e) {
+            return input; // 不应发生
+        }
+    }
+
 
     // DOMAIN_IMAP_FALLBACK for detectImapServer
     private static final Map<String, String[]> DOMAIN_IMAP_FALLBACK = Map.ofEntries(

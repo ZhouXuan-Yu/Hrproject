@@ -15,7 +15,13 @@ Flask → Java Spring Boot 迁移记录。
 | Phase 2.4 | Dashboard 首页 | 0 | 2 | ✅ |
 | Phase 3 | ConfirmController H5 | 0 | 1 | ✅ |
 | Phase 4 | 缺失 Entity | 4 | 0 | ✅ |
-| **合计** | | **11** | **18** | |
+| **上午合计** | | **11** | **18** | |
+| Phase 5.1 | 修复路径冲突（FeishuController） | 0 | 1 | ✅ |
+| Phase 5.2 | 补齐 3 个 @Scheduled 定时任务 | 1 | 1 | ✅ |
+| Phase 5.3 | InterviewController 加 @RequireRole | 0 | 1 | ✅ |
+| Phase 5.4 | IMAP 邮件收取核心逻辑 | 0 | 3 | ✅ |
+| **下午合计** | | **1** | **6** | |
+| **总计** | | **12** | **24** | |
 
 ---
 
@@ -215,6 +221,106 @@ git checkout hr-bootstrap/src/main/java/com/hr/bootstrap/controller/ConfirmContr
 rm -f hr-demand/src/main/java/com/hr/demand/entity/DeptHC.java
 rm -f hr-demand/src/main/java/com/hr/demand/entity/RecruitApprovalIdentity.java
 rm -f hr-config/src/main/java/com/hr/config/entity/TagDict.java
+```
+
+---
+
+---
+
+## Phase 5.1: 修复路径冲突
+
+### 问题
+`FeishuController` (hr-integration) 和 `ConfigController` (hr-config) 同时定义了 `GET /api/config/feishu/status` 和 `GET /api/config/tencent-meeting/status`，运行时仅一个生效。
+
+### 解决
+- **删除** `hr-integration/.../controller/FeishuController.java`（仅含这 2 个重复端点）
+- ConfigController 的 DB 后端实现更完整，保留。
+
+### 修改文件
+| 文件 | 操作 |
+|------|------|
+| `hr-integration/.../FeishuController.java` | 删除 |
+
+### 回退
+```bash
+git checkout hr-integration/src/main/java/com/hr/integration/controller/FeishuController.java
+```
+
+---
+
+## Phase 5.2: 补齐 3 个 @Scheduled 定时任务
+
+### 说明
+Flask 有 3 个 Celery Beat 周期任务，Java 侧完全缺失：
+| 任务 | Flask 周期 | Java 方法 |
+|------|-----------|-----------|
+| 邮箱同步 | 900s (15min) | `syncEmailTick()` |
+| 面试逾期检查 | 3600s (1h) | `checkOverdueEvaluations()` |
+| Offer 巡检 | 3600s (1h) | `offerFollowup()` |
+
+### 新建文件
+| 文件 | 说明 |
+|------|------|
+| `hr-bootstrap/.../scheduler/ScheduledTasks.java` | 3 个 @Scheduled 方法，off-minute 调度 |
+
+### 修改文件
+| 文件 | 修改 |
+|------|------|
+| `hr-bootstrap/.../HrApplication.java` | 加 `@EnableScheduling` |
+
+### 回退
+```bash
+git checkout hr-bootstrap/src/main/java/com/hr/HrApplication.java
+rm -f hr-bootstrap/src/main/java/com/hr/bootstrap/scheduler/ScheduledTasks.java
+```
+
+---
+
+## Phase 5.3: InterviewController 加权限保护
+
+### 问题
+全部 11 个面试端点未加 `@RequireRole`，相当于公开访问。
+
+### 修改
+- 类级 `@RequireRole({"admin", "hr", "interviewer", "temp_interviewer", "dept_head"})`（对齐 Flask interview_bp 蓝图 role guard）
+
+### 修改文件
+| 文件 | 修改 |
+|------|------|
+| `hr-interview/.../controller/InterviewController.java` | + `@RequireRole` 类级 + import |
+
+### 回退
+```bash
+git checkout hr-interview/src/main/java/com/hr/interview/controller/InterviewController.java
+```
+
+---
+
+## Phase 5.4: IMAP 邮件收取核心逻辑
+
+### 说明
+`ConfigService.syncAllEmailAccounts()` 之前只更新 `lastSyncTime` 字段，不实际连接 IMAP 服务器。改为：
+
+1. **IMAP 连接**：jakarta.mail，SSL/IMAPS，10s 连接超时
+2. **密码解密**：AesUtil.decrypt → 明文 fallback
+3. **未读邮件采集**：检查 SEEN flag，处理后标记为已读
+4. **简历检测**：主题/正文关键词 + 发件人域名 + 附件后缀
+5. **信息提取**：正则提取姓名/手机/邮箱/学历/目标岗位
+6. **手机哈希去重**：SHA-256，查 Candidate 表
+7. **入库**：EntityManager 原生 SQL → Candidate + Resume
+
+### 修改文件
+| 文件 | 修改 |
+|------|------|
+| `hr-config/pom.xml` | + `spring-boot-starter-mail` (jakarta.mail) |
+| `hr-config/.../service/ConfigService.java` | 重写 syncAllEmailAccounts + 新增 syncSingleAccount/syncEmailAccountById/processEmailMessage + IMAP/文本提取/去重/入库 (~250 行新代码) |
+| `hr-config/.../controller/ConfigController.java` | POST /{id}/sync 改为调用真实实现 |
+
+### 回退
+```bash
+git checkout hr-config/pom.xml
+git checkout hr-config/src/main/java/com/hr/config/controller/ConfigController.java
+git checkout hr-config/src/main/java/com/hr/config/service/ConfigService.java
 ```
 
 ---

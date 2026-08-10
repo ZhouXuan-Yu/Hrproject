@@ -1,5 +1,6 @@
 package com.hr.interview.controller;
 
+import com.hr.common.annotation.RequireRole;
 import com.hr.common.dto.ApiResponse;
 import com.hr.common.util.SecurityUtils;
 import com.hr.interview.service.InterviewService;
@@ -18,10 +19,12 @@ import java.util.Map;
 
 /**
  * 面试管理接口 /api/interview/*，对齐 Flask api/interview.py。
+ * 角色：admin, hr, interviewer, temp_interviewer, dept_head（对齐 Flask interview_bp 的蓝图级 role guard）。
  */
 @RestController
 @RequestMapping("/api/interview")
 @RequiredArgsConstructor
+@RequireRole({"admin", "hr", "interviewer", "temp_interviewer", "dept_head"})
 public class InterviewController {
 
     private final InterviewService interviewService;
