@@ -13,16 +13,15 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 飞书开放平台客户端：租户令牌 + 视频会议预约（vc/v1/reserves/apply）。
+ * 飞书开放平台客户端：租户令牌 + 视频会议 + 消息推送。
  *
- * 对齐飞书官方文档：
- * - 请求体顶层 end_time（unix 秒，必填），预约到期后自动失效
- * - meeting_settings.topic 会议主题、meeting_initial_type=1 多人会议
- * - 响应 data.reserve.url 为入会链接、meeting_no 为会议号
+ * 会议：POST /vc/v1/reserves/apply
+ * 消息：POST /im/v1/messages?receive_id_type=open_id
  */
 @Slf4j
 @Component
@@ -47,7 +46,7 @@ public class FeishuClient {
     private String appSecret;
 
     private volatile String token;
-    private volatile long tokenExpiresAt; // epoch seconds
+    private volatile long tokenExpiresAt;
 
     public boolean isConfigured() {
         return getAppId() != null && !getAppId().isBlank()
@@ -69,18 +68,25 @@ public class FeishuClient {
         return configCredentials.get("feishu");
     }
 
+    // ════════════════════════════════════════════════════════════
+    // 视频会议
+    // ════════════════════════════════════════════════════════════
+
     /**
      * 创建视频会议预约。
      *
-     * @param topic        会议主题
-     * @param startEpochSec 开始时间（unix 秒）
+     * @param topic          会议主题
+     * @param startEpochSec  开始时间（unix 秒）
      * @param durationMinutes 时长（分钟）
-     * @return {"meeting_url", "meeting_code"}；未配置凭证时返回空
+     * @return {"meeting_url", "meeting_code", "error"}；
+     *         未配置时 meeting_url 为 null，error 包含原因说明
      */
     public Map<String, String> createVcMeeting(String topic, long startEpochSec, int durationMinutes) {
         if (!isConfigured()) {
-            log.info("[FEISHU-MOCK] createVcMeeting topic={} — 未配置飞书凭证，跳过创建", topic);
-            return Map.of("meeting_url", "", "meeting_code", "");
+            log.info("[FEISHU] createVcMeeting 跳过 — 未配置飞书凭证");
+            return Map.of("meeting_url", "",
+                    "meeting_code", "",
+                    "error", "飞书未配置：请在 application.yml 设置 FEISHU_APP_ID / FEISHU_APP_SECRET 环境变量，或写入 t_hr_api_key_config 表");
         }
         long endEpochSec = startEpochSec + (long) durationMinutes * 60;
         String body = """
@@ -101,15 +107,92 @@ public class FeishuClient {
             String url = reserve.path("url").asText("");
             String meetingNo = reserve.path("meeting_no").asText("");
             if (url.isEmpty()) {
-                throw new IllegalStateException("reserves/apply 未返回入会链接: " + reserve);
+                log.warn("飞书会议创建返回空链接: reserve={}", reserve);
+                return Map.of("meeting_url", "",
+                        "meeting_code", meetingNo,
+                        "error", "飞书 API 返回了空入会链接，请联系管理员检查飞书应用权限");
             }
             log.info("飞书会议创建成功: url={} meeting_no={} topic={}", url, meetingNo, topic);
-            return Map.of("meeting_url", url, "meeting_code", meetingNo);
+            return Map.of("meeting_url", url,
+                    "meeting_code", meetingNo,
+                    "error", "");
         } catch (Exception e) {
             log.warn("飞书创建会议失败: {}", e.getMessage());
-            return Map.of("meeting_url", "", "meeting_code", "");
+            return Map.of("meeting_url", "",
+                    "meeting_code", "",
+                    "error", "飞书 API 调用失败: " + e.getMessage());
         }
     }
+
+    // ════════════════════════════════════════════════════════════
+    // 消息推送
+    // ════════════════════════════════════════════════════════════
+
+    /**
+     * 发送文本消息到指定用户的飞书客户端。
+     *
+     * @param openId 接收者 feishu_open_id（ou_ 前缀）
+     * @param text   文本内容
+     * @return {"success": true/false, "message_id": "..."}
+     */
+    public Map<String, Object> sendTextMessage(String openId, String text) {
+        if (!isConfigured()) {
+            log.info("[FEISHU] sendTextMessage 跳过 — 未配置飞书凭证, text={}", text.length() > 60 ? text.substring(0, 60) + "..." : text);
+            return Map.of("success", false, "reason", "飞书未配置");
+        }
+        if (openId == null || openId.isBlank()) {
+            log.warn("[FEISHU] sendTextMessage 跳过 — openId 为空");
+            return Map.of("success", false, "reason", "接收人 openId 为空");
+        }
+        try {
+            Map<String, Object> msgBody = new LinkedHashMap<>();
+            msgBody.put("receive_id", openId);
+            msgBody.put("msg_type", "text");
+            msgBody.put("content", mapper.writeValueAsString(Map.of("text", text)));
+
+            String path = "/im/v1/messages?receive_id_type=open_id";
+            JsonNode data = post(path, mapper.writeValueAsString(msgBody));
+            String messageId = data.path("message_id").asText("");
+            log.info("飞书消息发送成功: openId={} messageId={}", openId, messageId);
+            return Map.of("success", true, "message_id", messageId);
+        } catch (Exception e) {
+            log.warn("飞书消息发送失败: openId={} error={}", openId, e.getMessage());
+            return Map.of("success", false, "reason", e.getMessage());
+        }
+    }
+
+    /**
+     * 发送面试逾期告警消息。
+     * 未配置或 openId 为空时仅日志记录，不抛异常。
+     *
+     * @param interviewerName 面试官姓名（用于日志和消息正文）
+     * @param openId          面试官飞书 open_id，可为 null
+     * @param overdueCount    逾期条数
+     * @return {"success": true/false}
+     */
+    public Map<String, Object> sendOverdueAlert(String interviewerName, String openId, int overdueCount) {
+        if (!isConfigured()) {
+            log.info("[FEISHU] sendOverdueAlert 跳过 — 飞书未配置 (面试官={}, 逾期{}条)",
+                    interviewerName, overdueCount);
+            return Map.of("success", false, "reason", "飞书未配置");
+        }
+        if (openId == null || openId.isBlank()) {
+            log.info("[FEISHU] sendOverdueAlert 跳过 — 面试官 {} 无飞书 open_id (逾期{}条)",
+                    interviewerName, overdueCount);
+            return Map.of("success", false, "reason", "面试官未绑定飞书");
+        }
+
+        String text = "【面试评价提醒】\n"
+                + "您有 " + overdueCount + " 条面试超过 3 天未完成评价，请尽快登录系统处理。\n"
+                + "面试官: " + interviewerName + "\n"
+                + "逾期条数: " + overdueCount;
+
+        return sendTextMessage(openId, text);
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // HTTP 通用
+    // ════════════════════════════════════════════════════════════
 
     private JsonNode post(String path, String jsonBody) throws Exception {
         Request request = new Request.Builder()

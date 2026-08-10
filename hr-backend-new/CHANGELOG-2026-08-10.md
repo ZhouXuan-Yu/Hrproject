@@ -21,8 +21,10 @@ Flask → Java Spring Boot 迁移记录。
 | Phase 5.3 | InterviewController 加 @RequireRole | 0 | 1 | ✅ |
 | Phase 5.4 | IMAP 邮件收取核心逻辑 | 0 | 3 | ✅ |
 | Phase 6 | 补齐剩余 4 个低优先级 Entity | 4 | 0 | ✅ |
-| **下午合计** | | **5** | **6** | |
-| **总计** | | **16** | **24** | |
+| Phase 7.1 | FeishuClient 消息推送 + createVcMeeting 诊断 | 0 | 1 | ✅ |
+| Phase 7.2 | MailService 通用邮件发送服务 | 1 | 0 | ✅ |
+| Phase 7.3 | ScheduledTasks 接入飞书逾期告警 | 0 | 1 | ✅ |
+| **总计** | | **17** | **26** | |
 
 ---
 
@@ -342,6 +344,95 @@ rm -f hr-talent/src/main/java/com/hr/talent/entity/EmployeeTagRel.java
 rm -f hr-demand/src/main/java/com/hr/demand/entity/InternalMatchLog.java
 rm -f hr-talent/src/main/java/com/hr/talent/entity/SearchLog.java
 rm -f hr-talent/src/main/java/com/hr/talent/entity/ChatLog.java
+```
+
+---
+
+## Phase 7.1: FeishuClient 消息推送 + 会议诊断增强
+
+### 说明
+Java FeishuClient 之前仅有 `createVcMeeting()`，缺失 Flask 的 5 个消息推送方法。
+
+### 修改
+
+**createVcMeeting 增强**：
+- 返回增加 `error` 字段，区分"未配置"、"API 返回空链接"、"API 调用失败"三种情况
+- 前端可根据 `error` 字段展示具体原因，而非空白链接
+
+**新增消息方法**：
+| 方法 | 对应的飞书 API | 用途 |
+|------|---------------|------|
+| `sendTextMessage(openId, text)` | POST /im/v1/messages?receive_id_type=open_id | 发文本消息 |
+| `sendOverdueAlert(interviewerName, openId, overdueCount)` | 同上 | 逾期告警，组装消息正文 |
+
+**安全设计**：
+- 未配置凭证时仅写日志 `[FEISHU] ... 跳过 — 未配置飞书凭证`
+- openId 为空时跳过，不抛异常
+- 不会误发给任何人
+
+### 修改文件
+| 文件 | 修改 |
+|------|------|
+| `hr-integration/.../feishu/FeishuClient.java` | 重写：+ sendTextMessage + sendOverdueAlert + createVcMeeting 诊断 |
+
+### 回退
+```bash
+git checkout hr-integration/src/main/java/com/hr/integration/feishu/FeishuClient.java
+```
+
+---
+
+## Phase 7.2: MailService 通用邮件发送服务
+
+### 说明
+Flask 有 `mail_sender.py` 提供完整 SMTP 发送 + 面试邀请/Offer/提醒邮件模板。
+Java 侧仅 `AuthService.sendResetMail()` 一处发邮件。
+
+### 新建
+`hr-bootstrap/.../service/MailService.java`：
+
+| 方法 | 用途 |
+|------|------|
+| `sendMail(to, subject, html)` | 通用 HTML 邮件发送 |
+| `sendInterviewInviteEmail(...)` | 面试邀请邮件模板 |
+| `sendOfferReminderEmail(...)` | Offer 倒计时提醒模板 |
+
+**安全设计**：
+- `mail.enabled` 默认 `false`，不配 SMTP 不发
+- `JavaMailSender` 注入 `required=false`，未配 SMTP 不报错
+- 所有发送 best-effort，失败只记日志
+- SMTP 配置在 `application.yml`：`spring.mail.host/port/username/password`
+
+### 新建文件
+| 文件 | 说明 |
+|------|------|
+| `hr-bootstrap/.../service/MailService.java` | 通用邮件服务 |
+
+### 回退
+```bash
+rm -f hr-bootstrap/src/main/java/com/hr/bootstrap/service/MailService.java
+```
+
+---
+
+## Phase 7.3: ScheduledTasks 接入飞书逾期告警
+
+### 说明
+`checkOverdueEvaluations()` 之前只写日志。改为：
+1. 调用 `InterviewService.getAlerts()` 获取逾期列表
+2. 按面试官姓名分组（避免同一人收多条）
+3. 查 `t_hr_iam_user.fei shu_open_id`
+4. 调用 `FeishuClient.sendOverdueAlert()` 发飞书消息
+5. best-effort：未配飞书或无 openId 时只记日志
+
+### 修改文件
+| 文件 | 修改 |
+|------|------|
+| `hr-bootstrap/.../scheduler/ScheduledTasks.java` | + FeishuClient + EntityManager 注入，checkOverdueEvaluations 接入真实飞书消息 |
+
+### 回退
+```bash
+git checkout hr-bootstrap/src/main/java/com/hr/bootstrap/scheduler/ScheduledTasks.java
 ```
 
 ---
