@@ -20,8 +20,9 @@ Flask → Java Spring Boot 迁移记录。
 | Phase 5.2 | 补齐 3 个 @Scheduled 定时任务 | 1 | 1 | ✅ |
 | Phase 5.3 | InterviewController 加 @RequireRole | 0 | 1 | ✅ |
 | Phase 5.4 | IMAP 邮件收取核心逻辑 | 0 | 3 | ✅ |
-| **下午合计** | | **1** | **6** | |
-| **总计** | | **12** | **24** | |
+| Phase 6 | 补齐剩余 4 个低优先级 Entity | 4 | 0 | ✅ |
+| **下午合计** | | **5** | **6** | |
+| **总计** | | **16** | **24** | |
 
 ---
 
@@ -321,6 +322,26 @@ git checkout hr-interview/src/main/java/com/hr/interview/controller/InterviewCon
 git checkout hr-config/pom.xml
 git checkout hr-config/src/main/java/com/hr/config/controller/ConfigController.java
 git checkout hr-config/src/main/java/com/hr/config/service/ConfigService.java
+```
+
+---
+
+## Phase 6: 补齐剩余 4 个低优先级 Entity
+
+### 新建文件
+| 文件 | 表 | 模块 | 说明 |
+|------|-----|------|------|
+| `hr-talent/.../EmployeeTagRel.java` | t_hr_employee_tag_rel | hr-talent | 内部员工标签关联（employeeId, tagId, tagSource, tagRelatedScore, validEnd） |
+| `hr-demand/.../InternalMatchLog.java` | t_hr_internal_match_log | hr-demand | 内部匹配日志（matchNo, demandId, employeeId, matchScore, matchStatus, matchedAt） |
+| `hr-talent/.../SearchLog.java` | t_hr_search_log | hr-talent | 搜索日志（demandId, searchType, searchAt, matchTotal, remark） |
+| `hr-talent/.../ChatLog.java` | t_hr_chat_log | hr-talent | AI 对话日志（resumeId, demandId, chatType, chatContent, operateTime） |
+
+### 回退
+```bash
+rm -f hr-talent/src/main/java/com/hr/talent/entity/EmployeeTagRel.java
+rm -f hr-demand/src/main/java/com/hr/demand/entity/InternalMatchLog.java
+rm -f hr-talent/src/main/java/com/hr/talent/entity/SearchLog.java
+rm -f hr-talent/src/main/java/com/hr/talent/entity/ChatLog.java
 ```
 
 ---
