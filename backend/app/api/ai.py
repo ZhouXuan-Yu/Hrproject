@@ -84,7 +84,7 @@ def _safe_deepseek_text(system_prompt: str, user_input: str, fallback_text: str,
             "text": fallback_text,
             "disclaimer": DISCLAIMER,
             "_fallback": True,
-            "_fallback_reason": str(exc)[:200],
+            "_fallback_reason": "AI 文本生成暂时不可用，已切换本地引擎",
         }
 
 
@@ -148,7 +148,7 @@ def run_workflow(workflow):
     except Exception as exc:
         log.exception("Workflow %s failed", workflow)
         return error("AI_WORKFLOW_ERROR",
-                     f"AI 处理失败: {str(exc)}", status_code=500)
+                     "AI 处理失败，请稍后重试", status_code=500)
 
 
 # ===========================================================================

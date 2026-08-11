@@ -524,6 +524,29 @@ def create_demand(data):
         dept_text = (data.get('dept') or '').strip()
         position_text = (data.get('position') or '').strip()
 
+        # ── 部门负责人只能为本部门创建需求 ──
+        current_role = getattr(g, 'current_role', None)
+        if current_role == 'dept_head' and dept_text:
+            from app.models.iam import IamUser, IamDept
+            user = IamUser.query.filter_by(
+                user_id=getattr(g, 'current_user_id', None),
+                status=1, is_deleted=0
+            ).first()
+            if user and user.dept_id:
+                target_dept = IamDept.query.filter_by(
+                    dept_name=dept_text, status=1, is_deleted=0
+                ).first()
+                if target_dept and target_dept.dept_id != user.dept_id:
+                    raise AppError(
+                        'FORBIDDEN',
+                        f'您只能为所在部门创建招聘需求，无权为「{dept_text}」创建'
+                    )
+                if not target_dept:
+                    raise AppError(
+                        'FORBIDDEN',
+                        f'部门「{dept_text}」不存在，且您无权创建新部门的需求'
+                    )
+
         # ── Sync position & department to config page (demand is source of truth) ──
         from app.models.iam import IamPosition, IamDept
 
@@ -538,9 +561,9 @@ def create_demand(data):
             if existing_dept:
                 resolved_dept_id = existing_dept.dept_id
             else:
-                max_did = db.session.query(db.func.max(IamDept.dept_id)).filter(
-                    IamDept.is_deleted == 0).scalar() or 1000
-                new_dept = IamDept(dept_id=max_did + 1, dept_name=dept_text, sort_num=0, status=1)
+                from app.utils.id_generator import next_dept_id
+                new_did = next_dept_id(db)
+                new_dept = IamDept(dept_id=new_did, dept_name=dept_text, sort_num=0, status=1)
                 db.session.add(new_dept)
                 db.session.flush()
                 resolved_dept_id = new_dept.dept_id
@@ -554,10 +577,12 @@ def create_demand(data):
             if existing_pos:
                 resolved_position_id = existing_pos.position_id
             else:
-                max_pid = db.session.query(db.func.max(IamPosition.position_id)).filter(
-                    IamPosition.is_deleted == 0).scalar() or 2000
+                from app.utils.id_generator import next_position_id, next_position_no
+                new_pid = next_position_id(db)
+                new_no = next_position_no(db)
                 new_pos = IamPosition(
-                    position_id=max_pid + 1,
+                    position_id=new_pid,
+                    position_no=new_no,
                     position_name=position_text,
                     dept_id=resolved_dept_id,
                     status=1,
@@ -749,7 +774,7 @@ def close_demand(demand_id):
 
 
 def delete_demand(demand_id):
-    """Soft-delete a demand. Only allowed for draft(0) or rejected(3) status."""
+    """Soft-delete a demand. Allowed: draft(0) / rejected(3) / closed(4) / cancelled(5)."""
     try:
         from app.models.demand import RecruitDemand
         from app.extensions import db
@@ -760,8 +785,8 @@ def delete_demand(demand_id):
         if not d:
             raise AppError('NOT_FOUND', f'需求 {demand_id} 不存在')
 
-        if d.demand_status not in (0, 1, 2, 3, 4, 5):
-            raise AppError('INVALID_STATE', f'需求状态为{STATUS_LABELS.get(d.demand_status, "未知")}，不允许删除')
+        if d.demand_status not in (0, 3, 4, 5):  # draft / rejected / closed / cancelled
+            raise AppError('INVALID_STATE', '审批中和招聘中的需求需先驳回或关闭后再删除')
 
         if _has_active_interviews_or_offers(d.id):
             raise AppError('HAS_ACTIVE_ENGAGEMENTS', '需求存在进行中的面试或Offer，无法删除')
@@ -868,6 +893,7 @@ def list_demand_candidates(demand_id, params):
 
             if processes:
                 candidates_db = []
+                seen_candidates = {}  # candidate_id → index in candidates_db
                 for p in processes:
                     cand = Candidate.query.filter_by(id=p.candidate_id, is_deleted=0).first()
                     if not cand:
@@ -899,7 +925,7 @@ def list_demand_candidates(demand_id, params):
                     status, status_label = ps_map.get(p.process_status, ('available', '可联系'))
 
                     profile_score = candidate_profile_score(cand)
-                    candidates_db.append({
+                    item = {
                         'id': cand.candidate_no or str(cand.id),
                         'name': cand.candidate_name,
                         'profileScore': int(profile_score),
@@ -916,7 +942,18 @@ def list_demand_candidates(demand_id, params):
                         'isEmployee': False,
                         '_cid': cand.id,
                         '_resumeId': p.resume_id,
-                    })
+                        '_processId': p.id,
+                    }
+
+                    # Dedup by candidate_id: keep the latest process (highest id)
+                    if cand.id in seen_candidates:
+                        prev_idx = seen_candidates[cand.id]
+                        prev_pid = candidates_db[prev_idx]['_processId']
+                        if p.id > prev_pid:
+                            candidates_db[prev_idx] = item
+                    else:
+                        seen_candidates[cand.id] = len(candidates_db)
+                        candidates_db.append(item)
 
                 if candidates_db:
                     db_success = True
@@ -941,6 +978,7 @@ def list_demand_candidates(demand_id, params):
                             c['matchScore'] = None
                         c.pop('_cid', None)
                         c.pop('_resumeId', None)
+                        c.pop('_processId', None)
 
                     source_filter = params.get('source', 'all')
                     if source_filter != 'all':
@@ -1135,3 +1173,49 @@ def link_candidate_to_demand(demand_id, name):
     except Exception as exc:
         log.error("DB write failed in link_candidate_to_demand: %s", exc, exc_info=True)
         return {'linked': False, 'linkedCount': 0, '_fallback': True}
+
+
+def unlink_candidate_from_demand(demand_id, name):
+    """Soft-delete all active processes linking a candidate to a demand.
+
+    Marks matching RecruitProcess records as is_deleted=1.
+    Returns {unlinked: bool, unlinkedCount: int}.
+    """
+    try:
+        from app.models.candidate import Candidate
+        from app.models.process import RecruitProcess
+        from app.models.demand import RecruitDemand
+        from app.extensions import db
+
+        demand = RecruitDemand.query.filter_by(demand_no=demand_id, is_deleted=0).first()
+        if not demand:
+            return {'unlinked': False, 'unlinkedCount': 0, 'reason': '需求不存在'}
+
+        candidate = Candidate.query.filter(
+            Candidate.candidate_name == name,
+            Candidate.is_deleted == 0,
+        ).first()
+        if not candidate:
+            return {'unlinked': False, 'unlinkedCount': 0, 'reason': '候选人不存在'}
+
+        processes = RecruitProcess.query.filter(
+            RecruitProcess.demand_id == demand.id,
+            RecruitProcess.candidate_id == candidate.id,
+            RecruitProcess.is_deleted == 0,
+        ).all()
+
+        count = 0
+        for p in processes:
+            p.is_deleted = 1
+            count += 1
+
+        db.session.commit()
+
+        log.info("Unlinked candidate '%s' (id=%s) from demand '%s': %d processes removed",
+                 name, candidate.id, demand_id, count)
+
+        return {'unlinked': True, 'unlinkedCount': count}
+
+    except Exception as exc:
+        log.error("DB write failed in unlink_candidate_from_demand: %s", exc, exc_info=True)
+        return {'unlinked': False, 'unlinkedCount': 0, '_fallback': True}

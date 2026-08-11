@@ -256,7 +256,8 @@ async function login() {
     if (result?.user) {
       localStorage.setItem('hr_role', result.user.role);
       localStorage.setItem('hr_user', result.user.name || result.user.role);
-      setAuth(result.user.name || result.user.role, result.user.role);
+      if (result.user.id) localStorage.setItem('hr_userId', result.user.id);
+      setAuth(result.user.name || result.user.role, result.user.role, result.user.id);
     }
     // Force password change on first login or after admin reset
     if (result?.user?.mustChangePassword) {

@@ -253,9 +253,8 @@ def create_department():
     if not name:
         raise AppError('VALIDATION', '部门名称不能为空')
 
-    max_dept = db.session.query(db.func.max(IamDept.dept_id)).filter(
-        IamDept.is_deleted == 0).scalar() or 1000
-    new_id = max_dept + 1
+    from app.utils.id_generator import next_dept_id
+    new_id = next_dept_id(db)
 
     d = IamDept(
         dept_id=new_id,
@@ -1109,14 +1108,28 @@ def batch_create_users():
 
 @bp.route('/positions')
 def get_positions():
-    """GET /api/auth/positions — 岗位列表。?all=1 返回全部（含停用），否则仅启用。"""
+    """GET /api/auth/positions — 岗位列表。?all=1 返回全部（含停用），否则仅启用。
+
+    部门负责人只能看到本部门的岗位，其他角色无限制。
+    """
     try:
-        from app.models.iam import IamPosition
+        from app.models.iam import IamPosition, IamUser
         q = IamPosition.query.filter_by(is_deleted=0)
         if request.args.get('all') != '1':
             q = q.filter_by(status=1)
+
+        # ── 部门负责人只看本部门岗位 ──
+        role = getattr(g, 'current_role', None)
+        if role == 'dept_head':
+            user = IamUser.query.filter_by(
+                user_id=getattr(g, 'current_user_id', None),
+                status=1, is_deleted=0
+            ).first()
+            if user and user.dept_id:
+                q = q.filter_by(dept_id=user.dept_id)
+
         positions = q.all()
-        return success([{'id': p.position_id, 'name': p.position_name, 'deptId': p.dept_id, 'status': p.status} for p in positions])
+        return success([{'id': p.position_no or str(p.position_id), 'name': p.position_name, 'deptId': p.dept_id, 'status': p.status} for p in positions])
     except Exception:
         return success([
             {'id': 1, 'name': '高级Java工程师', 'deptId': 1, 'status': 1},
@@ -1129,6 +1142,24 @@ def get_positions():
 
 # ── Position CRUD ──
 
+def _find_position_by_no(position_no):
+    """按 position_no 或 position_id 查找岗位（兼容过渡期）。"""
+    from app.models.iam import IamPosition
+    # 先按 position_no 查
+    p = IamPosition.query.filter_by(position_no=position_no, is_deleted=0).first()
+    if p:
+        return p
+    # 兼容旧整数 ID
+    try:
+        pid = int(position_no)
+        p = IamPosition.query.filter_by(position_id=pid, is_deleted=0).first()
+        if p:
+            return p
+    except (ValueError, TypeError):
+        pass
+    raise AppError('NOT_FOUND', f'岗位 {position_no} 不存在')
+
+
 @bp.route('/positions', methods=['POST'])
 def create_position():
     """POST /api/auth/positions — admin: create position."""
@@ -1140,53 +1171,51 @@ def create_position():
     if not name:
         raise AppError('VALIDATION', '岗位名称不能为空')
 
-    max_pos = db.session.query(db.func.max(IamPosition.position_id)).filter(
-        IamPosition.is_deleted == 0).scalar() or 100
-    new_id = max_pos + 1
+    from app.utils.id_generator import next_position_id, next_position_no
+    new_id = next_position_id(db)
+    new_no = next_position_no(db)
 
     p = IamPosition(
         position_id=new_id,
+        position_no=new_no,
         position_name=name,
         dept_id=data.get('deptId') or None,
         status=1,
     )
     db.session.add(p)
     db.session.commit()
-    return success({'id': p.position_id, 'name': p.position_name, 'deptId': p.dept_id, 'status': p.status})
+    return success({'id': p.position_no, 'name': p.position_name, 'deptId': p.dept_id, 'status': p.status})
 
 
-@bp.route('/positions/<int:position_id>', methods=['PUT'])
-def update_position(position_id):
-    """PUT /api/auth/positions/{id} — admin: update position."""
+@bp.route('/positions/<string:position_no>', methods=['PUT'])
+def update_position(position_no):
+    """PUT /api/auth/positions/{no} — admin: update position."""
     _require_admin()
     from app.models.iam import IamPosition
     from app.extensions import db
-    p = IamPosition.query.filter_by(position_id=position_id, is_deleted=0).first()
-    if not p:
-        raise AppError('NOT_FOUND', f'岗位 {position_id} 不存在')
+    p = _find_position_by_no(position_no)
     data = request.get_json(silent=True) or {}
     if data.get('name'):
         p.position_name = data['name'].strip()
     if 'deptId' in data:
         p.dept_id = data['deptId'] or None
     db.session.commit()
-    return success({'id': p.position_id, 'name': p.position_name, 'deptId': p.dept_id})
+    return success({'id': p.position_no or str(p.position_id), 'name': p.position_name, 'deptId': p.dept_id})
 
 
-@bp.route('/positions/<int:position_id>', methods=['DELETE'])
-def delete_position(position_id):
-    """DELETE /api/auth/positions/{id} — admin: delete (only if unreferenced)."""
+@bp.route('/positions/<string:position_no>', methods=['DELETE'])
+def delete_position(position_no):
+    """DELETE /api/auth/positions/{no} — admin: delete (only if unreferenced)."""
     _require_admin()
     from app.models.iam import IamPosition, IamUser
     from app.models.demand import RecruitDemand
     from app.extensions import db
 
-    p = IamPosition.query.filter_by(position_id=position_id, is_deleted=0).first()
-    if not p:
-        raise AppError('NOT_FOUND', f'岗位 {position_id} 不存在')
+    p = _find_position_by_no(position_no)
+    pid = p.position_id
 
-    user_count = IamUser.query.filter_by(position_id=position_id, is_deleted=0, status=1).count()
-    demand_count = RecruitDemand.query.filter_by(position_id=position_id, is_deleted=0).count()
+    user_count = IamUser.query.filter_by(position_id=pid, is_deleted=0, status=1).count()
+    demand_count = RecruitDemand.query.filter_by(position_id=pid, is_deleted=0).count()
 
     refs = []
     if user_count > 0:
@@ -1198,25 +1227,23 @@ def delete_position(position_id):
 
     p.soft_delete()
     db.session.commit()
-    return success({'deleted': True, 'id': position_id})
+    return success({'deleted': True, 'id': p.position_no or str(pid)})
 
 
-@bp.route('/positions/<int:position_id>/status', methods=['PUT'])
-def toggle_position_status(position_id):
-    """PUT /api/auth/positions/{id}/status — admin: enable/disable position."""
+@bp.route('/positions/<string:position_no>/status', methods=['PUT'])
+def toggle_position_status(position_no):
+    """PUT /api/auth/positions/{no}/status — admin: enable/disable position."""
     _require_admin()
     from app.models.iam import IamPosition
     from app.extensions import db
 
-    p = IamPosition.query.filter_by(position_id=position_id, is_deleted=0).first()
-    if not p:
-        raise AppError('NOT_FOUND', f'岗位 {position_id} 不存在')
+    p = _find_position_by_no(position_no)
 
     body = request.get_json(silent=True) or {}
     new_status = body.get('status') if 'status' in body else (0 if p.status == 1 else 1)
     p.status = new_status
     db.session.commit()
-    return success({'id': p.position_id, 'name': p.position_name, 'status': p.status})
+    return success({'id': p.position_no or str(p.position_id), 'name': p.position_name, 'status': p.status})
 
 
 # ── Interviewer list (non-admin accessible) ──────────────────────────────
@@ -1230,7 +1257,6 @@ def list_interviewers():
     q = IamUser.query.filter(
         IamUser.is_deleted == 0,
         IamUser.status == 1,
-        IamUser.role_code.in_(['interviewer', 'temp_interviewer', 'dept_head', 'hr', 'admin']),
     )
     rows = q.order_by(IamUser.user_id).all()
     return success([{'id': str(u.user_id), 'name': u.real_name} for u in rows])

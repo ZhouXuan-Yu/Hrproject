@@ -56,6 +56,7 @@ def apply_interview_scope(query, book_model, slot_model):
 
     Rules:
       - admin/hr → no filter (see all interviews)
+      - dept_head → 本部门面试 + 指定给自己的面试
       - interviewer/temp_interviewer → only interviews assigned to this user
     """
     role = getattr(g, 'current_role', 'employee')
@@ -63,6 +64,21 @@ def apply_interview_scope(query, book_model, slot_model):
 
     if role in ('admin', 'hr'):
         return query
+
+    if role == 'dept_head' and user_id is not None:
+        dept_id = _current_user_dept_id()
+        from app.models.demand import RecruitDemand
+        from sqlalchemy import or_
+        query = query.join(slot_model, book_model.slot_id == slot_model.id)\
+                     .join(RecruitDemand, book_model.demand_id == RecruitDemand.id)
+        if dept_id is not None:
+            return query.filter(or_(
+                RecruitDemand.dept_id == dept_id,
+                slot_model.interviewer_id == user_id,
+            )).filter(slot_model.is_deleted == 0)
+        else:
+            return query.filter(slot_model.interviewer_id == user_id,
+                                slot_model.is_deleted == 0)
 
     if role in ('interviewer', 'temp_interviewer') and user_id is not None:
         return query.join(slot_model, book_model.slot_id == slot_model.id)\

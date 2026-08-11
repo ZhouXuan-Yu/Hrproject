@@ -42,7 +42,7 @@ def _extract_token():
 def _decode_payload(token, app):
     """Decode and validate JWT, return payload. Raises AppError on failure."""
     try:
-        payload = jwt.decode(token, app.config['JWT_SECRET_KEY'], algorithms=['HS256'])
+        payload = jwt.decode(token, app.config['JWT_SECRET_KEY'], algorithms=['HS256', 'HS384', 'HS512'])
     except jwt.ExpiredSignatureError:
         raise AppError('TOKEN_EXPIRED', '登录已过期', 401)
     except jwt.InvalidTokenError:

@@ -86,10 +86,14 @@ def get_candidate_detail(demand_id, name):
 
 @bp.route('/<demand_id>/candidates/<name>/link', methods=['POST'])
 def link_candidate(demand_id, name):
-    """POST /api/demand/{id}/candidates/{name}/link — link candidate to demand."""
-    from app.services.demand_service import link_candidate_to_demand
+    """POST /api/demand/{id}/candidates/{name}/link — link or unlink candidate to demand."""
+    from app.services.demand_service import link_candidate_to_demand, unlink_candidate_from_demand
     from app.services.cache_service import invalidate_many
-    result = link_candidate_to_demand(demand_id, name)
+    body = request.get_json(silent=True) or {}
+    if body.get('link') is False:
+        result = unlink_candidate_from_demand(demand_id, name)
+    else:
+        result = link_candidate_to_demand(demand_id, name)
     invalidate_many('demand:list', 'demand:detail', 'demand:candidates', 'talent:list', 'dashboard:kpi', 'dashboard:funnel', 'dashboard:dept-progress', 'dashboard:channel')
     return success(result)
 

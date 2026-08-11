@@ -249,6 +249,108 @@ def _days_to_decay(days_ago: int, rules: dict = None) -> float:
 # 4. batch_match_demand(demand_id, candidate_ids) — batch scoring + ranking
 # ---------------------------------------------------------------------------
 
+def _score_one_candidate(cand: dict, demand_jd: str, demand_id: str, rules: dict) -> dict | None:
+    """Score a single candidate against a demand. Designed for parallel execution."""
+    cid = cand.get('id', cand.get('name', ''))
+    name = cand.get('name', cid)
+
+    # 1) Profile score
+    profile = calc_profile_score(cand)
+    profile_score = profile['score']
+
+    # 2) Match score: DeepSeek AI primary, local engine fallback
+    match = None
+    if demand_jd:
+        extract = cand.get('extract_json')
+        if not extract:
+            extract = {
+                'name': name,
+                'skills': cand.get('skills', []),
+                'edu_level': {1: '大专', 2: '本科', 3: '硕士', 4: '博士'}.get(
+                    cand.get('edu_level') if isinstance(cand.get('edu_level'), int) else 0, '本科'),
+                'work_years': cand.get('work_years', cand.get('workYears', 0)),
+                'school_level': cand.get('school', cand.get('school_level', '')),
+            }
+        try:
+            from app.services.deepseek_client import chat_completion_json
+            match_system = """你是人岗匹配专家。根据候选人简历和岗位JD评估匹配度（0-100）。
+
+输出JSON：{"match_score": 0-100, "reason": "匹配理由", "detail": "综合评语"}"""
+            match_input = json.dumps({
+                "candidate": extract,
+                "jd": demand_jd[:2000],
+            }, ensure_ascii=False, default=str)
+            m = chat_completion_json(
+                messages=[
+                    {"role": "system", "content": match_system},
+                    {"role": "user", "content": match_input},
+                ],
+                temperature=0.3, max_tokens=400,
+            )
+            score_n = max(0, min(95, int(m.get('match_score') or 50)))
+            match = {
+                'score': score_n,
+                'grade': profile_grade(score_n),
+                'class': match_color(score_n),
+                'reason': m.get('reason', 'AI匹配评估'),
+                'detail': m.get('detail', ''),
+            }
+        except Exception as exc:
+            log.warning("DeepSeek match failed for %s/%s: %s", cid, demand_id, exc)
+            try:
+                from app.services.ai_engine import match_job
+                m = match_job(extract or {}, demand_jd)
+                score_n = m.get('match_score') or 0
+                match = {
+                    'score': score_n,
+                    'grade': profile_grade(score_n),
+                    'class': match_color(score_n),
+                    'reason': '本地规则引擎（AI服务暂不可用）',
+                    'detail': m.get('score_detail') or m.get('summary') or '',
+                }
+            except Exception as exc2:
+                log.warning("Local match also failed for %s/%s: %s", cid, demand_id, exc2)
+    if not match:
+        match = {
+            'score': profile_score,
+            'grade': profile_grade(profile_score),
+            'class': match_color(profile_score),
+            'reason': '无岗位说明，以画像分估算',
+            'detail': '',
+        }
+    match_score = match['score']
+
+    # 3) Source & days ago
+    source = cand.get('source', 'pool')
+    age_days = int(cand.get('ageDays', cand.get('storageDays', 0)))
+
+    # 4) Comprehensive
+    comp = calc_recommend_score(profile_score, match_score, age_days, source, rules)
+
+    return {
+        'id': cid,
+        'name': name,
+        'profileScore': profile_score,
+        'profileGrade': profile['grade'],
+        'profileClass': profile['class'],
+        'matchScore': match_score,
+        'matchGrade': match['grade'],
+        'matchClass': match['class'],
+        'matchReason': match['reason'],
+        'matchDetail': match['detail'],
+        'comprehensiveScore': comp,
+        'ageDays': age_days,
+        'source': source,
+        'sourceLabel': cand.get('sourceLabel', _source_label(source)),
+        'status': cand.get('status', 'available'),
+        'statusLabel': cand.get('statusLabel', '可联系'),
+        'edu': cand.get('edu', '—'),
+        'years': cand.get('years', '—'),
+        'notRecReason': cand.get('notRecReason'),
+        'isEmployee': cand.get('isEmployee', False),
+    }
+
+
 def batch_match_demand(demand_id: str, candidate_ids: list = None, top_n: int = 5) -> dict:
     """
     Match a demand against multiple candidates, returning top-N sorted by
@@ -300,15 +402,11 @@ def batch_match_demand(demand_id: str, candidate_ids: list = None, top_n: int = 
 
     # Pre-filter: extract skill keywords from JD for candidate pre-screening
     jd_skill_keywords = skill_keywords_from_jd(demand_jd) if demand_jd else []
+
+    # Pre-filter candidates
     prefilter_skipped = 0
-
-    # Scoring loop
-    scored = []
+    to_score = []
     for cand in candidates_data:
-        cid = cand.get('id', cand.get('name', ''))
-        name = cand.get('name', cid)
-
-        # Pre-filter: skip candidates with zero skill overlap when JD has keywords
         if jd_skill_keywords:
             cand_skills = [s.lower() for s in (cand.get('skills') or [])]
             if cand_skills:
@@ -316,108 +414,25 @@ def batch_match_demand(demand_id: str, candidate_ids: list = None, top_n: int = 
                 if not overlap:
                     prefilter_skipped += 1
                     continue
+        to_score.append(cand)
 
-        # 1) Profile score
-        profile = calc_profile_score(cand)
-        profile_score = profile['score']
-
-        # 2) Match score: DeepSeek AI primary, local engine fallback
-        match = None
-        if demand_jd:
-            extract = cand.get('extract_json')
-            if not extract:
-                extract = {
-                    'name': name,
-                    'skills': cand.get('skills', []),
-                    'edu_level': {1: '大专', 2: '本科', 3: '硕士', 4: '博士'}.get(
-                        cand.get('edu_level') if isinstance(cand.get('edu_level'), int) else 0, '本科'),
-                    'work_years': cand.get('work_years', cand.get('workYears', 0)),
-                    'school_level': cand.get('school', cand.get('school_level', '')),
-                }
-            # Try DeepSeek AI matching first
-            try:
-                from app.services.deepseek_client import chat_completion_json
-                match_system = """你是人岗匹配专家。根据候选人简历和岗位JD评估匹配度（0-100）。
-
-输出JSON：{"match_score": 0-100, "reason": "匹配理由", "detail": "综合评语"}"""
-                match_input = json.dumps({
-                    "candidate": extract,
-                    "jd": demand_jd[:2000],
-                }, ensure_ascii=False, default=str)
-                m = chat_completion_json(
-                    messages=[
-                        {"role": "system", "content": match_system},
-                        {"role": "user", "content": match_input},
-                    ],
-                    temperature=0.3, max_tokens=400,
-                )
-                score_n = max(0, min(95, int(m.get('match_score') or 50)))
-                match = {
-                    'score': score_n,
-                    'grade': profile_grade(score_n),
-                    'class': match_color(score_n),
-                    'reason': m.get('reason', 'AI匹配评估'),
-                    'detail': m.get('detail', ''),
-                }
-            except Exception as exc:
-                log.warning("DeepSeek match failed for %s/%s: %s", cid, demand_id, exc)
-                # Fallback to local ai_engine
-                try:
-                    from app.services.ai_engine import match_job
-                    m = match_job(extract or {}, demand_jd)
-                    score_n = m.get('match_score') or 0
-                    match = {
-                        'score': score_n,
-                        'grade': profile_grade(score_n),
-                        'class': match_color(score_n),
-                        'reason': '本地规则引擎（AI服务暂不可用）',
-                        'detail': m.get('score_detail') or m.get('summary') or '',
-                    }
-                except Exception as exc2:
-                    log.warning("Local match also failed for %s/%s: %s", cid, demand_id, exc2)
-        if not match:
-            # Last resort: no JD available — use profile score as match proxy
-            match = {
-                'score': profile_score,
-                'grade': profile_grade(profile_score),
-                'class': match_color(profile_score),
-                'reason': '无岗位说明，以画像分估算',
-                'detail': '',
+    # Score candidates in parallel via ThreadPoolExecutor to avoid timeout
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    scored = []
+    if to_score:
+        with ThreadPoolExecutor(max_workers=min(8, len(to_score))) as executor:
+            futures = {
+                executor.submit(_score_one_candidate, cand, demand_jd, demand_id, rules): cand
+                for cand in to_score
             }
-        match_score = match['score']
-
-        # 3) Source & days ago
-        source = cand.get('source', 'pool')
-        age_days = int(cand.get('ageDays', cand.get('storageDays', 0)))
-
-        # 4) Comprehensive
-        comp = calc_recommend_score(profile_score, match_score, age_days, source, rules)
-
-        # 5) Hard-requirement check
-        not_rec = cand.get('notRecReason')  # may have been pre-filtered
-
-        scored.append({
-            'id': cid,
-            'name': name,
-            'profileScore': profile_score,
-            'profileGrade': profile['grade'],
-            'profileClass': profile['class'],
-            'matchScore': match_score,
-            'matchGrade': match['grade'],
-            'matchClass': match['class'],
-            'matchReason': match['reason'],
-            'matchDetail': match['detail'],
-            'comprehensiveScore': comp,
-            'ageDays': age_days,
-            'source': source,
-            'sourceLabel': cand.get('sourceLabel', _source_label(source)),
-            'status': cand.get('status', 'available'),
-            'statusLabel': cand.get('statusLabel', '可联系'),
-            'edu': cand.get('edu', '—'),
-            'years': cand.get('years', '—'),
-            'notRecReason': not_rec,
-            'isEmployee': cand.get('isEmployee', False),
-        })
+            for future in as_completed(futures):
+                try:
+                    result = future.result()
+                    if result is not None:
+                        scored.append(result)
+                except Exception as exc:
+                    cand = futures[future]
+                    log.warning("Scoring failed for %s: %s", cand.get('name', '?'), exc)
 
     # Sort by comprehensive score descending
     scored.sort(key=lambda x: x['comprehensiveScore'], reverse=True)
