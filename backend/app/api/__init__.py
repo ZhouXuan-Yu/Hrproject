@@ -43,7 +43,7 @@ def register_blueprints(app):
     demand_bp.before_request(_make_role_guard(_ROLE_HR_DEPT))
     talent_bp.before_request(_make_role_guard(_ROLE_TALENT))
     interview_bp.before_request(_make_role_guard(_ROLE_INTERVIEW))
-    ai_bp.before_request(_make_role_guard(_ROLE_HR))
+    ai_bp.before_request(_make_role_guard(_ROLE_HR_DEPT))
     config_bp.before_request(_make_role_guard(_ROLE_ALL))
     hire_bp.before_request(_make_role_guard(_ROLE_HR))
     dedup_bp.before_request(_make_role_guard(_ROLE_HR))

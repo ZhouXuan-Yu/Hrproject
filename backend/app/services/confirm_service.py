@@ -45,7 +45,7 @@ def verify_confirm_token(token):
     from app.utils.response import AppError
     try:
         payload = jwt.decode(token, current_app.config['JWT_SECRET_KEY'],
-                             algorithms=['HS256'])
+                             algorithms=['HS256', 'HS384', 'HS512'])
     except jwt.ExpiredSignatureError:
         raise AppError('TOKEN_EXPIRED', '确认链接已过期，请联系 HR 重新发送')
     except jwt.InvalidTokenError:
@@ -56,12 +56,12 @@ def verify_confirm_token(token):
 
 
 def build_confirm_url(token):
-    base = os.environ.get('PUBLIC_BASE_URL', 'http://127.0.0.1:5000').rstrip('/')
+    base = os.environ.get('PUBLIC_BASE_URL', 'http://127.0.0.1:7100').rstrip('/')
     return f'{base}/confirm/{token}'
 
 
 def _public_url_notice():
-    base = os.environ.get('PUBLIC_BASE_URL', 'http://127.0.0.1:5000')
+    base = os.environ.get('PUBLIC_BASE_URL', 'http://127.0.0.1:7100')
     if '127.0.0.1' in base or 'localhost' in base:
         return '<p style="color:#b45309;font-size:12px">当前系统未配置公网地址，此确认链接仅可在部署服务器本机或内网测试访问。</p>'
     return ''
@@ -140,6 +140,8 @@ def _render_text(template_text, context):
         'hr': ('hr', 'HR', 'hr'),
         'confirm_url': ('confirm_url', 'url', '链接', '确认链接'),
         'comment': ('comment', '评价', '原因'),
+        'offer_content': ('offer_content', 'offerContent', 'offercontent', 'OfferContent'),
+        'deadline': ('deadline', '截止日期', '截至日期'),
     }
     for key, names in aliases.items():
         value = str(context.get(key, '') or '')
@@ -418,6 +420,8 @@ def send_offer_email(offer):
         'time': deadline,
         'method': '邮件',
         'confirm_url': url,
+        'offer_content': content_html,
+        'deadline': deadline,
         'hr': os.environ.get('HR_DISPLAY_NAME', 'HR'),
     }
     subject, html = _render_notify_template('offer', default_subject, html, context)

@@ -175,7 +175,7 @@
         <button class="btn btn-primary btn-sm" @click="batchSchedule">批量约面</button>
         <button class="btn btn-outline btn-sm" @click="batchMarkUnsuitable">标记不合适</button>
         <button class="btn btn-outline btn-sm" @click="batchExport">导出</button>
-        <button class="btn btn-ghost btn-sm" @click="clearSelection">清除选择</button>
+        <button class="btn btn-ghost btn-sm" @click="clearSelection">取消选中</button>
       </div>
     </div>
 
@@ -667,14 +667,26 @@ async function batchMoveDemand() {
   let ok = 0, fail = 0;
   for (const name of names) {
     try {
-      await linkCandidateToDemand(demandId, name);
-      ok++;
+      const result = await linkCandidateToDemand(demandId, name, false);
+      if (result && result.unlinked === true) {
+        ok++;
+      } else {
+        fail++;
+      }
     } catch (e) {
       console.warn('[RecruitDemandDetail] batchMoveDemand failed for', name, e);
       fail++;
     }
   }
-  toast.success('批量移出需求完成：成功 ' + ok + ' 人，失败 ' + fail + ' 人');
+  if (ok) {
+    toast.success('已移出 ' + ok + ' 位候选人' + (fail ? '，失败 ' + fail + ' 位' : ''));
+    // Refresh candidates after unlink
+    const { fetchDemandCandidates } = await import('../api/demand.js');
+    const fresh = await fetchDemandCandidates(demandId);
+    if (Array.isArray(fresh)) candidates.value = fresh;
+  } else {
+    toast.error('移出失败，请检查后端服务');
+  }
 }
 
 async function batchSchedule() {
@@ -720,7 +732,7 @@ async function doReMatch() {
   }
   try {
     const { default: api } = await import('../api/index.js');
-    await api.post(`/demand/${demandId}/match`, { includeTalentPool: true, topN: matchTopN.value });
+    await api.post(`/demand/${demandId}/match`, { includeTalentPool: true, topN: matchTopN.value }, { timeout: 120000 });
     const { fetchDemandCandidates } = await import('../api/demand.js');
     const fresh = await fetchDemandCandidates(demandId);
     if (Array.isArray(fresh)) {

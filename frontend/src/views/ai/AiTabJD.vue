@@ -136,7 +136,7 @@ const departments = ref([]);
 async function loadDepartments() {
   try {
     const list = await fetchDepartments();
-    departments.value = (list || []).map(d => d.name || d);
+    departments.value = (list || []).map(d => d.deptName || d.name || d);
   } catch (_) {
     departments.value = [];
   }

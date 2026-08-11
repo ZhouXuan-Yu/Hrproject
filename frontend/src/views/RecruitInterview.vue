@@ -254,7 +254,7 @@
         <button data-testid="interview-delete-selected" class="btn btn-text-danger btn-sm" :disabled="batchDeleting" @click="openBatchDeleteModal">
           {{ batchDeleting ? '删除中...' : '删除选中' }}
         </button>
-        <button data-testid="interview-clear-selection" class="btn btn-ghost btn-sm" @click="clearInterviewSelection">清除选择</button>
+        <button data-testid="interview-deselect" class="btn btn-ghost btn-sm" @click="clearInterviewSelection">取消选中</button>
       </div>
     </div>
 
@@ -1145,12 +1145,7 @@ function applyCalendarData(res) {
     .map(normalizeCalendarEvent)
     .filter(event => event.dateKey >= monthStart && event.dateKey <= monthEnd)
     .sort((a, b) => (a.start || '').localeCompare(b.start || ''));
-  const selectedHasEvent = monthEvents.some(event => event.dateKey === selectedCalendarDate.value);
-  if (!selectedHasEvent && monthEvents.length) {
-    selectedCalendarWeekStart.value = getWeekStartKey(parseDateKey(monthEvents[0].dateKey));
-    selectedCalendarDate.value = monthEvents[0].dateKey;
-    return;
-  }
+  // 只在当前选中日期不在有效范围内时才回退到周默认日
   const validDays = new Set(calendarDays.value.map(d => d.key));
   if (!validDays.has(selectedCalendarDate.value)) {
     selectedCalendarDate.value = getDefaultDateForWeek(selectedCalendarWeekStart.value, month);

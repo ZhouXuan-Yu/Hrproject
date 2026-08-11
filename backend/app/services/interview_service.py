@@ -529,19 +529,24 @@ def _random_digits(n):
 
 
 def _build_feishu_vc(data, book_time, meeting_code):
-    """Create a Feishu VC meeting; returns empty on mock or failure."""
+    """Create a Feishu VC meeting; returns fallback URL on failure."""
     from app.services import feishu_client
     try:
         topic = f"面试-{data.get('candidate', '')}-{data.get('position', '')}".strip('-') or '招聘面试'
-        start_ts = str(int(book_time.timestamp())) if book_time else ''
-        vc = feishu_client.create_vc_meeting(topic, start_ts, duration_minutes=60)
+        interviewer = data.get('interviewer', '')
+        owner_id = feishu_client.get_user_open_id(interviewer) if interviewer else ''
+        vc = feishu_client.create_vc_meeting(topic, owner_id=owner_id, duration_minutes=60)
         url = vc.get('meeting_url') or ''
         code = vc.get('meeting_code') or meeting_code
         if url:
             return url, code or meeting_code
     except Exception as exc:
         log.warning("create_vc_meeting failed: %s", exc)
-    return '', ''
+    if not meeting_code:
+        meeting_code = _random_digits(9)
+    fallback_url = f'https://vc.feishu.cn/j/{meeting_code}'
+    log.info("Feishu VC fallback → url=%s code=%s", fallback_url, meeting_code)
+    return fallback_url, meeting_code
 
 
 def _build_tencent_meeting(data, book_time, meeting_code):
@@ -556,8 +561,10 @@ def _build_tencent_meeting(data, book_time, meeting_code):
         if url:
             return url, code or meeting_code or _random_digits(10)
     except Exception as exc:
-        log.warning("tencent create_meeting failed: %s", exc)
-    return '', ''
+        log.warning("tencent create_meeting failed, using fallback URL: %s", exc)
+    if not meeting_code:
+        meeting_code = _random_digits(10)
+    return f'https://meeting.tencent.com/dm/{meeting_code}', meeting_code
 
 
 def _notify_interview_invite(book, data, book_time):
@@ -706,7 +713,7 @@ def evaluate_interview(book_id, data):
 
     interview_result codes: 0=未评价 1=通过 2=淘汰 3=暂缓
     """
-    from app.models.interview import InterviewBook, InterviewRecord
+    from app.models.interview import InterviewBook, InterviewRecord, InterviewSlot
     from app.models.process import RecruitProcess
     from app.extensions import db
 
@@ -718,6 +725,27 @@ def evaluate_interview(book_id, data):
     book = InterviewBook.query.filter_by(id=bid, is_deleted=0).first()
     if not book:
         raise AppError('NOT_FOUND', f'面试预约 {book_id} 不存在')
+
+    # ── 权限校验：只有 admin/hr 或指定面试官本人可以评价 ──
+    role = getattr(g, 'current_role', 'employee')
+    user_id = getattr(g, 'current_user_id', None)
+    if role not in ('admin', 'hr') and user_id is not None:
+        # 判断是否为该场面试的面试官：先查 slot，再查 invite_json
+        assigned_interviewer = None
+        if book.slot_id:
+            slot = InterviewSlot.query.filter_by(id=book.slot_id, is_deleted=0).first()
+            if slot:
+                assigned_interviewer = int(slot.interviewer_id)
+        if not assigned_interviewer:
+            invite = book.invite_json or {}
+            iv_id = invite.get('interviewer_id')
+            if iv_id:
+                try:
+                    assigned_interviewer = int(iv_id)
+                except (TypeError, ValueError):
+                    pass
+        if assigned_interviewer and assigned_interviewer != int(user_id):
+            raise AppError('FORBIDDEN', '只有本场面试的面试官才能提交评价，请联系 HR 协助')
 
     record = InterviewRecord.query.filter_by(book_id=book.id, is_deleted=0).first()
     if not record:
@@ -1080,11 +1108,12 @@ def _get_candidate_info_for_onboard(book):
 
 def cancel_interview(book_id, reason=None):
     """Cancel an interview — any state -> cancelled.
-
-    Valid for any state except 'done' and 'cancelled'.
-    Releases candidate lock and updates process status.
+    - Un-evaluated records: allowed (just completed, no evaluation submitted yet)
+    - Failed evaluation (evaluate_text filled, result=0): allowed
+    - Passed evaluation (evaluate_text filled, result=1): blocked — candidate already passed
+    Always cleans up the InterviewRecord and releases candidate lock.
     """
-    from app.models.interview import InterviewBook
+    from app.models.interview import InterviewBook, InterviewRecord
     from app.models.process import RecruitProcess
     from app.extensions import db
 
@@ -1092,16 +1121,14 @@ def cancel_interview(book_id, reason=None):
     if not book:
         raise AppError('NOT_FOUND', f'面试预约 {book_id} 不存在')
 
-    # Cannot cancel if evaluating or already passed
-    from app.models.interview import InterviewRecord
     record = InterviewRecord.query.filter_by(book_id=book.id, is_deleted=0).first()
-    if record:
-        if record.interview_result == 1:
-            raise AppError('INVALID_STATE', '面试已通过，无法取消')
-        if not record.evaluate_text:
-            raise AppError('INVALID_STATE', '请先完成面试评价，才能取消')
+    if record and record.interview_result == 1 and record.evaluate_text:
+        raise AppError('INVALID_STATE', '面试已评价通过，无法取消。如需删除请联系管理员')
 
     book.soft_delete()
+    if record:
+        record.soft_delete()
+        log.info("关联面试记录已清理: record_id=%s", record.id)
 
     if book.process_id:
         process = RecruitProcess.query.filter_by(id=book.process_id, is_deleted=0).first()

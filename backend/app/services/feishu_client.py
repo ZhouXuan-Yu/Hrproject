@@ -174,19 +174,29 @@ def health_check() -> Dict[str, Any]:
 # ── Video conference (VC) ────────────────────────────────────────────────
 
 
-def create_vc_meeting(topic: str, start_time: str, duration_minutes: int = 60) -> Dict[str, Any]:
+def create_vc_meeting(topic: str, owner_id: str = "", duration_minutes: int = 60) -> Dict[str, Any]:
     """Create a Feishu video-conference meeting and return its join URL.
 
     Mock mode returns a deterministic-shaped fake URL.
-    Real mode calls ``POST /open-apis/vc/v1/reserves/apply``; any failure
-    raises so the caller can fall back to a locally-built URL.
+    Real mode calls ``POST /open-apis/vc/v1/reserves/apply``.
+
+    Args:
+        topic: Meeting topic/title.
+        owner_id: Feishu open_id of the meeting owner (interviewer). Required
+                  for real API calls with tenant_access_token.
+        duration_minutes: Ignored — Feishu uses end_time (now + 30 days).
 
     Returns:
         {"meeting_url": str, "meeting_code": str}
     """
     import random
+    import time as _time
 
-    # 有凭证就尝试真实 API，不受 MOCK_MODE 限制
+    if MOCK_MODE:
+        code = str(random.randint(100000000, 999999999))
+        url = f"https://vc.feishu.cn/j/{code}?mock=1"
+        return {"meeting_url": url, "meeting_code": code}
+
     try:
         app_id, app_secret = _get_app_credentials()
         has_credentials = bool(app_id and app_secret)
@@ -197,31 +207,80 @@ def create_vc_meeting(topic: str, start_time: str, duration_minutes: int = 60) -
         logger.info("[MOCK] create_vc_meeting topic=%s — 未配置飞书凭证，跳过创建", topic)
         return {"meeting_url": "", "meeting_code": ""}
 
-    end_time = str(int(start_time) + duration_minutes * 60) if start_time else ''
-    body = _feishu_post(
-        "/vc/v1/reserves/apply",
-        {
-            "end_time": end_time,
-            "meeting_settings": {
-                "topic": topic,
-                "action_permissions": [],
-                "meeting_initial_type": 1,
-            },
-            "end_meeting_at_once": False,
-        },
-    )
+    # Feishu reserves/apply API: end_time is top-level (Unix timestamp string),
+    # owner_id is required with tenant_access_token, meeting_settings.topic is the title.
+    # Invalid fields that cause 121003 "param error":
+    #   meeting_initial_type, action_permissions, end_meeting_at_once
+    end_time = str(int(_time.time()) + 86400 * 30)
+    req = {"end_time": end_time, "meeting_settings": {"topic": topic}}
+    if owner_id:
+        req["owner_id"] = owner_id
+
+    body = _feishu_post("/vc/v1/reserves/apply", req)
     code = body.get("code", -1)
     if code != 0:
         raise RuntimeError(f"vc reserves/apply failed: code={code} msg={body.get('msg', '')}")
 
     data = body.get("data", {}) or {}
     reserve = data.get("reserve", {}) or {}
-    # 文档：响应字段为 url（入会链接）/ meeting_no（会议号）；旧代码误用 meeting_link
     meeting_url = reserve.get("url") or reserve.get("meeting_link") or ""
     meeting_code = reserve.get("meeting_no") or str(reserve.get("id", ""))
     if not meeting_url:
         raise RuntimeError(f"vc reserves/apply returned no meeting link: {data}")
     return {"meeting_url": meeting_url, "meeting_code": meeting_code}
+
+
+def get_user_open_id(name: str) -> str:
+    """Look up a user's open_id by name via Feishu Contacts API.
+
+    Checks the env-var map first, then falls back to
+    GET /contact/v3/users (requires contact:contact.base:readonly scope).
+
+    Returns:
+        open_id string, or empty string if not found.
+    """
+    env_id = get_recipient_open_id(name)
+    if env_id:
+        return env_id
+    # Check t_core_user for stored feishu_open_id
+    try:
+        from app.models.iam import IamUser
+        user = IamUser.query.filter_by(real_name=name, is_deleted=0, status=1).first()
+        if user and user.feishu_open_id:
+            return user.feishu_open_id
+    except Exception:
+        pass
+    if MOCK_MODE:
+        return ""
+    try:
+        token = _get_tenant_access_token()
+        resp = requests.get(
+            f"{FEISHU_API_BASE}/contact/v3/users",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"page_size": 50},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        body = resp.json()
+        users = ((body.get("data", {}) or {}).get("items") or [])
+        # 1) Exact name match
+        for u in users:
+            if u.get("name") == name:
+                return u.get("open_id", "")
+        # 2) Loose match: name contains or name field is None (single-user org)
+        for u in users:
+            uname = u.get("name") or ""
+            if uname and (uname in name or name in uname):
+                return u.get("open_id", "")
+        # 3) Fallback: return first available user as default meeting owner
+        if users:
+            first_oid = users[0].get("open_id", "")
+            if first_oid:
+                logger.info("get_user_open_id(%s): no name match, using first org user as default owner", name)
+                return first_oid
+    except Exception as exc:
+        logger.warning("get_user_open_id(%s) failed: %s", name, exc)
+    return ""
 
 
 # ── Contact / user search ─────────────────────────────────────────────────

@@ -1,5 +1,20 @@
 from flask import jsonify, current_app
 
+# JavaScript Number.MAX_SAFE_INTEGER = 2^53 - 1
+_JS_MAX_SAFE_INTEGER = 2**53 - 1  # 9007199254740991
+
+
+def _safe_json_value(obj):
+    """递归将超过 JS 安全整数范围的 int 转为字符串，防止前端精度丢失。"""
+    if isinstance(obj, dict):
+        return {k: _safe_json_value(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_safe_json_value(v) for v in obj]
+    if isinstance(obj, int) and not isinstance(obj, bool):
+        if obj > _JS_MAX_SAFE_INTEGER or obj < -_JS_MAX_SAFE_INTEGER:
+            return str(obj)
+    return obj
+
 
 def should_mock_fallback():
     """Check if mock fallback is enabled.
@@ -33,7 +48,7 @@ def safe_int(val, default=0, min_val=None, max_val=None):
 
 def success(data=None, msg='ok', **kwargs):
     """Unified success response: { "data": ..., ...extra }"""
-    body = {'data': data, 'message': msg}
+    body = {'data': _safe_json_value(data), 'message': msg}
     body.update(kwargs)
     return jsonify(body), 200
 
@@ -47,7 +62,7 @@ def success_list(items, total, page=1, page_size=20):
     So data MUST be the raw array, not a wrapper object.
     """
     return jsonify({
-        'data': items,
+        'data': _safe_json_value(items),
         'total': total,
         'page': page,
         'pageSize': page_size,

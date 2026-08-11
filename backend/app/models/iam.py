@@ -18,6 +18,7 @@ class IamPosition(BaseModel):
     __tablename__ = 't_core_position'
 
     position_id = Column(BigInteger, nullable=False, comment='岗位ID')
+    position_no = Column(String(32), nullable=True, unique=True, comment='岗位编号 PO{YYYYMM}{seq}')
     position_name = Column(String(100), nullable=False, comment='岗位名称')
     dept_id = Column(BigInteger, nullable=True, comment='所属组织ID')
     status = Column(Integer, nullable=False, default=1, comment='状态: 1启用 0停用')

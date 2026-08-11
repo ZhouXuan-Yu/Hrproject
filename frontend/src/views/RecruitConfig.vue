@@ -18,10 +18,10 @@
       </div>
       <div class="table-wrap data-region">
         <table><thead><tr>
-          <th>ID</th><th>部门名称</th><th>排序</th><th>状态</th><th style="width:140px">操作</th>
+          <th>ID</th><th>部门名称</th><th>人数</th><th>状态</th><th style="width:140px">操作</th>
         </tr></thead><tbody>
           <tr v-for="d in deptList" :key="d.id">
-            <td>{{ d.id }}</td><td>{{ d.name }}</td><td>{{ d.sortNum || 0 }}</td>
+            <td>{{ d.id }}</td><td>{{ d.name }}</td><td>{{ d.headcount || 0 }}</td>
             <td><span :style="{color: d.status === 1 ? 'var(--c-done)' : 'var(--c-error)', fontWeight:600}">{{ d.status === 1 ? '启用' : '停用' }}</span></td>
             <td class="row-actions">
               <a href="#" class="btn btn-text btn-sm" @click.prevent="openDeptEdit(d)">编辑</a>
@@ -37,7 +37,6 @@
     <BaseModal v-if="deptDialogVisible" :title="deptEditingId ? '编辑部门' : '新增部门'" @close="deptDialogVisible = false">
       <div class="form-grid">
         <div class="form-group"><label>部门名称 <span style="color:var(--c-error)">*</span></label><input type="text" v-model="deptForm.name" placeholder="如：技术研发部"></div>
-        <div class="form-group"><label>排序号</label><input type="number" v-model.number="deptForm.sortNum" placeholder="越小越靠前"></div>
       </div>
       <div v-if="deptFormError" style="color:var(--c-error);font-size:13px;margin-top:8px">{{ deptFormError }}</div>
       <template #footer>
@@ -668,26 +667,24 @@ const deptList = ref([]);
 const deptOptionsAll = ref([]);  // 含停用的完整列表（供岗位选择部门用）
 const deptDialogVisible = ref(false);
 const deptEditingId = ref(null);
-const deptForm = reactive({ name: '', sortNum: 0 });
+const deptForm = reactive({ name: '' });
 const deptFormError = ref('');
 const deptSaving = ref(false);
 const deptNameMap = computed(() => {
   const m = {};
-  deptOptionsAll.value.forEach(d => { m[d.id] = d.name; });
+  deptOptionsAll.value.forEach(d => { m[d.id] = d.deptName || d.name; });
   return m;
 });
 
 function openDeptCreate() {
   deptEditingId.value = null;
   deptForm.name = '';
-  deptForm.sortNum = 0;
   deptFormError.value = '';
   deptDialogVisible.value = true;
 }
 function openDeptEdit(d) {
   deptEditingId.value = d.id;
   deptForm.name = d.name;
-  deptForm.sortNum = d.sortNum || 0;
   deptFormError.value = '';
   deptDialogVisible.value = true;
 }
@@ -697,10 +694,10 @@ async function saveDept() {
   deptFormError.value = '';
   try {
     if (deptEditingId.value) {
-      await updateDepartment(deptEditingId.value, { name: deptForm.name.trim(), sortNum: deptForm.sortNum });
+      await updateDepartment(deptEditingId.value, { name: deptForm.name.trim() });
       toast.success('部门已更新');
     } else {
-      await createDepartment({ name: deptForm.name.trim(), sortNum: deptForm.sortNum });
+      await createDepartment({ name: deptForm.name.trim() });
       toast.success('部门已创建');
     }
     deptDialogVisible.value = false;
