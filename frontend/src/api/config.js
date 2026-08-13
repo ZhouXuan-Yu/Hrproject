@@ -33,3 +33,10 @@ export async function testApiKey(name)        { const r = await api.post('/confi
 export async function fetchTencentStatus()    { const r = await api.get('/config/tencent-meeting/status'); return r.data; }
 export async function fetchFeishuStatus()     { const r = await api.get('/config/feishu/status'); return r.data; }
 export async function fetchDepartments()      { const r = await api.get('/auth/departments'); return r.data; }
+
+// Email rules (resume detection config) — persisted to DB via Python backend
+export async function fetchEmailRules()       { const r = await api.get('/config/email-rules'); return r.data; }
+export async function saveEmailRules(d)       { const r = await api.put('/config/email-rules', d); return r.data; }
+
+// Channel costs — persisted to DB
+export async function saveChannelCost(code, cost) { const r = await api.put('/config/channel-costs', { code, cost }); return r.data; }

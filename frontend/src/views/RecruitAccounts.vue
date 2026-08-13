@@ -106,6 +106,7 @@ import StatusBadge from '../components/StatusBadge.vue';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
 import { useConfirmDialog } from '../composables/useConfirmDialog.js';
 import { fetchUsers, createUser, updateUser, toggleUserStatus, deleteUser, resetUserPassword, fetchPositions, fetchPendingAccounts } from '../api/auth.js';
+import { setAuth, getUserId } from '../composables/useAuth.js';
 
 const userList = ref([]);
 const userTotal = ref(0);
@@ -251,6 +252,12 @@ async function saveUser() {
     };
     if (userEditingId.value) {
       await updateUser(userEditingId.value, payload);
+      // 如果修改的是当前登录用户，更新侧边栏缓存
+      const curId = getUserId();
+      if (curId && String(userEditingId.value) === String(curId)) {
+        localStorage.setItem('hr_user', payload.realName);
+        setAuth(payload.realName, localStorage.getItem('hr_role'), curId);
+      }
       userDialogVisible.value = false;
     } else {
       if (userForm.employeeNo) payload.employeeNo = userForm.employeeNo;

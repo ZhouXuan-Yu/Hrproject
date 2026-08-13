@@ -53,10 +53,17 @@ export const ROLE_CLASS = {
 // sessionStorage survives refreshes but not tab close — used as fast bootstrap
 let _role = null;
 let _user = null;
+let _userId = null;
 
-export function setAuth(user, role) {
+export function setAuth(user, role, userId) {
   _user = user;
   _role = role;
+  _userId = userId;
+}
+
+export function getUserId() {
+  if (_userId) return _userId;
+  return localStorage.getItem('hr_userId') || null;
 }
 
 export function getRole() {

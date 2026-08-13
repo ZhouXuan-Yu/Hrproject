@@ -131,7 +131,7 @@
         <div style="display:flex;gap:8px;align-items:center">
           <button class="btn btn-primary btn-sm" id="addToDemandBtn" @click="openDemandModal">加入需求</button>
           <button class="btn btn-outline btn-sm" @click="batchContact">批量联系</button>
-          <button class="btn btn-ghost btn-sm" @click="clearSelectionExt">清除选择</button>
+          <button class="btn btn-ghost btn-sm" @click="clearSelectionExt">取消选中</button>
         </div>
       </div>
 
@@ -188,7 +188,7 @@
         <span>已选择 <span class="count" id="batchCountInt">{{ checkedIntCount }}</span> 位员工</span>
         <div style="display:flex;gap:8px">
           <button class="btn btn-primary btn-sm" @click="toast.info('请选择目标岗位后关联内部员工')">加入需求</button>
-          <button class="btn btn-ghost btn-sm" @click="clearSelectionInt">清除选择</button>
+          <button class="btn btn-ghost btn-sm" @click="clearSelectionInt">取消选中</button>
         </div>
       </div>
     </div>

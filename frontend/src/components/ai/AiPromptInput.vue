@@ -33,7 +33,7 @@
           <button
             data-slot="prompt-input-send"
             :data-status="status"
-            :disabled="disabled || (status === 'ready' && !modelValue.trim())"
+            :disabled="disabled || (status === 'ready' && requireValue && !modelValue.trim())"
             :aria-label="sendAriaLabel"
             type="button"
             @click="status === 'streaming' || status === 'submitted' ? handleStop() : status === 'error' ? $emit('retry') : handleSubmit()"
@@ -68,6 +68,7 @@ const props = defineProps({
   modelValue: { type: String, default: '' },
   placeholder: { type: String, default: '输入您的问题...' },
   disabled: { type: Boolean, default: false },
+  requireValue: { type: Boolean, default: true },
   status: {
     type: String,
     default: 'ready',
@@ -98,7 +99,7 @@ function onInput(e) {
 
 function handleSubmit() {
   if (props.status !== 'ready') return;
-  if (!props.modelValue.trim()) return;
+  if (props.requireValue && !props.modelValue.trim()) return;
   emit('submit');
 }
 

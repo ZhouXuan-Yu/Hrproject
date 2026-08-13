@@ -103,7 +103,8 @@
       <AiPromptInput
         v-model="jdForm.requirements"
         :status="jdStatus"
-        :disabled="!jdForm.position || !jdForm.department"
+        :disabled="!jdForm.position"
+        :require-value="false"
         placeholder="补充要求 (选填)，例如：大厂背景、熟悉微服务架构..."
         hint=""
         layout="compact"
@@ -136,7 +137,7 @@ const departments = ref([]);
 async function loadDepartments() {
   try {
     const list = await fetchDepartments();
-    departments.value = (list || []).map(d => d.name || d);
+    departments.value = (list || []).map(d => d.deptName || d.name || d);
   } catch (_) {
     departments.value = [];
   }
@@ -212,7 +213,7 @@ function _asQual(q) {
 function _hasQual(q) { return q && typeof q === 'object' && Object.keys(q).length > 0; }
 
 async function generateJd() {
-  if (!jdForm.position || !jdForm.department) return;
+  if (!jdForm.position) return;
   jdError.value = ''; jdLoading.value = true; jdResult.value = null; jdThinkingUsed.value = true;
 
   // 1) 流式生成（useStreaming 内部捕获异常，不会 reject）
