@@ -2,6 +2,7 @@ package com.hr.interview.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hr.common.event.InterviewEmailEvent;
 import com.hr.common.exception.BusinessException;
 import com.hr.common.util.LockUtil;
 import com.hr.common.util.Sha256Util;
@@ -18,11 +19,18 @@ import com.hr.interview.repository.InterviewBookRepository;
 import com.hr.interview.repository.InterviewRecordRepository;
 import com.hr.interview.repository.InterviewSlotRepository;
 import com.hr.talent.entity.Candidate;
+import com.hr.talent.entity.Employee;
+import com.hr.talent.entity.RecruitProcess;
 import com.hr.talent.entity.Resume;
 import com.hr.talent.repository.CandidateRepository;
+import com.hr.talent.repository.EmployeeRepository;
+import com.hr.talent.repository.RecruitProcessRepository;
 import com.hr.talent.repository.ResumeRepository;
+import com.hr.auth.repository.IamUserRepository;
+import com.hr.auth.entity.IamUser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -70,6 +78,10 @@ public class InterviewService {
     private final HireService hireService;
     private final LockUtil lockUtil;
     private final com.hr.integration.feishu.FeishuClient feishuClient;
+    private final IamUserRepository iamUserRepository;
+    private final RecruitProcessRepository recruitProcessRepository;
+    private final EmployeeRepository employeeRepository;
+    private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Random random = new Random();
 
@@ -159,9 +171,21 @@ public class InterviewService {
         if ("pass".equals(result)) {
             newStatus = "offer";
             newLabel = "待录用";
+            updateProcessStatus(book.getProcessId(), 5); // 待Offer
         } else if ("fail".equals(result)) {
             newStatus = "done";
             newLabel = "已淘汰";
+            updateProcessStatus(book.getProcessId(), 4); // 淘汰
+            // 发布淘汰邮件事件（best-effort）
+            try {
+                String[] cand = resolveCandidate(book.getResumeId());
+                String methodLabel = METHOD_LABELS.getOrDefault(book.getInterviewType() != null ? book.getInterviewType() : 1, "待定");
+                eventPublisher.publishEvent(new InterviewEmailEvent(
+                        "reject", book.getId(), cand[0], resolveDemandPosition(book.getDemandId()),
+                        "", "", methodLabel, "", "", ""));
+            } catch (Exception e) {
+                log.warn("发布淘汰邮件事件失败: {}", e.getMessage());
+            }
         } else {
             newStatus = "pending";
             newLabel = "待安排";
@@ -177,24 +201,42 @@ public class InterviewService {
 
     /**
      * 取消面试（软删除）。
+     * - 未评价记录：允许取消（刚完成面试，尚未提交评价）
+     * - 评价未通过（evaluateText 已填，result != 1）：允许取消
+     * - 评价已通过（evaluateText 已填且 result == 1）：禁止 — 候选人已通过
+     * 同时清理关联的 InterviewRecord，释放候选人锁定。
      */
     @Transactional
     @org.springframework.cache.annotation.CacheEvict(cacheNames = "list", allEntries = true)
     public Map<String, Object> cancelInterview(Long bookId, String reason) {
         InterviewBook book = getActiveBook(bookId);
 
-        recordRepository.findFirstByBookIdAndIsDeleted(book.getId(), 0).ifPresent(record -> {
-            if (record.getInterviewResult() != null && record.getInterviewResult() == 1) {
-                throw BusinessException.invalidInput("面试已通过，无法取消");
+        InterviewRecord record = recordRepository.findFirstByBookIdAndIsDeleted(book.getId(), 0).orElse(null);
+        if (record != null) {
+            if (record.getInterviewResult() != null && record.getInterviewResult() == 1
+                    && record.getEvaluateText() != null && !record.getEvaluateText().isBlank()) {
+                throw BusinessException.invalidInput("面试已评价通过，无法取消。如需删除请联系管理员");
             }
-            if (record.getEvaluateText() == null || record.getEvaluateText().isBlank()) {
-                throw BusinessException.invalidInput("请先完成面试评价，才能取消");
-            }
-        });
+        }
 
         book.setIsDeleted(1);
         book.setUpdatedAt(LocalDateTime.now());
         bookRepository.save(book);
+
+        if (record != null) {
+            record.setIsDeleted(1);
+            record.setUpdatedAt(LocalDateTime.now());
+            recordRepository.save(record);
+            log.info("关联面试记录已清理: record_id={}", record.getId());
+        }
+
+        // 释放候选人锁定（将 locked→available）
+        releaseCandidateLock(book.getResumeId());
+
+        // 更新流程状态为淘汰
+        updateProcessStatus(book.getProcessId(), 4);
+
+        log.info("面试已取消: book_id={}, reason={}", bookId, reason != null ? reason : "无原因");
 
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("cancelled", true);
@@ -435,6 +477,9 @@ public class InterviewService {
             hireService.sendOffer(offerNo);
         }
 
+        // 更新流程状态
+        updateProcessStatus(book.getProcessId(), 5); // 待Offer
+
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("sent", true);
         out.put("offerNo", offerNo);
@@ -482,9 +527,18 @@ public class InterviewService {
                     hireEventRepository.save(event);
                 });
 
+        // 更新流程状态为入职
+        updateProcessStatus(book.getProcessId(), 8); // 入职
+
+        // 自动创建 IamUser + Employee 账号（如有 userData）
+        Map<String, Object> createdUser = autoCreateUserAccount(book, body);
+
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("onboarded", true);
         out.put("bookId", book.getId());
+        if (createdUser != null) {
+            out.put("user", createdUser);
+        }
         return out;
     }
 
@@ -563,6 +617,202 @@ public class InterviewService {
         return out;
     }
 
+    /**
+     * 为面试找到或创建 RecruitProcess，并锁定候选人。
+     * 对齐 Flask _ensure_process_for_interview()。
+     *
+     * @return process_id，无法定位候选人时返回 0
+     */
+    private long ensureProcessForInterview(Long resumeId, Long demandId, int interviewRound) {
+        try {
+            // 通过简历定位候选人
+            Candidate candidate = resumeRepository.findById(resumeId)
+                    .filter(r -> r.getIsDeleted() == null || r.getIsDeleted() == 0)
+                    .map(Resume::getCandidateId)
+                    .flatMap(candidateRepository::findById)
+                    .filter(c -> c.getIsDeleted() == null || c.getIsDeleted() == 0)
+                    .orElse(null);
+            if (candidate == null) return 0;
+
+            // 查找进行中的流程（排除淘汰=4、放弃=7）
+            RecruitProcess process = recruitProcessRepository
+                    .findFirstByCandidateIdAndDemandIdAndProcessStatusNotInAndIsDeleted(
+                            candidate.getId(), demandId, List.of(4, 7), 0)
+                    .orElse(null);
+
+            if (process == null) {
+                // 创建新流程
+                String processNo = "RP" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
+                        + String.format("%02d", candidate.getId() % 100)
+                        + String.format("%03d", random.nextInt(1000));
+                process = new RecruitProcess();
+                process.setProcessNo(processNo);
+                process.setDemandId(demandId);
+                process.setResumeId(resumeId);
+                process.setCandidateId(candidate.getId());
+                process.setProcessStatus(0);
+                process.setCreatedAt(LocalDateTime.now());
+                process.setUpdatedAt(LocalDateTime.now());
+                process.setIsDeleted(0);
+                process = recruitProcessRepository.save(process);
+            }
+
+            // 推进流程状态：一面=2，二面及以上=3
+            process.setProcessStatus(interviewRound >= 2 ? 3 : 2);
+            process.setUpdatedAt(LocalDateTime.now());
+            recruitProcessRepository.save(process);
+
+            // 锁定候选人
+            if (!"locked".equals(candidate.getStatus())) {
+                candidate.setStatus("locked");
+                candidate.setUpdatedAt(LocalDateTime.now());
+                candidateRepository.save(candidate);
+                log.info("候选人已锁定（面试中）: id={} name={}", candidate.getId(), candidate.getCandidateName());
+            }
+
+            return process.getId();
+        } catch (Exception e) {
+            log.warn("ensure process for interview failed (best-effort): {}", e.getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * 通过简历 ID 找到候选人，将其状态从 locked 恢复为 available。
+     * 对齐 Flask _release_lock_for_resume()。
+     */
+    private void releaseCandidateLock(Long resumeId) {
+        if (resumeId == null || resumeId <= 0) return;
+        try {
+            Candidate candidate = resumeRepository.findById(resumeId)
+                    .filter(r -> r.getIsDeleted() == null || r.getIsDeleted() == 0)
+                    .map(Resume::getCandidateId)
+                    .flatMap(candidateRepository::findById)
+                    .filter(c -> c.getIsDeleted() == null || c.getIsDeleted() == 0)
+                    .orElse(null);
+            if (candidate != null && "locked".equals(candidate.getStatus())) {
+                candidate.setStatus("available");
+                candidate.setUpdatedAt(LocalDateTime.now());
+                candidateRepository.save(candidate);
+                log.info("候选人锁定已释放: id={} name={}", candidate.getId(), candidate.getCandidateName());
+            }
+        } catch (Exception e) {
+            log.warn("释放候选人锁定失败 (best-effort): resumeId={}, error={}", resumeId, e.getMessage());
+        }
+    }
+
+    /**
+     * 更新招聘流程状态，best-effort。
+     * process_status: 4=淘汰 5=待Offer 8=入职
+     */
+    private void updateProcessStatus(Long processId, int status) {
+        if (processId == null || processId <= 0) return;
+        try {
+            recruitProcessRepository.findById(processId)
+                    .filter(p -> p.getIsDeleted() == null || p.getIsDeleted() == 0)
+                    .ifPresent(p -> {
+                        p.setProcessStatus(status);
+                        p.setUpdatedAt(LocalDateTime.now());
+                        recruitProcessRepository.save(p);
+                    });
+        } catch (Exception e) {
+            log.warn("更新流程状态失败 (best-effort): processId={} status={} error={}",
+                    processId, status, e.getMessage());
+        }
+    }
+
+    /**
+     * 入职确认时自动创建 IamUser 登录账号 + Employee 内部员工记录。
+     * 对齐 Flask confirm_onboard 的自动建号逻辑。
+     *
+     * @return 新建账号信息（userId, employeeNo, username, realName, roleCode, initialPassword），
+     *         输入缺 realName 时返回 null
+     */
+    private Map<String, Object> autoCreateUserAccount(InterviewBook book, Map<String, Object> userData) {
+        if (userData == null) return null;
+        String realName = str(userData.get("realName"));
+        if (realName.isEmpty()) return null;
+
+        String mobile = str(userData.get("mobile"));
+        String email = str(userData.get("email"));
+        String roleCode = str(userData.get("roleCode"));
+        if (roleCode.isEmpty() || !List.of("admin", "hr", "dept_head", "director", "employee", "interviewer").contains(roleCode)) {
+            roleCode = "employee";
+        }
+        Long deptId = userData.get("deptId") instanceof Number n ? n.longValue() : null;
+        Long positionId = userData.get("positionId") instanceof Number n ? n.longValue() : null;
+
+        // 自动生成工号
+        String employeeNo = str(userData.get("employeeNo"));
+        if (employeeNo.isEmpty()) {
+            String yyyy = String.valueOf(LocalDateTime.now().getYear());
+            String latestNo = iamUserRepository.maxEmployeeNoLike(yyyy + "%");
+            int seq = 1;
+            if (latestNo != null && latestNo.length() == 8) {
+                try { seq = Integer.parseInt(latestNo.substring(4)) + 1; } catch (Exception ignored) {}
+            }
+            employeeNo = yyyy + String.format("%04d", seq);
+        }
+
+        // 工号冲突校验
+        if (iamUserRepository.findByEmployeeNo(employeeNo).isPresent()) {
+            log.warn("工号 {} 已存在，跳过 IamUser 创建", employeeNo);
+            return null;
+        }
+
+        // 随机初始密码
+        String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+        StringBuilder pwd = new StringBuilder();
+        for (int i = 0; i < 8; i++) {
+            pwd.append(chars.charAt(random.nextInt(chars.length())));
+        }
+        String password = pwd.toString();
+        String passwordHash = com.hr.auth.service.UserManagementService.werkzeugScrypt(password);
+
+        // 分配 user_id
+        long newUserId = iamUserRepository.maxUserId() + 1;
+
+        IamUser user = new IamUser();
+        user.setUserId(newUserId);
+        user.setEmployeeNo(employeeNo);
+        user.setUsername(employeeNo);
+        user.setRealName(realName);
+        user.setDeptId(deptId);
+        user.setPositionId(positionId);
+        user.setRoleCode(roleCode);
+        user.setEmail(email.isEmpty() ? null : email);
+        user.setMobile(mobile.isEmpty() ? null : mobile);
+        user.setPasswordHash(passwordHash);
+        user.setMustChangePassword(1);
+        user.setStatus(1);
+        user.setIsDeleted(0);
+        user.setCreateTime(LocalDateTime.now());
+        user.setUpdateTime(LocalDateTime.now());
+        iamUserRepository.save(user);
+
+        // 创建 Employee 内部员工记录
+        Employee emp = new Employee();
+        emp.setUserId(newUserId);
+        emp.setDeptId(deptId);
+        emp.setPositionId(positionId);
+        emp.setWorkYears(0);
+        emp.setCanTransfer(0);
+        emp.setCreatedAt(LocalDateTime.now());
+        emp.setIsDeleted(0);
+        employeeRepository.save(emp);
+
+        log.info("入职自动创建账号: {} (工号={}, 角色={})", realName, employeeNo, roleCode);
+
+        Map<String, Object> info = new LinkedHashMap<>();
+        info.put("userId", newUserId);
+        info.put("employeeNo", employeeNo);
+        info.put("username", employeeNo);
+        info.put("realName", realName);
+        info.put("roleCode", roleCode);
+        info.put("initialPassword", password);
+        return info;
+    }
+
     private Map<String, Object> doCreate(Map<String, Object> body, Long userId) {
         LocalDateTime bookTime = parseBookTime(body);
         int interviewRound = parseRound(body);
@@ -571,16 +821,32 @@ public class InterviewService {
         String meetingPwd = body.get("meetingPwd") != null ? String.valueOf(body.get("meetingPwd")) : "";
         String meetingUrl = "";
         if (interviewType == 1) {
-            // 飞书视频：调用飞书 API 创建会议预约（对齐 Flask _build_feishu_vc）
+            // 飞书视频：优先查 t_core_user.feishu_open_id，再调 API 兜底
+            String interviewer = str(body.get("interviewer"));
+            String ownerId = "";
+            if (!interviewer.isEmpty()) {
+                ownerId = iamUserRepository
+                        .findFirstByRealNameAndStatusAndIsDeleted(interviewer, 1, 0)
+                        .map(IamUser::getFeishuId)
+                        .orElse("");
+                if (ownerId == null) ownerId = "";
+            }
+            if (ownerId.isEmpty()) {
+                ownerId = feishuClient.getUserOpenId(interviewer);
+            }
             Map<String, String> vc = feishuClient.createVcMeeting(
                     "面试-" + str(body.get("candidate")) + "-" + str(body.get("position")),
-                    bookTime.toEpochSecond(java.time.ZoneOffset.ofHours(8)),
+                    ownerId,
                     60);
             meetingUrl = vc.getOrDefault("meeting_url", "");
-            if (!meetingCode.isEmpty()) {
-                meetingCode = vc.getOrDefault("meeting_code", meetingCode);
-            } else {
-                meetingCode = vc.getOrDefault("meeting_code", "");
+            String vcCode = vc.getOrDefault("meeting_code", "");
+            if (vcCode != null && !vcCode.isEmpty()) {
+                meetingCode = vcCode;
+            }
+            // 飞书 API 失败时不编造假链接（对齐 Python），meetingUrl 留空由邮件模板判断
+            if (meetingUrl.isEmpty()) {
+                log.warn("飞书视频会议创建失败，meetingUrl 为空，邮件中将不显示会议链接。candidate={} position={}",
+                        str(body.get("candidate")), str(body.get("position")));
             }
         } else if (interviewType == 2) {
             meetingUrl = body.get("meetingUrl") != null ? String.valueOf(body.get("meetingUrl")).trim() : "";
@@ -595,10 +861,13 @@ public class InterviewService {
         long resumeId = links[0];
         long demandId = links[1];
 
+        // 联动需求管理：创建/更新 RecruitProcess 并锁定候选人
+        long processId = ensureProcessForInterview(resumeId, demandId, interviewRound);
+
         InterviewBook book = new InterviewBook();
         book.setDemandId(demandId);
         book.setResumeId(resumeId);
-        book.setProcessId(0L);
+        book.setProcessId(processId);
         book.setSlotId(0L);
         book.setInterviewRound(interviewRound);
         book.setInterviewType(interviewType);
@@ -607,12 +876,28 @@ public class InterviewService {
         book.setMeetingUrl(meetingUrl);
         book.setAddress(body.get("address") != null ? String.valueOf(body.get("address")) : "");
         book.setBookTime(bookTime);
-        book.setInviteJson(buildInviteJson(body, meetingUrl));
+        book.setInviteJson(buildInviteJson(body, meetingUrl, false));
         book.setCreatedAt(LocalDateTime.now());
         book.setCreatedBy(userId);
         book.setUpdatedAt(LocalDateTime.now());
         book.setIsDeleted(0);
         bookRepository.save(book);
+
+        // 发布候选人面试邀请邮件事件（best-effort）
+        try {
+            String candidate = str(body.get("candidate"));
+            String position = str(body.get("position"));
+            String timeStr = bookTime.format(FULL_DT);
+            String roundLabel = interviewRound >= 2 ? "复试(" + interviewRound + "轮)" : "初试(" + interviewRound + "轮)";
+            String methodLabel = METHOD_LABELS.getOrDefault(interviewType, "待定");
+            eventPublisher.publishEvent(new InterviewEmailEvent(
+                    "invite", book.getId(), candidate, position, timeStr,
+                    roundLabel, methodLabel, meetingUrl, meetingCode, book.getAddress()));
+            book.setInviteJson(buildInviteJson(body, meetingUrl, true));
+            bookRepository.save(book);
+        } catch (Exception e) {
+            log.warn("发布面试邀请邮件事件失败: {}", e.getMessage());
+        }
 
         log.info("面试预约已创建: id={}, demand={}, time={}", book.getId(), demandId, bookTime);
 
@@ -730,7 +1015,7 @@ public class InterviewService {
                 .stream().findFirst().map(Resume::getId).orElse(0L);
     }
 
-    private String buildInviteJson(Map<String, Object> body, String meetingUrl) {
+    private String buildInviteJson(Map<String, Object> body, String meetingUrl, boolean emailSent) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("meeting_url", meetingUrl);
         snapshot.put("interviewer", body.get("interviewer") != null ? body.get("interviewer") : "");
@@ -738,6 +1023,7 @@ public class InterviewService {
         snapshot.put("position", body.get("position") != null ? body.get("position") : "");
         snapshot.put("round", body.get("round") != null ? body.get("round") : "");
         snapshot.put("notified", false);
+        snapshot.put("email_sent", emailSent);
         snapshot.put("channel", "feishu");
         try {
             return objectMapper.writeValueAsString(snapshot);
@@ -888,9 +1174,57 @@ public class InterviewService {
         m.put("status", display[0]);
         m.put("statusLabel", display[1]);
         m.put("emailSent", invite != null && invite.has("email_sent") && invite.get("email_sent").asBoolean());
+        m.put("candidateConfirm", invite != null && invite.has("candidate_confirm") ? invite.get("candidate_confirm").asText() : null);
         m.put("createdBy", "系统");
         m.put("isMine", false);
         m.put("result", result);
+
+        // 面试通过时联动 Offer 状态
+        if (rec != null && rec.getInterviewResult() != null && rec.getInterviewResult() == 1) {
+            try {
+                var offerOpt = offerRepository.findAll(
+                        (root, query, cb) -> cb.and(
+                                cb.equal(root.get("resumeId"), book.getResumeId()),
+                                cb.equal(root.get("demandId"), book.getDemandId()),
+                                cb.equal(root.get("isDeleted"), 0)))
+                        .stream().max((a, b) -> Long.compare(a.getId(), b.getId()));
+                if (offerOpt.isPresent()) {
+                    var o = offerOpt.get();
+                    m.put("offerStatus", o.getOfferStatus());
+                    m.put("offerNo", o.getOfferNo());
+                    // 更新显示状态
+                    if (o.getOfferStatus() != null) {
+                        if (o.getOfferStatus() == 1) {
+                            m.put("status", "offer");
+                            m.put("statusLabel", "Offer待确认");
+                        } else if (o.getOfferStatus() == 2) {
+                            m.put("status", "onboard");
+                            m.put("statusLabel", "已录用");
+                        } else if (o.getOfferStatus() == 3) {
+                            m.put("status", "done");
+                            m.put("statusLabel", "已拒绝");
+                        } else if (o.getOfferStatus() == 4) {
+                            m.put("status", "done");
+                            m.put("statusLabel", "已淘汰");
+                        }
+                    }
+                }
+            } catch (Exception ignored) {
+                // best-effort
+            }
+        }
+
+        // 评分
+        if (rec != null && rec.getScoreJson() != null) {
+            try {
+                JsonNode scoreJson = objectMapper.readTree(rec.getScoreJson());
+                if (scoreJson.has("total")) {
+                    m.put("score", scoreJson.get("total").asInt());
+                }
+            } catch (Exception ignored) {
+            }
+        }
+
         return m;
     }
 

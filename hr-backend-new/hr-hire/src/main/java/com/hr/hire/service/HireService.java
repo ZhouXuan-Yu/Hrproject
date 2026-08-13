@@ -1,10 +1,12 @@
 package com.hr.hire.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hr.common.event.OfferEmailEvent;
 import com.hr.common.exception.BusinessException;
 import com.hr.hire.entity.Entry;
 import com.hr.hire.entity.HireEvent;
 import com.hr.hire.entity.Offer;
+import com.hr.hire.entity.OfferRemindLog;
 import com.hr.hire.repository.EntryRepository;
 import com.hr.hire.repository.HireEventRepository;
 import com.hr.hire.repository.OfferRemindLogRepository;
@@ -12,6 +14,7 @@ import com.hr.hire.repository.OfferRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -60,6 +63,7 @@ public class HireService {
     private final EntryRepository entryRepository;
     private final HireEventRepository hireEventRepository;
     private final OfferRemindLogRepository remindLogRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     private static final int OFFER_REMINDER_INTERVAL_HOURS = 24;
 
@@ -154,13 +158,25 @@ public class HireService {
         offer.setUpdatedAt(now);
         offerRepository.save(offer);
 
+        // 发布 Offer 邮件事件（best-effort）
+        boolean emailAttempted = false;
+        try {
+            String candidateName = resolveCandidateName(offer.getResumeId());
+            eventPublisher.publishEvent(new OfferEmailEvent(
+                    offer.getOfferNo(), offer.getResumeId(), candidateName,
+                    offer.getOfferContent(), offer.getValidDeadline() != null ? fmt(offer.getValidDeadline()) : ""));
+            emailAttempted = true;
+        } catch (Exception e) {
+            // event publish failed silently
+        }
+
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("sent", true);
         result.put("id", offer.getOfferNo());
         result.put("sendTime", fmt(now));
         result.put("offerContent", offer.getOfferContent());
-        result.put("emailSent", false);
-        result.put("emailMsg", "未尝试");
+        result.put("emailSent", emailAttempted);
+        result.put("emailMsg", emailAttempted ? "已提交发送" : "未尝试");
         return result;
     }
 
@@ -611,6 +627,21 @@ public class HireService {
     }
 
     // ── 私有：工具 ────────────────────────────────────────────
+
+    private String resolveCandidateName(Long resumeId) {
+        if (resumeId == null || resumeId <= 0) return "";
+        try {
+            Object name = entityManager.createNativeQuery(
+                    "SELECT c.candidate_name FROM t_hr_candidate c " +
+                    "JOIN t_hr_resume r ON r.candidate_id = c.id " +
+                    "WHERE r.id = :resumeId AND r.is_deleted = 0 AND c.is_deleted = 0 LIMIT 1")
+                    .setParameter("resumeId", resumeId)
+                    .getSingleResult();
+            return name != null ? String.valueOf(name) : "";
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
 
     private static String bizNo(String prefix) {
         return prefix + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))

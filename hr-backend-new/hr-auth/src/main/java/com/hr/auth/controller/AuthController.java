@@ -3,6 +3,7 @@ package com.hr.auth.controller;
 import com.hr.auth.dto.LoginRequest;
 import com.hr.auth.dto.LoginResponse;
 import com.hr.auth.service.AuthService;
+import com.hr.auth.service.UserManagementService;
 import com.hr.common.dto.ApiResponse;
 import com.hr.common.util.SecurityUtils;
 import jakarta.servlet.http.HttpServletRequest;
@@ -13,6 +14,7 @@ import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -29,6 +31,7 @@ import java.util.Map;
 public class AuthController {
 
     private final AuthService authService;
+    private final UserManagementService userManagementService;
 
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<LoginResponse>> login(@Valid @RequestBody LoginRequest req,
@@ -67,6 +70,15 @@ public class AuthController {
             throw com.hr.common.exception.BusinessException.unauthorized();
         }
         return authService.me(userId);
+    }
+
+    @PutMapping("/change-password")
+    public ApiResponse<Map<String, Object>> changePassword(@RequestBody Map<String, Object> body) {
+        String oldPwd = body != null && body.get("oldPassword") != null
+                ? String.valueOf(body.get("oldPassword")) : null;
+        String newPwd = body != null && body.get("newPassword") != null
+                ? String.valueOf(body.get("newPassword")) : null;
+        return ApiResponse.success(userManagementService.changePassword(SecurityUtils.getUserId(), oldPwd, newPwd));
     }
 
     @PostMapping("/forgot-password")

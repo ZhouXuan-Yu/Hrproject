@@ -283,112 +283,110 @@ public class ConfirmController {
             alreadyBlock = "<div class=\"already\">" + label + "</div>";
         }
 
-        return """
-                <!DOCTYPE html>
-                <html lang="zh-CN">
-                <head>
-                <meta charset="utf-8">
-                <meta name="viewport" content="width=device-width,initial-scale=1">
-                <title>""" + html(title) + """
-                </title>
-                <style>
-                  * { box-sizing: border-box; margin: 0; padding: 0; }
-                  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-                         background: #f2f4f9; color: #222; padding: 16px; }
-                  .card { max-width: 480px; margin: 24px auto; background: #fff; border-radius: 14px;
-                          padding: 28px 22px; box-shadow: 0 4px 24px rgba(20,30,60,.08); }
-                  h1 { font-size: 20px; color: #4F6EF7; margin-bottom: 6px; }
-                  .sub { color: #888; font-size: 13px; margin-bottom: 18px; }
-                  .row { display: flex; padding: 10px 0; border-bottom: 1px solid #f0f2f7; font-size: 15px; }
-                  .row .k { width: 88px; color: #999; flex-shrink: 0; }
-                  .row .v { flex: 1; font-weight: 600; word-break: break-all; }
-                  .offer-body { background: #f6f8ff; border-radius: 10px; padding: 14px;
-                                font-size: 14px; line-height: 1.9; margin: 12px 0; white-space: pre-wrap; }
-                  .deadline { background: #fff8e6; color: #b45309; border-radius: 8px;
-                              padding: 10px 12px; font-size: 13px; margin: 16px 0; }
-                  .btns { display: flex; gap: 12px; margin-top: 20px; }
-                  button { flex: 1; padding: 14px; border: none; border-radius: 10px;
-                           font-size: 16px; font-weight: 700; cursor: pointer; }
-                  .accept { background: #4F6EF7; color: #fff; }
-                  .reject { background: #f2f4f9; color: #666; }
-                  button:disabled { opacity: .55; }
-                  .result { text-align: center; padding: 30px 0 10px; font-size: 16px; font-weight: 600; }
-                  .reason { width: 100%; margin-top: 14px; padding: 10px; border: 1px solid #e1e6ef;
-                            border-radius: 8px; font-size: 14px; display: none; font-family: inherit; }
-                  .already { text-align:center; color:#22a06b; font-weight:700; padding: 18px 0 4px; }
-                </style>
-                </head>
-                <body>
-                <div class="card">
-                  <h1>""" + html(title) + """
-                  </h1>
-                  <div class="sub">""" + html(sub) + """
-                  </div>
-                """ + rows + """
-                """ + alreadyBlock + """
-                  <div class="deadline">⏰ 请在 """ + html(deadline) + """ 前完成确认</div>
-                """ + (already.isEmpty() ? """
-                  <div id="actionArea">
-                    <textarea id="reason" class="reason" rows="2" placeholder="可填写原因（选填）"></textarea>
-                    <div class="btns">
-                      <button class="accept" onclick="submit('accept')">✔ 接受</button>
-                      <button class="reject" onclick="toggleReject()">✘ 拒绝</button>
-                    </div>
-                  </div>
-                """ : "") + """
-                  <div class="result" id="resultArea" style="display:none"></div>
-                </div>
-                <script>
-                var TOKEN = \"""" + token + """\";
-                var rejecting = false;
-                function toggleReject() {
-                  var r = document.getElementById('reason');
-                  if (!rejecting) {
-                    rejecting = true;
-                    r.style.display = 'block';
-                    event.target.textContent = '确认拒绝';
-                    return;
-                  }
-                  submit('reject');
-                }
-                function submit(action) {
-                  var btns = document.querySelectorAll('button');
-                  btns.forEach(function(b){ b.disabled = true; });
-                  fetch('/api/confirm/' + TOKEN, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({action: action, reason: document.getElementById('reason').value})
-                  }).then(function(r){ return r.json(); }).then(function(resp) {
-                    var d = resp.data || {};
-                    showResult(d.message || (action === 'accept' ? '已确认' : '已反馈'));
-                  }).catch(function() {
-                    showResult('网络异常，请稍后重试或联系 HR');
-                    btns.forEach(function(b){ b.disabled = false; });
-                  });
-                }
-                function showResult(text) {
-                  document.getElementById('actionArea').style.display = 'none';
-                  var el = document.getElementById('resultArea');
-                  el.style.display = 'block';
-                  el.textContent = text;
-                }
-                </script>
-                </body>
-                </html>""";
+        String actionArea = "";
+        if (already.isEmpty()) {
+            actionArea = "<div id=\"actionArea\">\n"
+                + "  <textarea id=\"reason\" class=\"reason\" rows=\"2\" placeholder=\"可填写原因（选填）\"></textarea>\n"
+                + "  <div class=\"btns\">\n"
+                + "    <button class=\"accept\" onclick=\"submit('accept')\">✔ 接受</button>\n"
+                + "    <button class=\"reject\" onclick=\"toggleReject()\">✘ 拒绝</button>\n"
+                + "  </div>\n"
+                + "</div>\n";
+        }
+
+        return "<!DOCTYPE html>\n"
+            + "<html lang=\"zh-CN\">\n"
+            + "<head>\n"
+            + "<meta charset=\"utf-8\">\n"
+            + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n"
+            + "<title>" + html(title) + "</title>\n"
+            + "<style>\n"
+            + "  * { box-sizing: border-box; margin: 0; padding: 0; }\n"
+            + "  body { font-family: -apple-system, \"PingFang SC\", \"Microsoft YaHei\", sans-serif;\n"
+            + "         background: #f2f4f9; color: #222; padding: 16px; }\n"
+            + "  .card { max-width: 480px; margin: 24px auto; background: #fff; border-radius: 14px;\n"
+            + "          padding: 28px 22px; box-shadow: 0 4px 24px rgba(20,30,60,.08); }\n"
+            + "  h1 { font-size: 20px; color: #4F6EF7; margin-bottom: 6px; }\n"
+            + "  .sub { color: #888; font-size: 13px; margin-bottom: 18px; }\n"
+            + "  .row { display: flex; padding: 10px 0; border-bottom: 1px solid #f0f2f7; font-size: 15px; }\n"
+            + "  .row .k { width: 88px; color: #999; flex-shrink: 0; }\n"
+            + "  .row .v { flex: 1; font-weight: 600; word-break: break-all; }\n"
+            + "  .offer-body { background: #f6f8ff; border-radius: 10px; padding: 14px;\n"
+            + "                font-size: 14px; line-height: 1.9; margin: 12px 0; white-space: pre-wrap; }\n"
+            + "  .deadline { background: #fff8e6; color: #b45309; border-radius: 8px;\n"
+            + "              padding: 10px 12px; font-size: 13px; margin: 16px 0; }\n"
+            + "  .btns { display: flex; gap: 12px; margin-top: 20px; }\n"
+            + "  button { flex: 1; padding: 14px; border: none; border-radius: 10px;\n"
+            + "           font-size: 16px; font-weight: 700; cursor: pointer; }\n"
+            + "  .accept { background: #4F6EF7; color: #fff; }\n"
+            + "  .reject { background: #f2f4f9; color: #666; }\n"
+            + "  button:disabled { opacity: .55; }\n"
+            + "  .result { text-align: center; padding: 30px 0 10px; font-size: 16px; font-weight: 600; }\n"
+            + "  .reason { width: 100%; margin-top: 14px; padding: 10px; border: 1px solid #e1e6ef;\n"
+            + "            border-radius: 8px; font-size: 14px; display: none; font-family: inherit; }\n"
+            + "  .already { text-align:center; color:#22a06b; font-weight:700; padding: 18px 0 4px; }\n"
+            + "</style>\n"
+            + "</head>\n"
+            + "<body>\n"
+            + "<div class=\"card\">\n"
+            + "  <h1>" + html(title) + "</h1>\n"
+            + "  <div class=\"sub\">" + html(sub) + "</div>\n"
+            + rows.toString()
+            + alreadyBlock + "\n"
+            + "  <div class=\"deadline\">⏰ 请在 " + html(deadline) + " 前完成确认</div>\n"
+            + actionArea
+            + "  <div class=\"result\" id=\"resultArea\" style=\"display:none\"></div>\n"
+            + "</div>\n"
+            + "<script>\n"
+            + "var TOKEN = \"" + token + "\";\n"
+            + "var rejecting = false;\n"
+            + "function toggleReject() {\n"
+            + "  var r = document.getElementById('reason');\n"
+            + "  if (!rejecting) {\n"
+            + "    rejecting = true;\n"
+            + "    r.style.display = 'block';\n"
+            + "    event.target.textContent = '确认拒绝';\n"
+            + "    return;\n"
+            + "  }\n"
+            + "  submit('reject');\n"
+            + "}\n"
+            + "function submit(action) {\n"
+            + "  var btns = document.querySelectorAll('button');\n"
+            + "  btns.forEach(function(b){ b.disabled = true; });\n"
+            + "  fetch('/api/confirm/' + TOKEN, {\n"
+            + "    method: 'POST',\n"
+            + "    headers: {'Content-Type': 'application/json'},\n"
+            + "    body: JSON.stringify({action: action, reason: document.getElementById('reason').value})\n"
+            + "  }).then(function(r){ return r.json(); }).then(function(resp) {\n"
+            + "    var d = resp.data || {};\n"
+            + "    showResult(d.message || (action === 'accept' ? '已确认' : '已反馈'));\n"
+            + "  }).catch(function() {\n"
+            + "    showResult('网络异常，请稍后重试或联系 HR');\n"
+            + "    btns.forEach(function(b){ b.disabled = false; });\n"
+            + "  });\n"
+            + "}\n"
+            + "function showResult(text) {\n"
+            + "  document.getElementById('actionArea').style.display = 'none';\n"
+            + "  var el = document.getElementById('resultArea');\n"
+            + "  el.style.display = 'block';\n"
+            + "  el.textContent = text;\n"
+            + "}\n"
+            + "</script>\n"
+            + "</body>\n"
+            + "</html>";
     }
 
     private String renderError(String message) {
-        return """
-                <!DOCTYPE html>
-                <html lang="zh-CN"><head><meta charset="utf-8">
-                <meta name="viewport" content="width=device-width,initial-scale=1"><title>提示</title>
-                <style>body{font-family:-apple-system,"PingFang SC",sans-serif;background:#f2f4f9;padding:16px}
-                .card{max-width:480px;margin:60px auto;background:#fff;border-radius:14px;padding:40px 24px;
-                text-align:center;box-shadow:0 4px 24px rgba(20,30,60,.08)}
-                h2{color:#ef4444;margin-bottom:12px}.msg{color:#666;font-size:15px}</style>
-                </head><body><div class="card"><h2>⚠ 提示</h2>
-                <p class="msg">""" + html(message) + """
-                </p></div></body></html>""";
+        return "<!DOCTYPE html>\n"
+            + "<html lang=\"zh-CN\"><head><meta charset=\"utf-8\">\n"
+            + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>提示</title>\n"
+            + "<style>body{font-family:-apple-system,\"PingFang SC\",sans-serif;background:#f2f4f9;padding:16px}\n"
+            + ".card{max-width:480px;margin:60px auto;background:#fff;border-radius:14px;padding:40px 24px;\n"
+            + "text-align:center;box-shadow:0 4px 24px rgba(20,30,60,.08)}\n"
+            + "h2{color:#ef4444;margin-bottom:12px}.msg{color:#666;font-size:15px}</style>\n"
+            + "</head><body><div class=\"card\"><h2>⚠ 提示</h2>\n"
+            + "<p class=\"msg\">" + html(message) + "</p>\n"
+            + "</div></body></html>";
     }
 
     private void addRow(StringBuilder sb, String key, String value) {
@@ -433,14 +431,14 @@ public class ConfirmController {
 
     private Map<String, Object> applyAction(Claims payload, String action, String reason) {
         String kind = String.valueOf(payload.get("kind"));
-        long ref;
-        try {
-            ref = Long.parseLong(String.valueOf(payload.get("ref")));
-        } catch (NumberFormatException e) {
-            throw new BusinessException("TOKEN_INVALID", "确认链接无效", 400);
-        }
 
         if ("interview".equals(kind)) {
+            long ref;
+            try {
+                ref = Long.parseLong(String.valueOf(payload.get("ref")));
+            } catch (NumberFormatException e) {
+                throw new BusinessException("TOKEN_INVALID", "确认链接无效", 400);
+            }
             InterviewBook book = bookRepository.findById(ref)
                     .filter(b -> b.getIsDeleted() == null || b.getIsDeleted() == 0)
                     .orElseThrow(() -> BusinessException.notFound("面试预约不存在"));

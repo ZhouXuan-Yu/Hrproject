@@ -7,7 +7,9 @@ import com.hr.auth.repository.IamDeptRepository;
 import com.hr.auth.repository.IamPositionRepository;
 import com.hr.auth.repository.IamUserRepository;
 import com.hr.common.exception.BusinessException;
+import com.hr.common.util.SecurityUtils;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.bouncycastle.crypto.generators.SCrypt;
@@ -43,7 +45,79 @@ public class UserManagementService {
     private final IamPositionRepository positionRepository;
     private final EntityManager entityManager;
 
+    /** 原生查询跨模块统计需求数（避免模块间依赖） */
+    private long countDemandsByField(String field, Object value) {
+        String sql = "SELECT COUNT(*) FROM t_hr_recruit_demand WHERE "
+                + field + " = :val AND is_deleted = 0";
+        Object result = entityManager.createNativeQuery(sql)
+                .setParameter("val", value)
+                .getSingleResult();
+        return result instanceof Number n ? n.longValue() : 0;
+    }
+
+    /** 原生查询统计用户数 */
+    private long countUsersByField(String field, Object value) {
+        String sql = "SELECT COUNT(*) FROM t_core_user WHERE "
+                + field + " = :val AND is_deleted = 0 AND status = 1";
+        Object result = entityManager.createNativeQuery(sql)
+                .setParameter("val", value)
+                .getSingleResult();
+        return result instanceof Number n ? n.longValue() : 0;
+    }
+
+    /** 原生查询统计岗位数 */
+    private long countPositionsByField(String field, Object value) {
+        String sql = "SELECT COUNT(*) FROM t_core_position WHERE "
+                + field + " = :val AND is_deleted = 0 AND status = 1";
+        Object result = entityManager.createNativeQuery(sql)
+                .setParameter("val", value)
+                .getSingleResult();
+        return result instanceof Number n ? n.longValue() : 0;
+    }
+
     // ── 用户管理 ──────────────────────────────────────────────
+
+    public Map<String, Object> listUsers(String keyword, String roleFilter, Integer statusFilter,
+                                         int page, int pageSize) {
+        page = Math.max(1, page);
+        pageSize = Math.min(100, Math.max(1, pageSize));
+
+        var spec = userRepository.findAll((root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            predicates.add(cb.equal(root.get("isDeleted"), 0));
+            if (keyword != null && !keyword.isBlank()) {
+                String kw = "%" + keyword.trim() + "%";
+                predicates.add(cb.or(
+                        cb.like(root.get("username"), kw),
+                        cb.like(root.get("realName"), kw),
+                        cb.like(root.get("mobile"), kw)));
+            }
+            if (roleFilter != null && !roleFilter.isBlank()) {
+                predicates.add(cb.equal(root.get("roleCode"), roleFilter.trim()));
+            }
+            if (statusFilter != null) {
+                predicates.add(cb.equal(root.get("status"), statusFilter));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        });
+
+        long total = spec.size();
+        int offset = (page - 1) * pageSize;
+        // manual pagination since we already fetched all for count
+        int fromIndex = Math.min(offset, spec.size());
+        int toIndex = Math.min(fromIndex + pageSize, spec.size());
+        List<IamUser> pageItems = spec.subList(fromIndex, toIndex);
+
+        List<Map<String, Object>> items = pageItems.stream()
+                .map(this::userToMap).toList();
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("data", items);
+        result.put("total", total);
+        result.put("page", page);
+        result.put("pageSize", pageSize);
+        return result;
+    }
 
     @Transactional
     public Map<String, Object> createUser(Map<String, Object> body) {
@@ -140,6 +214,11 @@ public class UserManagementService {
     @Transactional
     public Map<String, Object> toggleUserStatus(Long userId) {
         IamUser u = getActiveUser(userId);
+        // 禁止操作自己（对齐 Python）
+        Long currentUserId = SecurityUtils.getUserId();
+        if (currentUserId != null && currentUserId.equals(u.getUserId())) {
+            throw new BusinessException("FORBIDDEN", "不能操作自己的账号", 403);
+        }
         u.setStatus(u.getStatus() != null && u.getStatus() == 1 ? 0 : 1);
         u.setUpdateTime(LocalDateTime.now());
         userRepository.save(u);
@@ -149,6 +228,11 @@ public class UserManagementService {
     @Transactional
     public void deleteUser(Long userId) {
         IamUser u = getActiveUser(userId);
+        // 禁止删除自己（对齐 Python）
+        Long currentUserId = SecurityUtils.getUserId();
+        if (currentUserId != null && currentUserId.equals(u.getUserId())) {
+            throw new BusinessException("FORBIDDEN", "不能删除自己的账号", 403);
+        }
         u.setIsDeleted(1);
         u.setStatus(0);
         u.setUpdateTime(LocalDateTime.now());
@@ -233,7 +317,7 @@ public class UserManagementService {
                 JOIN t_hr_resume r ON r.candidate_id = c.id AND r.is_deleted = 0
                 JOIN t_hr_recruit_process rp ON rp.resume_id = r.id AND rp.is_deleted = 0
                 JOIN t_hr_recruit_demand d ON d.id = rp.demand_id AND d.is_deleted = 0
-                LEFT JOIN t_hr_iam_position p ON p.position_id = d.position_id AND p.is_deleted = 0
+                LEFT JOIN t_core_position p ON p.position_id = d.position_id AND p.is_deleted = 0
                 WHERE c.status = 'hired'
                   AND c.is_deleted = 0
                   AND rp.process_status IN (6, 8)
@@ -374,6 +458,21 @@ public class UserManagementService {
         IamDept d = deptRepository.findById(deptId)
                 .filter(x -> x.getIsDeleted() == null || x.getIsDeleted() == 0)
                 .orElseThrow(() -> BusinessException.notFound("部门不存在"));
+
+        // 引用检查（对齐 Python）
+        long userCount = countUsersByField("dept_id", deptId);
+        long demandCount = countDemandsByField("dept_id", deptId);
+        long posCount = countPositionsByField("dept_id", deptId);
+
+        List<String> refs = new ArrayList<>();
+        if (userCount > 0) refs.add(userCount + " 个用户");
+        if (demandCount > 0) refs.add(demandCount + " 个招聘需求");
+        if (posCount > 0) refs.add(posCount + " 个岗位");
+        if (!refs.isEmpty()) {
+            throw new BusinessException("HAS_REFERENCES",
+                    "部门被引用（" + String.join(", ", refs) + "），无法删除，请先停用", 400);
+        }
+
         d.setIsDeleted(1);
         d.setStatus(0);
         deptRepository.save(d);
@@ -385,6 +484,16 @@ public class UserManagementService {
         IamDept d = deptRepository.findById(deptId)
                 .filter(x -> x.getIsDeleted() == null || x.getIsDeleted() == 0)
                 .orElseThrow(() -> BusinessException.notFound("部门不存在"));
+
+        // 停用时检查是否有在职员工（对齐 Python）
+        if (status == 0) {
+            long activeUsers = countUsersByField("dept_id", deptId);
+            if (activeUsers > 0) {
+                throw new BusinessException("HAS_ACTIVE_USERS",
+                        "部门下有 " + activeUsers + " 名在职员工，请先转岗后再停用", 400);
+            }
+        }
+
         d.setStatus(status);
         deptRepository.save(d);
         Map<String, Object> m = new LinkedHashMap<>();
@@ -406,6 +515,7 @@ public class UserManagementService {
         Long maxId = positionRepository.findAll().stream()
                 .mapToLong(IamPosition::getPositionId).max().orElse(0L);
         p.setPositionId(Math.max(10L, maxId + 1));
+        p.setPositionNo(generatePositionNo());
         p.setPositionName(name);
         p.setDeptId(num(body.get("deptId")));
         p.setStatus(1);
@@ -413,9 +523,29 @@ public class UserManagementService {
         positionRepository.save(p);
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("positionId", p.getPositionId());
+        m.put("positionNo", p.getPositionNo());
         m.put("positionName", p.getPositionName());
         m.put("status", p.getStatus());
         return m;
+    }
+
+    /** 生成岗位编号 PO{YYYYMM}{seq:04d}，对齐 Python id_generator.next_position_no */
+    private String generatePositionNo() {
+        String prefix = "PO" + String.format("%tY%<tm",
+                java.time.LocalDate.now());
+        // 找当前月份最大序号
+        Long maxSeq = positionRepository.findAll().stream()
+                .filter(x -> x.getPositionNo() != null && x.getPositionNo().startsWith(prefix))
+                .map(IamPosition::getPositionNo)
+                .map(no -> {
+                    try {
+                        return Long.parseLong(no.substring(8)); // after PO202608
+                    } catch (NumberFormatException e) {
+                        return 0L;
+                    }
+                })
+                .max(Long::compareTo).orElse(0L);
+        return prefix + String.format("%04d", maxSeq + 1);
     }
 
     @Transactional
@@ -447,6 +577,19 @@ public class UserManagementService {
         IamPosition p = positionRepository.findById(positionId)
                 .filter(x -> x.getIsDeleted() == null || x.getIsDeleted() == 0)
                 .orElseThrow(() -> BusinessException.notFound("岗位不存在"));
+
+        // 引用检查（对齐 Python）
+        long userCount = countUsersByField("position_id", positionId);
+        long demandCount = countDemandsByField("position_id", positionId);
+
+        List<String> refs = new ArrayList<>();
+        if (userCount > 0) refs.add(userCount + " 个用户");
+        if (demandCount > 0) refs.add(demandCount + " 个招聘需求");
+        if (!refs.isEmpty()) {
+            throw new BusinessException("HAS_REFERENCES",
+                    "岗位被引用（" + String.join(", ", refs) + "），无法删除，请先停用", 400);
+        }
+
         p.setIsDeleted(1);
         p.setStatus(0);
         positionRepository.save(p);
@@ -482,12 +625,33 @@ public class UserManagementService {
         m.put("realName", u.getRealName());
         m.put("roleCode", u.getRoleCode());
         m.put("deptId", u.getDeptId());
+        m.put("deptName", resolveDeptName(u.getDeptId()));
         m.put("positionId", u.getPositionId());
+        m.put("positionName", resolvePositionName(u.getPositionId()));
         m.put("email", u.getEmail());
         m.put("mobile", u.getMobile());
         m.put("status", u.getStatus());
+        m.put("statusLabel", u.getStatus() != null && u.getStatus() == 1 ? "启用" : "停用");
         m.put("mustChangePassword", u.getMustChangePassword() != null && u.getMustChangePassword() == 1);
         return m;
+    }
+
+    /** 解析部门名称（对齐 Python resolve_dept_name） */
+    private String resolveDeptName(Long deptId) {
+        if (deptId == null) return "—";
+        return deptRepository.findById(deptId)
+                .filter(d -> d.getIsDeleted() == null || d.getIsDeleted() == 0)
+                .map(IamDept::getDeptName)
+                .orElse("—");
+    }
+
+    /** 解析岗位名称（对齐 Python resolve_position_name） */
+    private String resolvePositionName(Long positionId) {
+        if (positionId == null) return "—";
+        return positionRepository.findById(positionId)
+                .filter(p -> p.getIsDeleted() == null || p.getIsDeleted() == 0)
+                .map(IamPosition::getPositionName)
+                .orElse("—");
     }
 
     /** werkzeug generate_password_hash 兼容的 scrypt 哈希（werkzeug 默认 n=32768 r=8 p=1，盐为 ASCII hex 字符，哈希 hex）。 */

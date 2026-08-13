@@ -12,6 +12,8 @@ public interface CandidateRepository extends JpaRepository<Candidate, Long>, Jpa
 
     Optional<Candidate> findFirstByCandidateNameAndIsDeleted(String candidateName, Integer isDeleted);
 
+    Optional<Candidate> findByCandidateNoAndIsDeleted(String candidateNo, Integer isDeleted);
+
     List<Candidate> findByIsDeleted(Integer isDeleted);
 
     List<Candidate> findByMobileHashAndIsDeleted(String mobileHash, Integer isDeleted);

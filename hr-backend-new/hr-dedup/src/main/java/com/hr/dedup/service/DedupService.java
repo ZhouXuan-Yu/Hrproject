@@ -154,7 +154,7 @@ public class DedupService {
         if (duplicateIdsRaw == null || duplicateIdsRaw.isEmpty()) {
             throw BusinessException.invalidInput("缺少 duplicate_ids 参数或格式错误");
         }
-        List<Long> duplicateIds = duplicateIdsRaw.stream().map(this::toLong).collect(Collectors.toList());
+        List<Long> duplicateIds = duplicateIdsRaw.stream().map(v -> toLong(v)).collect(Collectors.toList());
 
         // 校验 primary 存在
         Candidate primary = candidateRepository.findById(primaryId)

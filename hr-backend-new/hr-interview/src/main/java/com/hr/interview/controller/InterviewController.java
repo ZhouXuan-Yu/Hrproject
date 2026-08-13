@@ -24,7 +24,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/interview")
 @RequiredArgsConstructor
-@RequireRole({"admin", "hr", "interviewer", "temp_interviewer", "dept_head"})
+@RequireRole({"admin", "hr", "interviewer", "temp_interviewer", "dept_head", "director"})
 public class InterviewController {
 
     private final InterviewService interviewService;
@@ -105,7 +105,15 @@ public class InterviewController {
     @PostMapping("/{id}/onboard")
     public ApiResponse<Map<String, Object>> onboard(@PathVariable String id,
                                                     @RequestBody(required = false) Map<String, Object> body) {
-        return ApiResponse.success(interviewService.confirmOnboard(interviewService.normalizeBookId(id), body == null ? Map.of() : body));
+        // 对齐 Python: body.user 嵌套格式 → 提取 user 对象传参
+        Map<String, Object> userData = null;
+        if (body != null && body.get("user") instanceof Map<?, ?> u) {
+            Map<String, Object> ud = new java.util.LinkedHashMap<>();
+            u.forEach((k, v) -> ud.put(String.valueOf(k), v));
+            userData = ud;
+        }
+        return ApiResponse.success(interviewService.confirmOnboard(interviewService.normalizeBookId(id),
+                userData != null ? userData : Map.of()));
     }
 
     /**

@@ -1,5 +1,6 @@
 package com.hr.auth.entity;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -17,9 +18,15 @@ import lombok.Data;
 public class IamPosition {
 
     @Id
+    @JsonProperty("id")
     @Column(name = "position_id")
     private Long positionId;
 
+    /** 岗位编号 PO{YYYYMM}{seq:04d} */
+    @Column(name = "position_no", length = 32, unique = true)
+    private String positionNo;
+
+    @JsonProperty("name")
     @Column(name = "position_name")
     private String positionName;
 
