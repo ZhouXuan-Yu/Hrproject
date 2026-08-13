@@ -1,5 +1,6 @@
 package com.hr.interview.controller;
 
+import com.hr.common.annotation.RequireRole;
 import com.hr.common.dto.ApiResponse;
 import com.hr.common.util.SecurityUtils;
 import com.hr.interview.service.InterviewService;
@@ -18,10 +19,12 @@ import java.util.Map;
 
 /**
  * 面试管理接口 /api/interview/*，对齐 Flask api/interview.py。
+ * 角色：admin, hr, interviewer, temp_interviewer, dept_head（对齐 Flask interview_bp 的蓝图级 role guard）。
  */
 @RestController
 @RequestMapping("/api/interview")
 @RequiredArgsConstructor
+@RequireRole({"admin", "hr", "interviewer", "temp_interviewer", "dept_head", "director"})
 public class InterviewController {
 
     private final InterviewService interviewService;
@@ -102,7 +105,15 @@ public class InterviewController {
     @PostMapping("/{id}/onboard")
     public ApiResponse<Map<String, Object>> onboard(@PathVariable String id,
                                                     @RequestBody(required = false) Map<String, Object> body) {
-        return ApiResponse.success(interviewService.confirmOnboard(interviewService.normalizeBookId(id), body == null ? Map.of() : body));
+        // 对齐 Python: body.user 嵌套格式 → 提取 user 对象传参
+        Map<String, Object> userData = null;
+        if (body != null && body.get("user") instanceof Map<?, ?> u) {
+            Map<String, Object> ud = new java.util.LinkedHashMap<>();
+            u.forEach((k, v) -> ud.put(String.valueOf(k), v));
+            userData = ud;
+        }
+        return ApiResponse.success(interviewService.confirmOnboard(interviewService.normalizeBookId(id),
+                userData != null ? userData : Map.of()));
     }
 
     /**

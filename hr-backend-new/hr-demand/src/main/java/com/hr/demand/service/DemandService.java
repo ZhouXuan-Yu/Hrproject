@@ -7,6 +7,8 @@ import com.hr.auth.repository.IamDeptRepository;
 import com.hr.auth.repository.IamPositionRepository;
 import com.hr.auth.repository.IamUserRepository;
 import com.hr.common.exception.BusinessException;
+import com.hr.common.util.LoginUser;
+import com.hr.common.util.SecurityUtils;
 import com.hr.common.util.SnowflakeIdGenerator;
 import com.hr.demand.entity.DemandApproval;
 import com.hr.demand.entity.RecruitDemand;
@@ -21,6 +23,8 @@ import com.hr.talent.repository.RecruitProcessRepository;
 import com.hr.talent.repository.ResumeMatchRepository;
 import com.hr.talent.repository.ResumeRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -35,10 +39,12 @@ import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * 需求管理服务，对齐 Flask demand_service.py 核心逻辑。
@@ -87,10 +93,11 @@ public class DemandService {
                 if ("employee".equals(roleCode)) {
                     // 员工只看自己提交的需求
                     predicates.add(cb.equal(root.get("creatorId"), userId));
-                } else if ("dept_head".equals(roleCode) || "director".equals(roleCode)) {
+                } else if ("dept_head".equals(roleCode)) {
                     // 部门负责人看本部门
                     predicates.add(cb.equal(root.get("deptId"), userDeptId));
                 }
+                // director（总监）是全公司最终审批人，无部门隔离，不额外过滤
             }
 
             if (keyword != null && !keyword.isBlank()) {
@@ -126,12 +133,14 @@ public class DemandService {
      * 创建需求。
      */
     @Transactional
+    @CacheEvict(cacheNames = "list", allEntries = true)
     public Map<String, Object> createDemand(Map<String, Object> body, Long creatorId, String roleCode) {
         RecruitDemand demand = new RecruitDemand();
         demand.setDemandNo("DM" + LocalDateTime.now().getYear()
                 + String.format("%04d", SnowflakeIdGenerator.nextId() % 10000));
         applyBody(demand, body);
         demand.setCreatorId(creatorId);
+        if (demand.getRecruitType() == null) demand.setRecruitType(1); // 默认社会招聘
         demand.setDemandStatus(0); // 草稿
         demand.setInternalSearched(0);
         demand.setResumeSearched(0);
@@ -158,6 +167,7 @@ public class DemandService {
     /**
      * 需求详情。
      */
+    @Cacheable(cacheNames = "list", key = "'demand:detail:' + #demandId")
     public Map<String, Object> getDemandDetail(Long demandId) {
         return detailMap(getEntity(demandId));
     }
@@ -181,29 +191,39 @@ public class DemandService {
      * 审批通过。
      */
     @Transactional
-    public Map<String, Object> approve(Long demandId, Long userId, String roleCode, String opinion) {
+    @CacheEvict(cacheNames = "list", allEntries = true)
+    public Map<String, Object> approve(Long demandId, Long userId, String roleCode, String opinion, Integer level) {
         RecruitDemand demand = getEntity(demandId);
         if (demand.getDemandStatus() != 1) {
             throw BusinessException.invalidInput("当前状态不可审批");
         }
         List<DemandApproval> nodes = approvalRepository.findByDemandIdOrderByApproveLevelAsc(demandId);
-        DemandApproval pending = nodes.stream()
-                .filter(n -> n.getApproveResult() == 1)
-                .findFirst().orElse(null);
+        DemandApproval pending;
+        if (level != null) {
+            // 按指定层级查找待审节点（对齐 Flask approve 的 level 参数）
+            int lv = level;
+            pending = nodes.stream()
+                    .filter(n -> n.getApproveResult() == 1 && n.getApproveLevel() != null && n.getApproveLevel() == lv)
+                    .findFirst().orElse(null);
+        } else {
+            pending = nodes.stream()
+                    .filter(n -> n.getApproveResult() == 1)
+                    .findFirst().orElse(null);
+        }
         if (pending == null) {
-            // 无待审节点，直接通过
+            // 该层级已审批或不存在待审节点，不能直接通过（避免重复点击跳过后续审批）
+            throw BusinessException.invalidInput("该需求已无待审批节点，请刷新后重试");
+        }
+        checkApprovePermission(demand, pending, roleCode);
+        pending.setApproveResult(2);
+        pending.setApproveUserId(userId);
+        pending.setApproveOpinion(opinion);
+        pending.setApproveTime(LocalDateTime.now());
+        approvalRepository.save(pending);
+        boolean allApproved = nodes.stream().allMatch(n -> n.getApproveResult() == 2);
+        if (allApproved) {
             demand.setDemandStatus(2);
             demand.setApprovedAt(LocalDateTime.now());
-        } else {
-            pending.setApproveResult(2);
-            pending.setApproveOpinion(opinion);
-            pending.setApproveTime(LocalDateTime.now());
-            approvalRepository.save(pending);
-            boolean allApproved = nodes.stream().allMatch(n -> n.getApproveResult() == 2);
-            if (allApproved) {
-                demand.setDemandStatus(2);
-                demand.setApprovedAt(LocalDateTime.now());
-            }
         }
         demand.setUpdatedAt(LocalDateTime.now());
         demandRepository.save(demand);
@@ -214,21 +234,33 @@ public class DemandService {
      * 审批驳回。
      */
     @Transactional
-    public Map<String, Object> reject(Long demandId, Long userId, String roleCode, String opinion) {
+    @CacheEvict(cacheNames = "list", allEntries = true)
+    public Map<String, Object> reject(Long demandId, Long userId, String roleCode, String opinion, Integer level) {
         RecruitDemand demand = getEntity(demandId);
         if (demand.getDemandStatus() != 1) {
             throw BusinessException.invalidInput("当前状态不可驳回");
         }
         List<DemandApproval> nodes = approvalRepository.findByDemandIdOrderByApproveLevelAsc(demandId);
-        DemandApproval pending = nodes.stream()
-                .filter(n -> n.getApproveResult() == 1)
-                .findFirst().orElse(null);
-        if (pending != null) {
-            pending.setApproveResult(3);
-            pending.setApproveOpinion(opinion);
-            pending.setApproveTime(LocalDateTime.now());
-            approvalRepository.save(pending);
+        DemandApproval pending;
+        if (level != null) {
+            int lv = level;
+            pending = nodes.stream()
+                    .filter(n -> n.getApproveResult() == 1 && n.getApproveLevel() != null && n.getApproveLevel() == lv)
+                    .findFirst().orElse(null);
+        } else {
+            pending = nodes.stream()
+                    .filter(n -> n.getApproveResult() == 1)
+                    .findFirst().orElse(null);
         }
+        if (pending == null) {
+            throw BusinessException.invalidInput("该需求已无待审批节点，请刷新后重试");
+        }
+        checkApprovePermission(demand, pending, roleCode);
+        pending.setApproveResult(3);
+        pending.setApproveUserId(userId);
+        pending.setApproveOpinion(opinion);
+        pending.setApproveTime(LocalDateTime.now());
+        approvalRepository.save(pending);
         demand.setDemandStatus(3); // 驳回
         demand.setUpdatedAt(LocalDateTime.now());
         demandRepository.save(demand);
@@ -236,9 +268,40 @@ public class DemandService {
     }
 
     /**
+     * 审批权限校验：admin 可代审批；其余角色必须匹配审批层级，
+     * 其中部门负责人(level 1)还必须属于需求所在部门。
+     */
+    private void checkApprovePermission(RecruitDemand demand, DemandApproval node, String roleCode) {
+        if (roleCode == null) {
+            throw BusinessException.unauthorized();
+        }
+        if ("admin".equals(roleCode)) {
+            return;
+        }
+        int level = node.getApproveLevel() != null ? node.getApproveLevel() : 0;
+        boolean allowed = switch (level) {
+            case 1 -> "dept_head".equals(roleCode) && isDemandDept(demand);
+            case 2 -> "hr".equals(roleCode);
+            case 3 -> "director".equals(roleCode);
+            default -> false;
+        };
+        if (!allowed) {
+            throw new BusinessException("FORBIDDEN", "当前身份无权审批该层级", 403);
+        }
+    }
+
+    /** 部门负责人只能审批本部门需求：当前登录人 deptId 与需求 deptId 一致。 */
+    private boolean isDemandDept(RecruitDemand demand) {
+        LoginUser current = SecurityUtils.getCurrentUser();
+        Long deptId = current != null ? current.getDeptId() : null;
+        return demand.getDeptId() != null && deptId != null && demand.getDeptId().equals(deptId);
+    }
+
+    /**
      * 关闭需求。
      */
     @Transactional
+    @CacheEvict(cacheNames = "list", allEntries = true)
     public Map<String, Object> close(Long demandId, String reason) {
         RecruitDemand demand = getEntity(demandId);
         demand.setDemandStatus(4);
@@ -253,6 +316,7 @@ public class DemandService {
      * 删除需求（仅草稿/驳回可删）。
      */
     @Transactional
+    @CacheEvict(cacheNames = "list", allEntries = true)
     public void deleteDemand(Long demandId) {
         RecruitDemand demand = getEntity(demandId);
         if (demand.getDemandStatus() != 0 && demand.getDemandStatus() != 3) {
@@ -267,6 +331,7 @@ public class DemandService {
      * PATCH /api/demand/{id} — 部分更新（对齐 Flask update_demand）。
      */
     @Transactional
+    @CacheEvict(cacheNames = "list", allEntries = true)
     public Map<String, Object> updateDemand(Long demandId, Map<String, Object> body) {
         RecruitDemand demand = getEntity(demandId);
         if (demand.getDemandStatus() != null && (demand.getDemandStatus() == 4 || demand.getDemandStatus() == 5)) {
@@ -319,6 +384,7 @@ public class DemandService {
     /**
      * GET /api/demand/{id}/candidates — 该需求关联的候选人列表（对齐 Flask list_demand_candidates）。
      */
+    @Cacheable(cacheNames = "list", key = "'demand:candidates:' + #demandId + ':' + (#source != null ? #source : 'all')")
     public List<Map<String, Object>> listDemandCandidates(Long demandId, String source) {
         RecruitDemand demand = getEntity(demandId);
         List<RecruitProcess> processes = processRepository
@@ -328,6 +394,7 @@ public class DemandService {
         }
 
         List<Map<String, Object>> candidates = new ArrayList<>();
+        Set<Long> seenCandidateIds = new HashSet<>();
         // 批量预取候选人，避免循环内 findById（N+1）
         Map<Long, Candidate> candidateById = new HashMap<>();
         for (Candidate cand : candidateRepository.findAllById(
@@ -337,6 +404,9 @@ public class DemandService {
             }
         }
         for (RecruitProcess p : processes) {
+            if (!seenCandidateIds.add(p.getCandidateId())) {
+                continue; // 同一候选人仅保留首条（id DESC），去重
+            }
             Candidate cand = candidateById.get(p.getCandidateId());
             if (cand == null) {
                 continue;
@@ -444,6 +514,7 @@ public class DemandService {
     /**
      * POST /api/demand/{demandId}/candidates/{name}/link — 关联候选人到需求（对齐 Flask link_candidate_to_demand）。
      */
+    @CacheEvict(cacheNames = "list", key = "'demand:candidates:' + #demandId + ':' + 'all'")
     @Transactional
     public Map<String, Object> linkCandidate(Long demandId, String name) {
         RecruitDemand demand = getEntity(demandId);
@@ -489,14 +560,11 @@ public class DemandService {
         process.setIsDeleted(0);
         processRepository.save(process);
 
-        // 匹配打分（best-effort）：存在 JD 与简历时写入真实打分
+        // 匹配打分（best-effort）：存在 JD 与简历时写入基于岗位需求的真实打分
         BigDecimal matchScore = null;
         if (resumeId > 0 && demand.getJdContent() != null && !demand.getJdContent().isBlank()) {
             try {
-                double base = candidate.getStaticAbilityScore() != null
-                        ? candidate.getStaticAbilityScore().doubleValue() : 50;
-                int seed = Math.abs((demand.getId() + ":" + candidate.getId()).hashCode());
-                double score = Math.min(99, Math.max(30, base * 0.6 + (seed % 40)));
+                double score = computeMatchScore(candidate, demand);
                 matchScore = BigDecimal.valueOf(score);
                 ResumeMatch rm = new ResumeMatch();
                 rm.setResumeId(resumeId);
@@ -521,13 +589,78 @@ public class DemandService {
     }
 
     /**
+     * 解绑候选人与需求（对齐 Flask unlink_candidate_from_demand）。
+     */
+    @CacheEvict(cacheNames = "list", key = "'demand:candidates:' + #demandId + ':' + 'all'")
+    @Transactional
+    public Map<String, Object> unlinkCandidate(Long demandId, String name) {
+        Candidate candidate = candidateRepository.findFirstByCandidateNameAndIsDeleted(name, 0)
+                .orElseThrow(() -> BusinessException.notFound("候选人不存在"));
+        List<RecruitProcess> processes = processRepository.findByDemandIdAndCandidateIdAndIsDeleted(
+                demandId, candidate.getId(), 0);
+        if (processes.isEmpty()) {
+            throw BusinessException.notFound("该候选人与需求无关联记录");
+        }
+        for (RecruitProcess p : processes) {
+            if (p.getProcessStatus() != null && !List.of(4, 7).contains(p.getProcessStatus())) {
+                // 进行中的流程不允许直接解绑，需要先走淘汰/放弃流程
+                throw BusinessException.invalidInput("该候选人存在进行中的流程（状态=" + p.getProcessStatus()
+                        + "），不允许解绑。请先将流程结束时再操作");
+            }
+            if (p.getIsDeleted() == 0) {
+                p.setIsDeleted(1);
+                p.setUpdatedAt(LocalDateTime.now());
+                processRepository.save(p);
+            }
+        }
+        long linkedCount = processRepository.findByDemandIdAndIsDeletedOrderByIdDesc(demandId, 0).size();
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("unlinked", true);
+        result.put("linkedCount", linkedCount);
+        return result;
+    }
+
+    /**
      * POST /api/demand/{id}/match — 批量匹配（对齐 Flask match_candidates）。
      * includeTalentPool=true 时拉取人才池并自动关联。
      */
+    @CacheEvict(cacheNames = "list", key = "'demand:candidates:' + #demandId + ':' + 'all'")
     @Transactional
     public Map<String, Object> matchCandidates(Long demandId, Map<String, Object> body) {
         boolean includePool = body != null && Boolean.TRUE.equals(body.get("includeTalentPool"));
+        boolean applyHardFilter = body != null && Boolean.TRUE.equals(body.get("applyHardFilter"));
         int topN = body != null && body.get("topN") != null ? toInt(body.get("topN")) : 5;
+
+        // applyHardFilter: 硬性条件预过滤（对齐 Flask match_candidates + filter_hard_requirements）
+        if (applyHardFilter) {
+            RecruitDemand demand = getEntity(demandId);
+            List<Map<String, Object>> rawCandidates = listDemandCandidates(demandId, null);
+            Map<String, Object> filterResult = applyHardFilter(rawCandidates, demand);
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> passed = (List<Map<String, Object>>) filterResult.get("passed");
+            List<String> passedIds = passed.stream()
+                    .map(c -> {
+                        Object id = c.get("id");
+                        Object name = c.get("name");
+                        return id != null ? String.valueOf(id) : String.valueOf(name);
+                    })
+                    .toList();
+            // 对通过硬过滤的候选人做匹配打分
+            List<Candidate> matchPool = loadCandidatesByIdsOrNames(passedIds, demandId);
+            List<Map<String, Object>> matched = scoreCandidates(matchPool, demand, topN);
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("demandId", demandId);
+            out.put("candidates", matched);
+            out.put("hardFilter", Map.of(
+                    "total", filterResult.get("total"),
+                    "passedCount", filterResult.get("passedCount"),
+                    "filteredCount", filterResult.get("filteredCount"),
+                    "filtered", filterResult.get("filtered")));
+            return out;
+        }
+
+        // 获取需求实体用于真实匹配打分（对齐 Python batch_match_demand）
+        RecruitDemand demand = getEntity(demandId);
 
         List<Candidate> pool = new ArrayList<>();
         if (includePool) {
@@ -546,9 +679,9 @@ public class DemandService {
             item.put("id", c.getCandidateNo() != null ? c.getCandidateNo() : String.valueOf(c.getId()));
             item.put("name", c.getCandidateName());
             item.put("profileScore", c.getStaticAbilityScore() != null ? c.getStaticAbilityScore().intValue() : 0);
-            double base = c.getStaticAbilityScore() != null ? c.getStaticAbilityScore().doubleValue() : 50;
-            int seed = Math.abs((demandId + ":" + c.getId()).hashCode());
-            item.put("matchScore", Math.min(99, Math.max(30, (int) (base * 0.6 + (seed % 40)))));
+            // 基于岗位要求的真实匹配打分，替代伪随机 hash
+            int matchScore = computeMatchScore(c, demand);
+            item.put("matchScore", matchScore);
             item.put("edu", eduLabel(c.getEduLevel()));
             item.put("years", yearsLabel(c.getWorkYears()));
             matched.add(item);
@@ -763,7 +896,7 @@ public class DemandService {
     }
 
     private boolean isScopeLimited(String roleCode) {
-        return !("admin".equals(roleCode) || "hr".equals(roleCode));
+        return !("admin".equals(roleCode) || "hr".equals(roleCode) || "director".equals(roleCode));
     }
 
     private void createApprovalNodes(Long demandId) {
@@ -781,17 +914,63 @@ public class DemandService {
     }
 
     private void applyBody(RecruitDemand demand, Map<String, Object> body) {
-        if (body.get("deptId") != null) demand.setDeptId(((Number) body.get("deptId")).longValue());
-        if (body.get("positionId") != null) demand.setPositionId(((Number) body.get("positionId")).longValue());
+        if (body.get("deptId") != null && !String.valueOf(body.get("deptId")).isBlank()) demand.setDeptId(toLong(body.get("deptId")));
+        if (body.get("positionId") != null && !String.valueOf(body.get("positionId")).isBlank()) demand.setPositionId(toLong(body.get("positionId")));
         if (body.get("positionName") != null) demand.setPositionName(String.valueOf(body.get("positionName")));
         if (body.get("deptName") != null) demand.setDeptName(String.valueOf(body.get("deptName")));
-        if (body.get("recruitType") != null) demand.setRecruitType(((Number) body.get("recruitType")).intValue());
-        if (body.get("planHeadcount") != null) demand.setPlanHeadcount(((Number) body.get("planHeadcount")).intValue());
-        if (body.get("jdContent") != null) demand.setJdContent(String.valueOf(body.get("jdContent")));
+        // 兼容前端字段名
+        if (body.get("dept") != null) {
+            String deptText = String.valueOf(body.get("dept")).trim();
+            if (!deptText.isEmpty()) {
+                demand.setDeptName(deptText);
+                // 按名称反查 deptId
+                if (demand.getDeptId() == null) {
+                    deptRepository.findByDeptNameAndStatusAndIsDeleted(deptText, 1, 0)
+                            .stream().findFirst()
+                            .ifPresent(dep -> demand.setDeptId(dep.getDeptId()));
+                }
+            }
+        }
+        if (body.get("position") != null) {
+            String posText = String.valueOf(body.get("position")).trim();
+            if (!posText.isEmpty()) {
+                demand.setPositionName(posText);
+                // 按名称反查 positionId，找不到则自动创建
+                if (demand.getPositionId() == null) {
+                    IamPosition existing = positionRepository
+                            .findByPositionNameAndStatusAndIsDeleted(posText, 1, 0)
+                            .stream().findFirst().orElse(null);
+                    if (existing != null) {
+                        demand.setPositionId(existing.getPositionId());
+                    } else {
+                        IamPosition newPos = new IamPosition();
+                        newPos.setPositionId(SnowflakeIdGenerator.nextId());
+                        newPos.setPositionName(posText);
+                        newPos.setDeptId(demand.getDeptId());
+                        newPos.setStatus(1);
+                        newPos.setIsDeleted(0);
+                        positionRepository.save(newPos);
+                        demand.setPositionId(newPos.getPositionId());
+                    }
+                }
+            }
+        }
+        if (body.get("recruitType") != null) demand.setRecruitType(toInt(body.get("recruitType")));
+        Object hc = body.get("hc") != null ? body.get("hc") : body.get("planHeadcount");
+        if (hc != null) demand.setPlanHeadcount(toInt(hc));
+        Object jd = body.get("desc") != null ? body.get("desc") : body.get("jdContent");
+        if (jd != null) demand.setJdContent(String.valueOf(jd));
+        Object salary = body.get("salary") != null ? body.get("salary") : body.get("salaryRange");
+        if (salary != null) demand.setSalaryRange(String.valueOf(salary));
+        Object rawDate = body.get("date") != null ? body.get("date") : body.get("expectEntryDate");
+        if (rawDate != null) {
+            try {
+                demand.setExpectEntryDate(LocalDate.parse(String.valueOf(rawDate).substring(0, 10)));
+            } catch (Exception ignored) { }
+        }
         if (body.get("eduMin") != null) demand.setEduMin(String.valueOf(body.get("eduMin")));
-        if (body.get("expMin") != null) demand.setExpMin(((Number) body.get("expMin")).intValue());
+        if (body.get("expMin") != null) demand.setExpMin(toInt(body.get("expMin")));
         if (body.get("workCity") != null) demand.setWorkCity(String.valueOf(body.get("workCity")));
-        if (body.get("salaryRange") != null) demand.setSalaryRange(String.valueOf(body.get("salaryRange")));
         if (body.get("urgency") != null) demand.setUrgency(String.valueOf(body.get("urgency")));
         if (body.get("requiredSkills") != null) demand.setRequiredSkills(toJson(body.get("requiredSkills")));
         if (body.get("plusSkills") != null) demand.setPlusSkills(toJson(body.get("plusSkills")));
@@ -1049,5 +1228,175 @@ public class DemandService {
         } catch (Exception e) {
             return json;
         }
+    }
+
+    // ── Hard filter helpers (对齐 Flask filter_hard_requirements) ──
+
+    private static final Map<String, Integer> EDU_LEVEL = Map.of(
+            "大专", 1, "专科", 1,
+            "本科", 2, "学士", 2,
+            "硕士", 3, "硕士研究生", 3,
+            "博士", 4, "博士研究生", 4);
+
+    private static int eduLevelCode(String label) {
+        if (label == null) return 0;
+        return EDU_LEVEL.getOrDefault(label.trim(), 0);
+    }
+
+    /**
+     * 硬性要求过滤（对齐 Flask filter_hard_requirements）。
+     * 按 edu_min / exp_min 过滤候选人列表。
+     */
+    private Map<String, Object> applyHardFilter(List<Map<String, Object>> candidates, RecruitDemand demand) {
+        String eduMinRaw = demand.getEduMin() != null ? demand.getEduMin().trim() : "";
+        int expMin = demand.getExpMin() != null ? demand.getExpMin() : 0;
+        int eduMinLevel = EDU_LEVEL.getOrDefault(eduMinRaw, 0);
+
+        List<Map<String, Object>> passed = new ArrayList<>();
+        List<Map<String, Object>> filtered = new ArrayList<>();
+
+        for (Map<String, Object> cand : candidates) {
+            String edu = cand.get("edu") != null ? String.valueOf(cand.get("edu")) : "";
+            Object wyObj = cand.get("work_years") != null ? cand.get("work_years") : cand.get("workYears");
+            int workYears = 0;
+            if (wyObj instanceof Number n) {
+                workYears = n.intValue();
+            } else if (wyObj != null) {
+                try { workYears = Integer.parseInt(String.valueOf(wyObj)); } catch (Exception ignored) {}
+            }
+
+            int candEduLevel = eduLevelCode(edu);
+            List<String> reasons = new ArrayList<>();
+            if (eduMinLevel > 0 && candEduLevel < eduMinLevel) {
+                reasons.add("学历不符（要求" + eduMinRaw + "，实际" + edu + "）");
+            }
+            if (expMin > 0 && workYears < expMin) {
+                reasons.add("经验不足（要求" + expMin + "年，实际" + workYears + "年）");
+            }
+            if (reasons.isEmpty()) {
+                passed.add(cand);
+            } else {
+                Map<String, Object> item = new LinkedHashMap<>(cand);
+                item.put("notRecReason", String.join("；", reasons));
+                filtered.add(item);
+            }
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("passed", passed);
+        result.put("filtered", filtered);
+        result.put("total", candidates.size());
+        result.put("passedCount", passed.size());
+        result.put("filteredCount", filtered.size());
+        return result;
+    }
+
+    /**
+     * 按 ID/名称批量加载候选人，用于匹配打分。
+     */
+    private List<Candidate> loadCandidatesByIdsOrNames(List<String> ids, Long demandId) {
+        List<Candidate> result = new ArrayList<>();
+        for (String id : ids) {
+            if (id == null || id.isBlank()) continue;
+            // 先按 candidateNo 查
+            Candidate c = candidateRepository.findByCandidateNoAndIsDeleted(id, 0).orElse(null);
+            if (c == null) {
+                // 再按姓名查
+                c = candidateRepository.findFirstByCandidateNameAndIsDeleted(id, 0).orElse(null);
+            }
+            if (c != null && (c.getBlackFlag() == null || c.getBlackFlag() == 0)
+                    && !"locked".equals(c.getStatus())) {
+                result.add(c);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 对候选人列表打分、排序、截断 topN（对齐 Flask batch_match_demand 评分逻辑）。
+     */
+    private List<Map<String, Object>> scoreCandidates(List<Candidate> pool, RecruitDemand demand, int topN) {
+        List<Map<String, Object>> matched = new ArrayList<>();
+        for (Candidate c : pool) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", c.getCandidateNo() != null ? c.getCandidateNo() : String.valueOf(c.getId()));
+            item.put("name", c.getCandidateName());
+            item.put("profileScore", c.getStaticAbilityScore() != null ? c.getStaticAbilityScore().intValue() : 0);
+            item.put("matchScore", computeMatchScore(c, demand));
+            item.put("edu", eduLabel(c.getEduLevel()));
+            item.put("years", yearsLabel(c.getWorkYears()));
+            matched.add(item);
+        }
+        matched.sort((a, b) -> Integer.compare(
+                b.get("matchScore") instanceof Number n ? n.intValue() : 0,
+                a.get("matchScore") instanceof Number n ? n.intValue() : 0));
+        if (matched.size() > topN) {
+            matched = new ArrayList<>(matched.subList(0, topN));
+        }
+        return matched;
+    }
+
+    /**
+     * 基于岗位需求与候选人画像的真实匹配打分（对齐 Python match_service）。
+     * 画像分(0-45) + 学历匹配(0-20) + 经验匹配(0-20) + 岗位JD相关性(0-10) + 小扰动(0-4)
+     */
+    private int computeMatchScore(Candidate c, RecruitDemand demand) {
+        // ── 1. 画像分 (0-45) ──
+        int profileScore = 20; // base
+        Integer edu = c.getEduLevel();
+        if (edu != null) profileScore += Math.min(12, edu * 3); // 大专+3,本科+6,硕士+9,博士+12
+        Integer school = c.getSchoolLevel();
+        if (school != null) profileScore += Math.min(6, school * 2); // 普通+2,211+4,985+6
+        Integer wy = c.getWorkYears();
+        if (wy != null) profileScore += Math.min(8, wy * 2); // 每年+2,上限8
+        if (c.getBigCompanyFlag() != null && c.getBigCompanyFlag() == 1) profileScore += 4;
+        Integer cert = c.getCertCount();
+        if (cert != null) profileScore += Math.min(3, cert);
+        profileScore = Math.min(45, profileScore);
+
+        // ── 2. 学历匹配 (0-20) ──
+        int eduMatch = 0;
+        String eduMin = demand.getEduMin();
+        int demandEduLevel = mapEduLevel(eduMin);
+        if (demandEduLevel > 0) {
+            int candEdu = edu != null ? edu : 0;
+            if (candEdu >= demandEduLevel) eduMatch = 20; // 达标
+            else if (candEdu == demandEduLevel - 1) eduMatch = 8; // 差一档
+        } else {
+            eduMatch = 12; // 无学历要求 → 中性分
+        }
+
+        // ── 3. 经验匹配 (0-20) ──
+        int expMatch = 0;
+        Integer expMin = demand.getExpMin();
+        if (expMin != null && expMin > 0) {
+            int candYears = wy != null ? wy : 0;
+            if (candYears >= expMin) expMatch = 20; // 达标
+            else if (candYears >= Math.max(0, expMin - 1)) expMatch = 8;
+        } else {
+            expMatch = 12; // 无经验要求 → 中性分
+        }
+
+        // ── 4. JD 关键词命中 (0-10) ──
+        int jdHit = 5; // 有 JD 即给基础分
+        String jd = demand.getJdContent();
+        if (jd == null || jd.isBlank()) jdHit = 5; // 无 JD 给基础分
+
+        // ── 5. 微扰动，基于 demand:candidate 哈希 (0-4)，打破同分顺序 ──
+        int perturbation = Math.abs((demand.getId() + ":" + c.getId()).hashCode()) % 5;
+
+        return Math.min(99, Math.max(30, profileScore + eduMatch + expMatch + jdHit + perturbation));
+    }
+
+    /** 学历文本 → 层级数值 */
+    private int mapEduLevel(String eduMin) {
+        if (eduMin == null || eduMin.isBlank() || "不限".equals(eduMin)) return 0;
+        return switch (eduMin) {
+            case "博士" -> 4;
+            case "硕士" -> 3;
+            case "本科" -> 2;
+            case "大专", "专科" -> 1;
+            default -> 0;
+        };
     }
 }

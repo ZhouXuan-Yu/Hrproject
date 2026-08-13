@@ -209,7 +209,7 @@ const departments = ref([]);
 async function loadDepartments() {
   try {
     const depts = await fetchDepartments();
-    departments.value = (depts || []).map(d => d.name || d);
+    departments.value = (depts || []).map(d => d.deptName || d.name || d);
   } catch { departments.value = []; }
 }
 
@@ -271,7 +271,7 @@ function canEdit(d) {
 }
 
 function canDelete(d) {
-  return !!d && ['draft', 'rejected', 'cancelled', 'open', 'closed'].includes(d.status);
+  return !!d && ['draft', 'rejected', 'cancelled', 'closed'].includes(d.status);
 }
 
 function activeEngagementReason(d) {
@@ -560,7 +560,7 @@ async function removeDemand(d) {
     await askConfirm({
       title: '无法删除需求',
       message: `需求「${d.id} ${d.position}」当前状态不允许删除。`,
-      detail: '只有草稿、驳回、招聘中、已关闭或取消的需求可以进入删除校验。',
+      detail: '只有草稿、已驳回、已关闭或已取消的需求可以删除。审批中和招聘中的需求需先驳回或关闭。',
       type: 'warning',
       confirmText: '我知道了',
       showCancel: false,

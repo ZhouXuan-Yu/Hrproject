@@ -13,6 +13,9 @@ public interface IamUserRepository extends JpaRepository<IamUser, Long>, JpaSpec
 
     Optional<IamUser> findByEmployeeNo(String employeeNo);
 
+    /** 按真实姓名查第一个有效用户（用于获取 feishu_open_id）。 */
+    Optional<IamUser> findFirstByRealNameAndStatusAndIsDeleted(String realName, Integer status, Integer isDeleted);
+
     Optional<IamUser> findByUsernameOrEmployeeNo(String username, String employeeNo);
 
     /**
@@ -30,4 +33,18 @@ public interface IamUserRepository extends JpaRepository<IamUser, Long>, JpaSpec
 
     @org.springframework.data.jpa.repository.Query("SELECT COALESCE(MAX(u.userId), 0) FROM IamUser u")
     Long maxUserId();
+
+    @org.springframework.data.jpa.repository.Query(value =
+            "SELECT MAX(u.employee_no) FROM t_core_user u WHERE u.employee_no LIKE :prefix AND u.is_deleted = 0",
+            nativeQuery = true)
+    String maxEmployeeNoLike(@org.springframework.data.repository.query.Param("prefix") String prefix);
+
+    List<IamUser> findByRoleCodeInAndStatusAndIsDeleted(List<String> roleCodes, Integer status, Integer isDeleted);
+
+    /** 按部门统计在职员工数（status=1, is_deleted=0），返回 [deptId, count] */
+    @org.springframework.data.jpa.repository.Query(value =
+            "SELECT dept_id, COUNT(*) FROM t_core_user WHERE status = 1 " +
+            "AND (is_deleted = 0 OR is_deleted IS NULL) AND dept_id IS NOT NULL " +
+            "GROUP BY dept_id", nativeQuery = true)
+    List<Object[]> countUsersByDept();
 }

@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.services.deepseek_client import chat_completion_stream
+from app.services.deepseek_client import chat_completion_stream, set_request_api_key
 from app.services.workflow_engine import (STREAM_WORKFLOWS, WORKFLOWS,
                                           run_workflow)
 
@@ -53,8 +53,9 @@ def capabilities():
 
 
 @router.post("/run/{workflow}")
-def run(workflow: str, req: WorkflowRequest):
+def run(workflow: str, req: WorkflowRequest, request: Request):
     """执行指定 AI 工作流。"""
+    set_request_api_key(request.headers.get("X-DeepSeek-Key", ""))
     if workflow not in WORKFLOWS:
         raise HTTPException(status_code=400, detail={"code": "UNKNOWN_WORKFLOW", "message": f"未知工作流: {workflow}"})
     try:
@@ -68,8 +69,9 @@ def run(workflow: str, req: WorkflowRequest):
 
 
 @router.post("/stream/{workflow}")
-async def stream(workflow: str, req: WorkflowRequest):
+async def stream(workflow: str, req: WorkflowRequest, request: Request):
     """SSE 流式执行工作流。"""
+    set_request_api_key(request.headers.get("X-DeepSeek-Key", ""))
     if workflow not in STREAM_WORKFLOWS:
         raise HTTPException(status_code=400, detail={"code": "UNKNOWN_WORKFLOW", "message": f"不支持流式的工作流: {workflow}"})
 
@@ -102,10 +104,10 @@ def _build_stream_messages(workflow: str, data: dict) -> list:
         role = data.get('role') or data.get('position') or ''
         dept = data.get('dept') or data.get('department') or ''
         return [
-            {"role": "system", "content": workflow_engine.JD_GENERATE_SYSTEM},
+            {"role": "system", "content": workflow_engine.JD_GENERATE_STREAM_SYSTEM},
             {"role": "user", "content": f"岗位名称：{role}，部门：{dept}。请生成完整 JD。"},
         ]
-    if workflow == "match-score":
+    if workflow in ("match-score", "match"):
         jd = data.get('jd') or ''
         candidate = data.get('candidate') or {}
         text = f"岗位描述：{jd}\n候选人：{candidate}"

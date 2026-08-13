@@ -21,6 +21,14 @@
             <artifactId>hr-config</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.hr</groupId>
+            <artifactId>hr-talent</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.hr</groupId>
+            <artifactId>hr-demand</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>

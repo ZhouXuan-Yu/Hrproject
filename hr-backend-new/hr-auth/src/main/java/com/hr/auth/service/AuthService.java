@@ -13,7 +13,10 @@ import com.hr.common.enums.RoleMenus;
 import com.hr.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.mail.SimpleMailMessage;
+import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -43,6 +46,10 @@ public class AuthService {
     private final TokenProvider tokenProvider;
     private final WerkzeugPasswordEncoder passwordEncoder;
     private final RedisTemplate<String, Object> redisTemplate;
+
+    /** 可选：配置 SMTP 后自动注入，未配置时为 null */
+    @Autowired(required = false)
+    private JavaMailSender mailSender;
 
     public ApiResponse<LoginResponse> login(LoginRequest req, String ip) {
         String username = req.getUsername() == null ? "" : req.getUsername().trim();
@@ -208,6 +215,110 @@ public class AuthService {
     }
 
     /**
+     * POST /api/auth/register — 自助注册（第一个用户自动 admin，后续 employee）。
+     * 对齐 Flask api/auth.py register()。
+     * Body: { email, code, realName, mobile?, password }
+     */
+    @Transactional
+    public Map<String, Object> register(Map<String, Object> body) {
+        String email = body != null && body.get("email") != null
+                ? String.valueOf(body.get("email")).trim() : "";
+        String code = body != null && body.get("code") != null
+                ? String.valueOf(body.get("code")).trim() : "";
+        String realName = body != null && body.get("realName") != null
+                ? String.valueOf(body.get("realName")).trim() : "";
+        String mobile = body != null && body.get("mobile") != null
+                ? String.valueOf(body.get("mobile")).trim() : "";
+        String password = body != null && body.get("password") != null
+                ? String.valueOf(body.get("password")).trim() : "";
+
+        if (email.isEmpty() || code.isEmpty() || realName.isEmpty() || password.isEmpty()) {
+            throw BusinessException.invalidInput("请填写完整信息");
+        }
+        if (password.length() < 6) {
+            throw BusinessException.invalidInput("密码至少6位");
+        }
+
+        // 判断是手机号还是邮箱
+        boolean isPhone = email.matches("^1[3-9]\\d{9}$");
+        String target = isPhone ? email : email.toLowerCase();
+        String lookupKey = isPhone ? "mobile" : "email";
+
+        // 查重
+        boolean exists = userRepository.findAll((root, query, cb) -> {
+            var predicates = new java.util.ArrayList<jakarta.persistence.criteria.Predicate>();
+            predicates.add(cb.equal(root.get("isDeleted"), 0));
+            if (isPhone) {
+                predicates.add(cb.equal(root.get("mobile"), target));
+            } else {
+                predicates.add(cb.equal(root.get("email"), target));
+            }
+            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
+        }).stream().findAny().isPresent();
+        if (exists) {
+            throw new BusinessException("DUPLICATE", "该账号已注册", 409);
+        }
+
+        // 验证验证码（复用 PasswordResetToken 表）
+        LocalDateTime now = LocalDateTime.now();
+        PasswordResetToken reset = resetTokenRepository
+                .findFirstByTargetAndTokenAndStatusAndIsDeletedOrderByIdDesc(
+                        target, code, "pending", 0)
+                .filter(t -> t.getExpiresAt() != null && t.getExpiresAt().isAfter(now))
+                .orElseThrow(() -> new BusinessException("INVALID_CODE", "验证码错误或已过期", 400));
+
+        // 标记验证码已使用
+        reset.setStatus("used");
+        reset.setUsedAt(now);
+        resetTokenRepository.save(reset);
+
+        // 判断角色：第一个用户为 admin
+        long totalUsers = userRepository.findAll((root, query, cb) ->
+                cb.equal(root.get("isDeleted"), 0)).size();
+        String roleCode = totalUsers == 0 ? "admin" : "employee";
+
+        // 生成 username
+        String username;
+        if (isPhone) {
+            username = "user" + email.substring(email.length() - 4);
+        } else {
+            username = email.split("@")[0];
+        }
+        // 去重 username
+        String baseUsername = username;
+        int suffix = 1;
+        while (userRepository.findByUsername(username).isPresent()) {
+            username = baseUsername + suffix;
+            suffix++;
+        }
+
+        Long maxId = userRepository.maxUserId();
+        IamUser user = new IamUser();
+        user.setUserId(maxId != null ? Math.max(100, maxId + 1) : 100L);
+        user.setUsername(username);
+        user.setEmployeeNo(username);
+        user.setRealName(realName);
+        user.setRoleCode(roleCode);
+        user.setEmail(isPhone ? null : target);
+        user.setMobile(isPhone ? target : (mobile.isEmpty() ? null : mobile));
+        user.setPasswordHash(UserManagementService.werkzeugScrypt(password));
+        user.setMustChangePassword(0);
+        user.setStatus(1);
+        user.setIsDeleted(0);
+        user.setCreateTime(now);
+        user.setUpdateTime(now);
+        userRepository.save(user);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("userId", user.getUserId());
+        result.put("username", username);
+        result.put("realName", realName);
+        result.put("role", roleCode);
+        result.put("message", "注册成功");
+        return result;
+    }
+
+    /**
      * GET /api/auth/setup-status — 系统是否需要首次管理员设置。
      */
     public Map<String, Object> setupStatus() {
@@ -314,13 +425,36 @@ public class AuthService {
         return maskedName + "@" + domain;
     }
 
-    /** 邮件发送：当前无 SMTP 配置时返回 false 走「联系管理员」分支。 */
+    /** 邮件发送：SMTP 未配置时返回 false，引导用户联系管理员。 */
     private boolean sendResetMail(IamUser user, String code) {
-        // 对齐 Flask mail_sender：本项目邮件通道由 hr-integration 邮箱采集负责，
-        // 自助重置邮件尚未接 SMTP 时，返回 false 引导联系管理员
-        log.info("[PASSWORD_RESET] email={} code={} user={} (SMTP 未配置，跳过真实发送)",
-                user.getEmail(), code, user.getUsername());
-        return false;
+        if (mailSender == null) {
+            log.info("[PASSWORD_RESET] email={} code={} user={} (SMTP 未配置，跳过真实发送)",
+                    user.getEmail(), code, user.getUsername());
+            return false;
+        }
+        try {
+            SimpleMailMessage msg = new SimpleMailMessage();
+            msg.setTo(user.getEmail());
+            msg.setSubject("密码重置验证码 - 智能招聘系统");
+            msg.setText(String.format("""
+                    您好 %s，
+
+                    您的密码重置验证码为：%s
+
+                    验证码 5 分钟内有效，请勿告知他人。
+
+                    如非您本人操作，请忽略此邮件。
+
+                    —— 智能招聘系统""",
+                    user.getRealName() != null ? user.getRealName() : user.getUsername(),
+                    code));
+            mailSender.send(msg);
+            log.info("[PASSWORD_RESET] 验证码邮件已发送至 {}", user.getEmail());
+            return true;
+        } catch (Exception e) {
+            log.error("[PASSWORD_RESET] 邮件发送失败 email={} error={}", user.getEmail(), e.getMessage());
+            return false;
+        }
     }
 
     // ── 登录失败锁定（Redis 存储） ────────────────────────────

@@ -17,8 +17,29 @@ WORKFLOWS: dict[str, Callable[[dict], dict]] = {}
 # ── System prompts ────────────────────────────────────────────────────────
 
 JD_GENERATE_SYSTEM = (
-    "你是资深招聘专家，根据岗位名称和部门生成一份专业的岗位描述(JD)。"
-    "包含：岗位职责、任职要求、技能要求、加分项。用中文回答。"
+    "你是资深招聘专家，负责为招聘系统生成规范的岗位说明书(JD)。"
+    "根据岗位名称和部门，生成内容全面、具体、真实、可直接用于正式招聘发布的 JD。"
+    "必须严格返回 JSON 对象（不要输出 markdown 代码块，直接输出 JSON），字段如下：\n"
+    '{\n'
+    '  "position": "岗位名称",\n'
+    '  "department": "所属部门",\n'
+    '  "jd_text": "完整 JD 全文（markdown 格式，含岗位概述/岗位职责/任职要求/加分项等章节）",\n'
+    '  "responsibilities": ["岗位职责（5-8 条，具体可执行，不要套话）"],\n'
+    '  "required_skills": [{"name": "必备技能", "weight": "必须", "description": "要求说明"}],\n'
+    '  "plus_skills": [{"name": "加分技能", "description": "说明"}],\n'
+    '  "qualifications": {"education": "学历要求", "experience": "经验年限", "industry": "行业经验", "soft": "软素质"}\n'
+    '}\n'
+    "要求：岗位职责要具体、可衡量、贴合该岗位真实工作内容；"
+    "技能要求区分必备与加分；学历/经验/行业要符合该岗位的市场通行标准；"
+    "禁止编造虚假数据，不要空洞套话。"
+)
+
+# 流式接口专用：输出 markdown 正文（而非 JSON），供"思考过程"面板实时展示
+JD_GENERATE_STREAM_SYSTEM = (
+    "你是资深招聘专家，负责为招聘系统撰写规范的岗位说明书(JD)。"
+    "根据岗位名称和部门，用中文输出一份完整的 JD 正文（markdown 格式，不要输出 JSON），"
+    "必须包含以下章节：岗位概述、岗位职责（5-8 条，具体可执行）、任职要求（学历/经验/技能，符合市场通行标准）、加分项。"
+    "内容要全面、真实、专业，可直接用于正式招聘发布，禁止空洞套话和编造虚假数据。"
 )
 
 RESUME_PARSE_SYSTEM = (
@@ -28,12 +49,26 @@ RESUME_PARSE_SYSTEM = (
 
 MATCH_SYSTEM = (
     "你是资深人岗匹配专家，根据岗位描述和候选人信息评估匹配度。"
-    "输出：score(0-100), overallComment, dimensions{salaryExpectation, skillFit, experienceFit, educationFit}。"
+    "必须严格返回 JSON 对象（不要输出 markdown 代码块），字段如下：\n"
+    '{\n'
+    '  "overall_score": 综合匹配得分(0-100 整数),\n'
+    '  "profile_score": 候选人画像分(0-100，基于学历/经验/软素质),\n'
+    '  "match_score": 技能匹配分(0-100，基于技能与岗位契合度),\n'
+    '  "grade": "综合等级 S/A/B/C",\n'
+    '  "strengths": ["匹配优势 3-5 条，具体、贴合候选人"],\n'
+    '  "missing_skills": [{"skill": "待补足技能", "importance": "必备/加分", "note": "补齐建议"}],\n'
+    '  "reasons": ["详细匹配理由 3-5 条"]\n'
+    '}\n'
+    "要求：评分客观有据，理由具体，禁止空洞套话。"
 )
 
 INTERVIEW_QA_SYSTEM = (
-    "你是资深面试官，根据岗位描述和候选人简历生成 5 道面试题。"
-    "输出：questions[{question, focus, difficulty}]。"
+    "你是资深面试官，根据岗位描述和候选人简历生成 5 道针对性面试题。"
+    "必须严格返回 JSON 对象（不要输出 markdown 代码块），字段如下：\n"
+    '{\n'
+    '  "questions": [{"question": "面试问题", "dimension": "考察维度(技术能力/项目经验/沟通协作/职业动机等)", "expected_answer_hints": ["回答要点提示"]}]\n'
+    '}\n'
+    "要求：问题具体、有区分度、贴合岗位与候选人背景，维度覆盖全面，禁止套话。"
 )
 
 TALENT_SEARCH_SYSTEM = (
@@ -69,12 +104,22 @@ def jd_generate(data: dict) -> dict:
     role = data.get('role') or data.get('position') or ''
     dept = data.get('dept') or data.get('department') or ''
     user_input = f"岗位名称：{role}，部门：{dept}。请生成完整 JD。"
+    jd_text = (
+        f"## 岗位概述\n{dept}拟招聘{role}，负责本岗位日常事务与部门协作。\n\n"
+        f"## 岗位职责\n- 负责{role}相关日常工作\n- 协助上级完成部门事务性工作\n\n"
+        f"## 任职要求\n- 大专及以上学历\n- 具备良好的沟通协调与执行能力\n"
+    )
     fallback = {
-        "title": role,
+        "position": role,
         "department": dept,
-        "responsibilities": ["负责" + role + "相关工作"],
-        "requirements": ["熟悉岗位技能", "相关工作经验"],
-        "skills": ["请人工补充技能要求"],
+        "jd_text": jd_text,
+        "responsibilities": [f"负责{role}相关日常工作", "协助上级完成部门事务性工作"],
+        "required_skills": [
+            {"name": "办公软件", "weight": "必须", "description": "熟练使用 Word/Excel/PPT"},
+            {"name": "沟通协调", "weight": "必须", "description": "良好的沟通表达能力"},
+        ],
+        "plus_skills": [],
+        "qualifications": {"education": "大专及以上", "experience": "1年以上", "industry": "", "soft": "责任心强、细致"},
     }
     return _safe_json(JD_GENERATE_SYSTEM, user_input, fallback)
 
@@ -152,12 +197,15 @@ WORKFLOWS = {
     "interview_questions": interview_qa,
     "communication_draft": offer_email_generate,
     "report_analysis": jd_generate,
+    # 前端 api/ai.js 实际调用的连字符命名
+    "interview-questions": interview_qa,
 }
 
 # SSE 流式工作流（支持流式输出）
 STREAM_WORKFLOWS = {
     "jd-generate": jd_generate,
     "match-score": match_score,
+    "match": match_score,
 }
 
 

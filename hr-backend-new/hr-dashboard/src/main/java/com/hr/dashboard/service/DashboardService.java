@@ -605,4 +605,94 @@ public class DashboardService {
             return 0;
         }
     }
+
+    /**
+     * GET /api/dashboard/home — 角色感知个人工作台首页数据。
+     * 对齐 Flask GET /api/dashboard/home。
+     */
+    public Map<String, Object> getHomeData(String roleCode, Long userId) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        LocalDate today = LocalDate.now();
+
+        // KPI 概览
+        data.put("kpi", getKpi(roleCode, userId));
+
+        // 角色特定面板
+        Map<String, Object> panels = new LinkedHashMap<>();
+        if ("admin".equals(roleCode) || "hr".equals(roleCode)) {
+            panels.put("deptProgress", getDeptProgress());
+            panels.put("channel", getChannel());
+            panels.put("riskAlerts", getRiskAlerts());
+        }
+        if ("dept_head".equals(roleCode) || "director".equals(roleCode)) {
+            panels.put("deptProgress", getDeptProgress());
+            panels.put("myDemands", getMyDemands(userId));
+        }
+        if ("interviewer".equals(roleCode)) {
+            panels.put("myInterviews", getMyInterviews(userId));
+        }
+        data.put("panels", panels);
+        data.put("today", today.toString());
+        return data;
+    }
+
+    private List<Map<String, Object>> getMyDemands(Long userId) {
+        try {
+            @SuppressWarnings("unchecked")
+            List<Object[]> rows = entityManager.createNativeQuery(
+                    "SELECT d.demand_no, d.position_name, d.dept_name, d.status, d.headcount, d.filled_count " +
+                    "FROM t_hr_recruit_demand d WHERE d.created_by = ?1 AND d.is_deleted = 0 " +
+                    "AND d.status IN (1,2) ORDER BY d.id DESC LIMIT 10")
+                    .setParameter(1, userId)
+                    .getResultList();
+            List<Map<String, Object>> list = new ArrayList<>();
+            for (Object[] row : rows) {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("demandNo", row[0]);
+                m.put("positionName", row[1]);
+                m.put("deptName", row[2]);
+                m.put("status", row[3]);
+                m.put("headcount", row[4]);
+                m.put("filledCount", row[5]);
+                list.add(m);
+            }
+            return list;
+        } catch (Exception e) {
+            log.warn("getMyDemands failed", e);
+            return List.of();
+        }
+    }
+
+    private List<Map<String, Object>> getMyInterviews(Long userId) {
+        try {
+            @SuppressWarnings("unchecked")
+            List<Object[]> rows = entityManager.createNativeQuery(
+                    "SELECT b.id, b.book_time, b.interview_round, b.interview_type, " +
+                    "c.candidate_name, d.position_name " +
+                    "FROM t_hr_interview_book b " +
+                    "JOIN t_hr_resume r ON r.id = b.resume_id AND r.is_deleted = 0 " +
+                    "JOIN t_hr_candidate c ON c.id = r.candidate_id AND c.is_deleted = 0 " +
+                    "JOIN t_hr_recruit_demand d ON d.id = b.demand_id AND d.is_deleted = 0 " +
+                    "WHERE b.interviewer_id = ?1 AND b.is_deleted = 0 AND b.book_time >= ?2 " +
+                    "ORDER BY b.book_time ASC LIMIT 20")
+                    .setParameter(1, userId)
+                    .setParameter(2, LocalDateTime.now())
+                    .getResultList();
+            List<Map<String, Object>> list = new ArrayList<>();
+            for (Object[] row : rows) {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("id", row[0]);
+                m.put("bookTime", row[1] != null ? row[1].toString() : null);
+                m.put("round", row[2]);
+                m.put("type", row[3]);
+                m.put("candidateName", row[4]);
+                m.put("positionName", row[5]);
+                list.add(m);
+            }
+            return list;
+        } catch (Exception e) {
+            log.warn("getMyInterviews failed", e);
+            return List.of();
+        }
+    }
 }

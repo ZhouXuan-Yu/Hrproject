@@ -101,7 +101,7 @@
           <option :value="20">20</option>
           <option :value="50">50</option>
         </select>
-        <span style="font-size:11px;color:var(--c-sub)" id="filterCount">共 {{ filteredCandidates.length }} 人</span>
+        <span style="font-size:11px;color:var(--c-sub)" id="filterCount">显示 {{ visibleCandidates.length }} / 共 {{ filteredCandidates.length }} 人</span>
       </div>
 
       <div class="table-wrap data-region" style="overflow-x:auto">
@@ -156,12 +156,7 @@
           action-label="重新匹配"
           @action="doReMatch"
         />
-        <div class="table-count" id="candidateCount">共 {{ filteredCandidates.length }} 人</div>
-        <div v-if="filteredCandidates.length > CAND_PAGE_SIZE" style="display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:8px 4px;font-size:12px;color:var(--c-sub)">
-          <button class="btn btn-ghost btn-sm" :disabled="candPage <= 1" @click="onCandPageChange(candPage - 1)">上一页</button>
-          <span>第 {{ candPage }} / {{ candTotalPages }} 页</span>
-          <button class="btn btn-ghost btn-sm" :disabled="candPage >= candTotalPages" @click="onCandPageChange(candPage + 1)">下一页</button>
-        </div>
+        <div class="table-count" id="candidateCount">显示 {{ visibleCandidates.length }} / 共 {{ filteredCandidates.length }} 人</div>
       </div>
     </div>
 
@@ -175,7 +170,7 @@
         <button class="btn btn-primary btn-sm" @click="batchSchedule">批量约面</button>
         <button class="btn btn-outline btn-sm" @click="batchMarkUnsuitable">标记不合适</button>
         <button class="btn btn-outline btn-sm" @click="batchExport">导出</button>
-        <button class="btn btn-ghost btn-sm" @click="clearSelection">清除选择</button>
+        <button class="btn btn-ghost btn-sm" @click="clearSelection">取消选中</button>
       </div>
     </div>
 
@@ -506,20 +501,11 @@ const filteredCandidates = computed(() => {
   return list;
 });
 
-// 候选人前端分页：仅当超过 50 条时启用，避免大列表一次性渲染
-const CAND_PAGE_SIZE = 50;
-const candPage = ref(1);
+// 「推荐人数」= 仅显示匹配分最高的前 N 人（matchTopN 由筛选区下拉框控制）
 const visibleCandidates = computed(() => {
-  const all = filteredCandidates.value;
-  if (all.length <= CAND_PAGE_SIZE) return all;
-  const start = (candPage.value - 1) * CAND_PAGE_SIZE;
-  return all.slice(start, start + CAND_PAGE_SIZE);
+  const limit = matchTopN.value || 20;
+  return filteredCandidates.value.slice(0, limit);
 });
-const candTotalPages = computed(() => Math.max(1, Math.ceil(filteredCandidates.value.length / CAND_PAGE_SIZE)));
-function onCandPageChange(p) {
-  candPage.value = p;
-  if (p > candTotalPages.value) candPage.value = candTotalPages.value;
-}
 
 function matchColor(s) { if (s >= 80) return 'var(--c-done)'; if (s >= 60) return 'var(--c-warn)'; return 'var(--c-draft)'; }
 function profileColor(s) { if (s >= 80) return 'score-high'; if (s >= 60) return 'score-mid'; return 'score-low'; }
@@ -667,14 +653,26 @@ async function batchMoveDemand() {
   let ok = 0, fail = 0;
   for (const name of names) {
     try {
-      await linkCandidateToDemand(demandId, name);
-      ok++;
+      const result = await linkCandidateToDemand(demandId, name, false);
+      if (result && result.unlinked === true) {
+        ok++;
+      } else {
+        fail++;
+      }
     } catch (e) {
       console.warn('[RecruitDemandDetail] batchMoveDemand failed for', name, e);
       fail++;
     }
   }
-  toast.success('批量移出需求完成：成功 ' + ok + ' 人，失败 ' + fail + ' 人');
+  if (ok) {
+    toast.success('已移出 ' + ok + ' 位候选人' + (fail ? '，失败 ' + fail + ' 位' : ''));
+    // Refresh candidates after unlink
+    const { fetchDemandCandidates } = await import('../api/demand.js');
+    const fresh = await fetchDemandCandidates(demandId);
+    if (Array.isArray(fresh)) candidates.value = fresh;
+  } else {
+    toast.error('移出失败，请检查后端服务');
+  }
 }
 
 async function batchSchedule() {
@@ -720,7 +718,7 @@ async function doReMatch() {
   }
   try {
     const { default: api } = await import('../api/index.js');
-    await api.post(`/demand/${demandId}/match`, { includeTalentPool: true, topN: matchTopN.value });
+    await api.post(`/demand/${demandId}/match`, { includeTalentPool: true, topN: matchTopN.value }, { timeout: 120000 });
     const { fetchDemandCandidates } = await import('../api/demand.js');
     const fresh = await fetchDemandCandidates(demandId);
     if (Array.isArray(fresh)) {
