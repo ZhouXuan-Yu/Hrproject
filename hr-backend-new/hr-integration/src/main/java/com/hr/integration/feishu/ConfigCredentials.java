@@ -5,6 +5,7 @@ import com.hr.config.entity.ApiKeyConfig;
 import com.hr.config.repository.ApiKeyConfigRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
@@ -13,10 +14,16 @@ import org.springframework.stereotype.Component;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class ConfigCredentials {
 
     private final ApiKeyConfigRepository apiKeyRepository;
+
+    @Value("${crypto.secret-key:${SECRET_KEY:default-salt-change-me}}")
+    private String cryptoSecretKey;
+
+    public ConfigCredentials(ApiKeyConfigRepository apiKeyRepository) {
+        this.apiKeyRepository = apiKeyRepository;
+    }
 
     /** 返回解密后的密钥值；未配置或解密失败返回 null。 */
     public String get(String keyName) {
@@ -24,11 +31,15 @@ public class ConfigCredentials {
         if (row == null || row.getValueEncrypted() == null || row.getValueEncrypted().isEmpty()) {
             return null;
         }
-        // 历史兼容：secret 是 Flask 时代用 SECRET_KEY 加密，app_id 是 Java 用 PASSWORD_SALT 加密。
-        // 依次尝试两个密钥 + 两种派生方式。
+        // 解密密钥优先级（对齐 Flask：SECRET_KEY env var 解密 t_hr_api_key 加密值）
+        // 1) Spring 属性 crypto.secret-key（来自 env var 或 application.yml）
+        // 2) 系统环境变量
+        // 3) 硬编码兜底
         String[] secrets = {
-                System.getenv("PASSWORD_SALT"),
+                cryptoSecretKey,                              // Spring 属性解析
                 System.getenv("SECRET_KEY"),
+                System.getenv("PASSWORD_SALT"),
+                "dev-secret-key-a7f3b9c2e1d4-change-in-production", // .env 开发默认值
                 "default-salt-change-me",
                 "change-me-in-production",
         };

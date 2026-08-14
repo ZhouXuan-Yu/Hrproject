@@ -4,10 +4,37 @@
 
 ## 当前状态
 
-- 日期：2026-07-24
-- 项目阶段：新环境部署完成 + MySQL RDS 连接 + 审批权限体系验证
-- 后端：Flask + MySQL RDS（hr_recruitment_db）+ Redis + Windows环境
+- 日期：2026-08-13
+- 项目阶段：Java 后端 offer 确认修复 + 邮件链路实测 + Python 对照 review
+- 后端：Flask（AI服务）+ Java Spring Boot（业务主后端:8080），共用 MySQL RDS
 - 数据库：阿里云 RDS，34 张表，4 个 IAM 用户
+
+## 2026-08-13 offer 确认修复 + 邮件链路实测 + Python 对照 review
+
+### 已完成
+
+1. **offer 确认 bug 修复（关键）**
+   - `ConfirmController.applyAction`：`parseLong` 无条件转 int，但 offer 的 ref 是 offerNo 字符串（"OF..."），导致 offer「接受/拒绝」报「确认链接无效」
+   - 修复：`parseLong` 移进 interview 分支，offer 分支改用 offerNo 字符串查询
+   - 验证：offer accept 正常，offer status=2，自动建入职单，process status=6
+
+2. **邮件链路实测**
+   - 婉拒（不通过）邮件：删除旧记录重新约面 → 评价不通过 → 邮件发出，mail_log 有记录
+   - 飞书面试邀请 + 面试通过 + offer 确认邮件：book 97，meetingUrl 返回，offer 发出，mail_log 有记录
+
+3. **Python 后端对照 review（只读，未改）**
+   - 确认 parseLong 修复与 Python `confirm_service.py` 原版一致（interview 用 int(ref)、offer 用 offer_no 字符串）
+   - 发现 4 处 Java 与 Python 不一致：
+     1. reject 邮件 mailType 写成 "invite"（Python 是 "reject"）— 明确 bug
+     2. 面试确认链接 TTL：Java 7 天 vs Python 4 天
+     3. confirmUrl base：Java :8080 vs Python :7100（架构差异）
+     4. RoleMenus 多了 home/recruit-accounts（Java 对齐前端 useAuth.js，Python 旧版落后）
+
+### 下次继续点
+
+1. 修复 reject 邮件 mailType "invite" → "reject"
+2. 面试邀请模板（id=1）补纯文本 confirm_url 链接
+3. APP_BASE_URL 配公网域名
 
 ## 2026-07-24 新环境部署与验证
 

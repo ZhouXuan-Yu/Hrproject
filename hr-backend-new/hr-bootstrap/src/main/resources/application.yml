@@ -9,9 +9,9 @@ spring:
   profiles:
     active: dev
   datasource:
-    url: ${DATABASE_URL:jdbc:mysql://127.0.0.1:3306/hr_recruit?useUnicode=true&characterEncoding=UTF-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
-    username: ${DATABASE_USER:root}
-    password: ${DATABASE_PASSWORD:password}
+    url: ${DATABASE_URL:jdbc:mysql://rm-8vb7m858r8wt3b10hjo.mysql.zhangbei.rds.aliyuncs.com:3306/hr_recruitment_db?useUnicode=true&characterEncoding=UTF-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
+    username: ${DATABASE_USER:hr_recruitment}
+    password: ${DATABASE_PASSWORD:hr_recruitment_123}
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       minimum-idle: 5
@@ -42,7 +42,7 @@ mybatis: # placeholder
     map-underscore-to-camel-case: true
 
 jwt:
-  secret: ${JWT_SECRET_KEY:change-me-jwt-secret-please-override}
+  secret: ${JWT_SECRET_KEY:dev-jwt-secret-b4e8f1a3d6c9-change-in-production}
   expires-seconds: ${JWT_ACCESS_TOKEN_EXPIRES:86400}
   remember-me-seconds: 2592000
 
@@ -63,8 +63,14 @@ ai-service:
 feishu:
   app-id: ${FEISHU_APP_ID:}
   app-secret: ${FEISHU_APP_SECRET:}
+  mock-mode: ${FEISHU_MOCK_MODE:false}
+  recipient-open-ids: ${FEISHU_RECIPIENT_OPEN_IDS:{}}
 
 # 候选人确认页
+app:
+  base-url: ${APP_BASE_URL:http://127.0.0.1:8080}
+company:
+  name: ${COMPANY_NAME:}
 offer:
   confirm-deadline-days: ${OFFER_CONFIRM_DEADLINE_DAYS:3}
   reminder-interval-hours: ${OFFER_REMINDER_INTERVAL_HOURS:24}

@@ -12,6 +12,7 @@ import com.hr.config.entity.RecruitChannel;
 import com.hr.config.entity.RecruitMailAccount;
 import com.hr.config.entity.RoleMenuPermission;
 import com.hr.config.entity.ScoreRule;
+import com.hr.config.entity.SystemConfig;
 import com.hr.config.repository.AiKnowledgeBaseRepository;
 import com.hr.config.repository.ApiKeyConfigRepository;
 import com.hr.config.repository.AuditLogRepository;
@@ -20,23 +21,48 @@ import com.hr.config.repository.RecruitChannelRepository;
 import com.hr.config.repository.RecruitMailAccountRepository;
 import com.hr.config.repository.RoleMenuPermissionRepository;
 import com.hr.config.repository.ScoreRuleRepository;
+import com.hr.config.repository.SystemConfigRepository;
+import jakarta.mail.Folder;
+import jakarta.mail.Message;
+import jakarta.mail.MessagingException;
+import jakarta.mail.Multipart;
+import jakarta.mail.Part;
+import jakarta.mail.Session;
+import jakarta.mail.Store;
+import jakarta.mail.internet.MimeMessage;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Hashtable;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Properties;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import javax.naming.directory.Attribute;
+import javax.naming.directory.Attributes;
+import javax.naming.directory.InitialDirContext;
 
 /**
  * 基础配置服务，对齐 Flask config_service.py。
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ConfigService {
@@ -49,6 +75,10 @@ public class ConfigService {
     private final AuditLogRepository auditLogRepository;
     private final ApiKeyConfigRepository apiKeyRepository;
     private final RoleMenuPermissionRepository roleMenuPermissionRepository;
+    private final SystemConfigRepository systemConfigRepository;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
@@ -57,16 +87,16 @@ public class ConfigService {
 
     // ── 渠道映射（对齐 Flask 内内存映射表） ─────────────────────
     private static final Map<String, String> CHANNEL_COST_MAP = new LinkedHashMap<>(Map.of(
-            "BOSS", "¥8,000", "LIEPIN", "¥12,000", "EMAIL", "¥0", "NEITUI", "¥3,000"));
+            "BOSS", "¥8,000", "LIEPIN", "¥12,000", "OFFICIAL", "¥0", "NEITUI", "¥3,000"));
 
     private static final Map<String, String> CHANNEL_CODE_MAP = new LinkedHashMap<>(Map.of(
-            "Boss直聘", "BOSS", "猎聘", "LIEPIN", "邮箱采集", "EMAIL", "内部推荐", "NEITUI"));
+            "Boss直聘", "BOSS", "猎聘", "LIEPIN", "公司官网", "OFFICIAL", "内部推荐", "NEITUI"));
 
     private static final Map<String, String> REVERSE_CHANNEL_CODE = new LinkedHashMap<>(Map.of(
-            "BOSS", "Boss直聘", "LIEPIN", "猎聘", "EMAIL", "邮箱采集", "NEITUI", "内部推荐"));
+            "BOSS", "Boss直聘", "LIEPIN", "猎聘", "OFFICIAL", "公司官网", "NEITUI", "内部推荐"));
 
     private static final Map<String, String> CHANNEL_TYPE_OVERRIDE = Map.of(
-            "BOSS", "招聘平台", "LIEPIN", "猎头平台", "EMAIL", "自动管道", "NEITUI", "内部渠道");
+            "BOSS", "招聘平台", "LIEPIN", "猎头平台", "OFFICIAL", "官网渠道", "NEITUI", "内部渠道");
 
     private static final Map<Integer, String> CHANNEL_TYPE_LABELS = Map.of(
             1, "官网渠道", 2, "第三方平台", 3, "内部渠道");
@@ -74,6 +104,11 @@ public class ConfigService {
     private static final Map<Integer, String> MAIL_FREQ_LABELS = Map.of(
             0, "手动", 15, "每 15 分钟", 30, "每 30 分钟", 60, "每 60 分钟",
             120, "每 2 小时", 360, "每 6 小时", 1440, "每天");
+
+    private static final Map<String, String> ROLE_LABELS = new LinkedHashMap<>(Map.of(
+            "admin", "管理员", "hr", "HR", "dept_head", "部门负责人",
+            "employee", "员工", "interviewer", "面试官", "no_recruit", "非招聘人员",
+            "director", "总监", "temp_interviewer", "临时面试官"));
 
     private static final Map<String, String> DEFAULT_KNOWLEDGE = new LinkedHashMap<>();
     static {
@@ -98,18 +133,18 @@ public class ConfigService {
         API_KEY_DISPLAY.put("feishu", new ApiKeyDisplay(
                 "飞书 App Secret", "消息通知、审批推送（与 App ID 配对使用）",
                 "https://open.feishu.cn/app", "去飞书开放平台创建应用，获取 App ID 与 App Secret"));
-        API_KEY_DISPLAY.put("dify", new ApiKeyDisplay("Dify API Key", "Dify 工作流引擎（兼容保留）", null, null));
+        API_KEY_DISPLAY.put("dify", new ApiKeyDisplay(
+                "Dify API Key", "Dify 工作流编排（配置后 AI 工作流优先走 Dify，未配或失败回退 DeepSeek）",
+                "https://docs.dify.ai", "去 Dify 文档获取 API Key"));
         API_KEY_DISPLAY.put("tencent_appid", new ApiKeyDisplay("腾讯会议 AppId", "腾讯会议开放平台应用 AppId", null, null));
         API_KEY_DISPLAY.put("tencent_secretid", new ApiKeyDisplay("腾讯会议 SecretId", "腾讯会议开放平台 SecretId", null, null));
         API_KEY_DISPLAY.put("tencent_secretkey", new ApiKeyDisplay("腾讯会议 SecretKey", "腾讯会议开放平台 SecretKey（加密存储）", null, null));
         API_KEY_DISPLAY.put("tencent_userid", new ApiKeyDisplay("腾讯会议主持人 UserID", "创建会议时的主持人 userid（必填）", null, null));
     }
 
-    /** AES 加密密钥：优先环境变量，其次固定默认值（对齐 Flask SECRET_KEY）。 */
-    private String cryptoSecret() {
-        String env = System.getenv("PASSWORD_SALT");
-        return (env != null && !env.isBlank()) ? env : "default-salt-change-me";
-    }
+    /** AES 加密密钥（与 MailService 共用同一个配置项）。 */
+    @Value("${crypto.secret-key:${SECRET_KEY:default-salt-change-me}}")
+    private String cryptoSecret;
 
     // ── 渠道 ────────────────────────────────────────────────
 
@@ -183,12 +218,36 @@ public class ConfigService {
         return result;
     }
 
+    @Transactional
+    @CacheEvict(cacheNames = "config", key = "'channels'")
+    public Map<String, Object> deleteChannel(String code) {
+        String name = REVERSE_CHANNEL_CODE.getOrDefault(code, code);
+        RecruitChannel channel = channelRepository.findByChannelNameAndIsDeleted(name, 0)
+                .orElseThrow(() -> BusinessException.notFound("渠道不存在: " + code));
+
+        channel.setIsDeleted(1);
+        channel.setUpdatedAt(LocalDateTime.now());
+        channelRepository.save(channel);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("deleted", true);
+        result.put("code", code);
+        return result;
+    }
+
     private Map<String, Object> channelToMap(RecruitChannel channel) {
         String name = channel.getChannelName();
         String code = CHANNEL_CODE_MAP.getOrDefault(name, name);
         String type = CHANNEL_TYPE_OVERRIDE.getOrDefault(code,
                 CHANNEL_TYPE_LABELS.getOrDefault(channel.getChannelType(), "未知"));
-        String cost = CHANNEL_COST_MAP.getOrDefault(code, "¥0");
+        // Prefer DB-persisted cost over static default
+        Map<String, Object> dbCosts = getChannelCosts();
+        String cost;
+        if (dbCosts.containsKey(code)) {
+            cost = String.valueOf(dbCosts.get(code));
+        } else {
+            cost = CHANNEL_COST_MAP.getOrDefault(code, "¥0");
+        }
         String status = channel.getStatus() != null && channel.getStatus() == 1 ? "启用" : "停用";
 
         Map<String, Object> m = new LinkedHashMap<>();
@@ -223,7 +282,7 @@ public class ConfigService {
             return result;
         }
 
-        // 域名关键字 → (服务商, IMAP 主机)，对齐 Flask _DOMAIN_KEYWORD_FALLBACK
+        // Tier 1: 域名关键字兜底（对齐 Flask _DOMAIN_KEYWORD_FALLBACK）
         for (Map.Entry<String, String[]> e : DOMAIN_FALLBACK.entrySet()) {
             for (String kw : e.getValue()) {
                 if (domain.contains(kw)) {
@@ -237,7 +296,34 @@ public class ConfigService {
             }
         }
 
-        // 通用猜测 imap.<domain>
+        // Tier 2: MX 记录查询 + 指纹匹配（对齐 Flask _MX_FINGERPRINTS）
+        List<String> mxHosts = queryMxRecords(domain);
+        for (String mx : mxHosts) {
+            for (Map.Entry<String, String[]> e : MX_FINGERPRINTS.entrySet()) {
+                String[] kw = e.getValue();
+                for (String k : kw) {
+                    if (mx.contains(k)) {
+                        String[] p = e.getKey().split("\\|", 2);
+                        result.put("provider", p[0]);
+                        result.put("imap_host", p[1]);
+                        result.put("confidence", "high");
+                        result.put("detection", "mx");
+                        return result;
+                    }
+                }
+            }
+            // 精确 MX 主机匹配（对齐 Flask _MX_IMAP_MAP）
+            if (MX_IMAP_MAP.containsKey(mx)) {
+                String[] cfg = MX_IMAP_MAP.get(mx);
+                result.put("provider", cfg[0]);
+                result.put("imap_host", cfg[1]);
+                result.put("confidence", "high");
+                result.put("detection", "mx");
+                return result;
+            }
+        }
+
+        // Tier 3: 通用猜测 imap.<domain>
         if (domain.contains(".")) {
             result.put("provider", "企业邮箱");
             result.put("imap_host", "imap." + domain);
@@ -245,6 +331,37 @@ public class ConfigService {
             result.put("detection", "pattern");
         }
         return result;
+    }
+
+    /**
+     * DNS MX 记录查询（对齐 Flask dnspython resolve MX）。
+     * 使用 JNDI DNS provider，短超时，任何异常静默返回空列表。
+     */
+    private List<String> queryMxRecords(String domain) {
+        List<String> mxHosts = new ArrayList<>();
+        try {
+            Hashtable<String, String> env = new Hashtable<>();
+            env.put("java.naming.factory.initial", "com.sun.jndi.dns.DnsContextFactory");
+            env.put("com.sun.jndi.dns.timeout.initial", "3000");
+            env.put("com.sun.jndi.dns.timeout.retries", "1");
+            InitialDirContext ctx = new InitialDirContext(env);
+            Attributes attrs = ctx.getAttributes(domain, new String[]{"MX"});
+            Attribute mxAttr = attrs != null ? attrs.get("MX") : null;
+            if (mxAttr != null) {
+                for (int i = 0; i < mxAttr.size(); i++) {
+                    String record = String.valueOf(mxAttr.get(i));
+                    // JNDI returns "10 mxbiz1.qq.com." — extract the host part
+                    String[] parts = record.split("\\s+");
+                    if (parts.length >= 2) {
+                        String host = parts[1].replaceFirst("\\.$", "").toLowerCase();
+                        mxHosts.add(host);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("MX lookup failed for {}: {}", domain, e.getMessage());
+        }
+        return mxHosts;
     }
 
     private static final Map<String, String[]> DOMAIN_FALLBACK = buildDomainFallback();
@@ -265,6 +382,37 @@ public class ConfigService {
         return m;
     }
 
+    // MX 指纹匹配（对齐 Flask _MX_FINGERPRINTS）：MX 主机含任一关键词即命中
+    private static final Map<String, String[]> MX_FINGERPRINTS = buildMxFingerprints();
+
+    private static Map<String, String[]> buildMxFingerprints() {
+        Map<String, String[]> m = new LinkedHashMap<>();
+        m.put("腾讯企业邮|imap.exmail.qq.com", new String[]{"exmail.qq.com", "mxbiz"});
+        m.put("网易企业邮|imap.qiye.163.com", new String[]{"qiye.163", "ym.163"});
+        m.put("阿里企业邮|imap.qiye.aliyun.com", new String[]{"mxhichina", "qiye.aliyun", "aliyun"});
+        m.put("Microsoft 365|outlook.office365.com", new String[]{"outlook", "office365", "protection.outlook"});
+        m.put("Gmail|imap.gmail.com", new String[]{"google", "gmail", "googlemail"});
+        m.put("Zoho Mail|imap.zoho.com", new String[]{"zoho"});
+        m.put("263企业邮箱|imap.263.net", new String[]{"263.net", "263xmail"});
+        m.put("新浪企业邮箱|imap.ex.sina.com", new String[]{"sina"});
+        m.put("飞书邮箱|imap.feishu.cn", new String[]{"feishu", "larksuite"});
+        return m;
+    }
+
+    // MX 主机精确匹配（对齐 Flask _MX_IMAP_MAP）
+    private static final Map<String, String[]> MX_IMAP_MAP = buildMxImapMap();
+
+    private static Map<String, String[]> buildMxImapMap() {
+        Map<String, String[]> m = new LinkedHashMap<>();
+        m.put("mxbiz1.qq.com", new String[]{"腾讯企业邮箱", "imap.exmail.qq.com"});
+        m.put("mxbiz2.qq.com", new String[]{"腾讯企业邮箱", "imap.exmail.qq.com"});
+        m.put("mx.qiye.163.com", new String[]{"网易企业邮", "imap.qiye.163.com"});
+        m.put("mx.qiye.aliyun.com", new String[]{"阿里企业邮", "imap.qiye.aliyun.com"});
+        m.put("aspmx.l.google.com", new String[]{"Gmail", "imap.gmail.com"});
+        m.put("mx1.hc.aliyun.com", new String[]{"阿里云邮箱", "imap.qiye.aliyun.com"});
+        return m;
+    }
+
     /**
      * GET /api/config/role-permissions — 角色菜单权限矩阵。
      */
@@ -277,16 +425,18 @@ public class ConfigService {
             }
         }
 
-        List<String> roles = List.of("admin", "hr", "dept_head", "employee", "interviewer", "no_recruit");
-        List<String> allMenus = List.of("recruit-dashboard", "recruit-demand", "recruit-talent",
-                "recruit-interview", "recruit-ai", "recruit-config");
+        List<String> roles = List.of("admin", "hr", "dept_head", "director", "employee", "interviewer", "temp_interviewer", "no_recruit");
+        List<String> allMenus = List.of("home", "recruit-dashboard", "recruit-demand", "recruit-talent",
+                "recruit-interview", "recruit-ai", "recruit-config", "recruit-accounts");
         Map<String, String> menuLabels = new LinkedHashMap<>();
+        menuLabels.put("home", "首页");
         menuLabels.put("recruit-dashboard", "招聘看板");
-        menuLabels.put("recruit-demand", "招聘需求");
+        menuLabels.put("recruit-demand", "需求管理");
         menuLabels.put("recruit-talent", "人才库");
-        menuLabels.put("recruit-interview", "面试管理");
-        menuLabels.put("recruit-ai", "AI 助手");
-        menuLabels.put("recruit-config", "系统配置");
+        menuLabels.put("recruit-interview", "面试计划");
+        menuLabels.put("recruit-ai", "招聘辅助中心");
+        menuLabels.put("recruit-config", "招聘基础配置");
+        menuLabels.put("recruit-accounts", "账号管理");
 
         List<Map<String, Object>> result = new java.util.ArrayList<>();
         for (String rk : roles) {
@@ -298,7 +448,7 @@ public class ConfigService {
             }
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("roleCode", rk);
-            row.put("role", rk);
+            row.put("role", ROLE_LABELS.getOrDefault(rk, rk));
             row.put("badgeClass", "");
             row.put("menus", labels.isEmpty() ? "侧边栏隐藏" : String.join("、", labels));
             row.put("menuIds", menuIds);
@@ -425,6 +575,69 @@ public class ConfigService {
                 .filter(a -> a.getIsDeleted() == null || a.getIsDeleted() == 0)
                 .orElseThrow(() -> BusinessException.notFound("邮箱账号不存在: " + id));
 
+        // ── 连接测试 ──────────────────────────────────────────
+        if (Boolean.TRUE.equals(data.get("__test_conn"))) {
+            Map<String, Object> testResult = new LinkedHashMap<>();
+            testResult.put("id", id);
+            // 先用传入的字段构造临时配置，未传则用 DB 当前值
+            String testHost = data.get("server") != null ? String.valueOf(data.get("server"))
+                    : account.getImapHost();
+            int testPort = data.get("port") != null && !String.valueOf(data.get("port")).isBlank()
+                    ? toInt(data.get("port"), 993) : (account.getImapPort() != null ? account.getImapPort() : 993);
+            String testAddr = data.get("address") != null ? String.valueOf(data.get("address"))
+                    : account.getEmailAddress();
+            String testPass = data.get("pass") != null && !String.valueOf(data.get("pass")).isBlank()
+                    ? String.valueOf(data.get("pass")) : decryptMailPassword(account);
+
+            if (testHost == null || testHost.isBlank()) {
+                testResult.put("test_ok", false);
+                testResult.put("test_msg", "未配置 IMAP 服务器地址");
+                return testResult;
+            }
+            if (testPass == null || testPass.isBlank()) {
+                testResult.put("test_ok", false);
+                testResult.put("test_msg", "未配置邮箱密码/授权码");
+                return testResult;
+            }
+
+            Store testStore = null;
+            try {
+                Properties props = new Properties();
+                props.put("mail.store.protocol", "imaps");
+                props.put("mail.imaps.host", testHost);
+                props.put("mail.imaps.port", String.valueOf(testPort));
+                props.put("mail.imaps.ssl.enable", "true");
+                props.put("mail.imaps.connectiontimeout", "10000");
+                props.put("mail.imaps.timeout", "15000");
+
+                Session session = Session.getInstance(props);
+                testStore = session.getStore("imaps");
+                testStore.connect(testHost, testAddr, testPass);
+                testStore.close();
+
+                testResult.put("test_ok", true);
+                testResult.put("test_msg", "连接成功");
+            } catch (Exception e) {
+                String errMsg = e.getMessage();
+                if (errMsg == null || errMsg.isBlank()) {
+                    Throwable cause = e.getCause();
+                    if (cause != null && cause.getMessage() != null && !cause.getMessage().isBlank()) {
+                        errMsg = cause.getMessage();
+                    } else {
+                        errMsg = e.getClass().getSimpleName();
+                    }
+                }
+                log.warn("邮箱连接测试失败: host={} addr={} error={}", testHost, testAddr, errMsg);
+                testResult.put("test_ok", false);
+                testResult.put("test_msg", errMsg != null && !errMsg.isBlank() ? errMsg : "连接失败");
+            } finally {
+                if (testStore != null && testStore.isConnected()) {
+                    try { testStore.close(); } catch (Exception ignored) { }
+                }
+            }
+            return testResult;
+        }
+
         if (Boolean.TRUE.equals(data.get("_delete"))) {
             account.setIsDeleted(1);
             account.setUpdatedAt(LocalDateTime.now());
@@ -475,43 +688,542 @@ public class ConfigService {
     }
 
     /**
-     * POST /api/config/email-accounts/sync — 手动同步全部邮箱（返回统计摘要）。
-     * Java 侧暂不实现真实 IMAP 采集（AI/Python 服务负责），返回对齐前端契约的提示。
+     * POST /api/config/email-accounts/detect — 自动探测 IMAP 服务器。
+     * 对齐 Flask detect_imap_server() 的 4 层回退策略。
+     */
+    public Map<String, Object> detectImapServer(String email) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("provider", "未知");
+        result.put("imap_host", "");
+        result.put("imap_port", 993);
+        result.put("detection", "unknown");
+
+        if (email == null || !email.contains("@")) {
+            return result;
+        }
+        String domain = email.substring(email.indexOf('@') + 1).trim().toLowerCase();
+
+        // Tier 1: 域名精确匹配
+        if (DOMAIN_IMAP_FALLBACK.containsKey(domain)) {
+            String[] cfg = DOMAIN_IMAP_FALLBACK.get(domain);
+            result.put("provider", cfg[0]);
+            result.put("imap_host", cfg[1]);
+            result.put("detection", "domain");
+            return result;
+        }
+
+        // Tier 2: MX 指纹匹配（与 resolveEmailServer 共享 DOMAIN_FALLBACK 逻辑）
+        Map<String, Object> resolved = resolveEmailServer(email);
+        if (!"unknown".equals(resolved.get("detection"))) {
+            result.put("provider", resolved.get("provider"));
+            result.put("imap_host", resolved.get("imap_host"));
+            result.put("detection", resolved.get("detection"));
+            return result;
+        }
+
+        // Tier 3–4: 通用模式猜测
+        result.put("imap_host", "imap." + domain);
+        result.put("detection", "pattern");
+        return result;
+    }
+
+    /**
+     * POST /api/config/email-accounts/get-preview — 邮箱预览（不实际连接）。
+     * 对齐 Flask POST /api/config/email-accounts/get-preview。
+     */
+    public List<Map<String, Object>> getEmailPreview() {
+        List<RecruitMailAccount> accounts = mailAccountRepository.findByIsDeletedOrderByIdAsc(0);
+        return accounts.stream().map(a -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", a.getId());
+            m.put("account_name", a.getAccountName());
+            m.put("email_address", a.getEmailAddress());
+            m.put("imap_host", a.getImapHost() != null ? a.getImapHost() : "");
+            m.put("status", a.getStatus() != null && a.getStatus() == 1 ? "active" : "inactive");
+            m.put("last_sync_time", a.getLastSyncTime() != null ? a.getLastSyncTime().toString() : null);
+            return m;
+        }).toList();
+    }
+
+    /**
+     * GET /api/config/tencent-meeting/status — 腾讯会议配置状态。
+     */
+    public Map<String, Object> getTencentMeetingStatus() {
+        Map<String, Object> result = new LinkedHashMap<>();
+        String appId = decryptStoredKey("tencent_meeting_app_id");
+        String secret = decryptStoredKey("tencent_meeting");
+        boolean configured = appId != null && !appId.isBlank() && secret != null && !secret.isBlank();
+        result.put("configured", configured);
+        result.put("message", configured ? "已配置" : "未配置腾讯会议密钥");
+        return result;
+    }
+
+    /**
+     * GET /api/config/feishu/status — 飞书配置状态。
+     */
+    public Map<String, Object> getFeishuStatus() {
+        Map<String, Object> result = new LinkedHashMap<>();
+        String appId = decryptStoredKey("feishu_app_id");
+        String secret = decryptStoredKey("feishu");
+        boolean configured = appId != null && !appId.isBlank() && secret != null && !secret.isBlank();
+        result.put("configured", configured);
+        result.put("message", configured ? "已配置" : "未配置飞书密钥");
+        return result;
+    }
+
+    /**
+     * POST /api/config/email-accounts/sync — 手动同步全部邮箱。
+     * 逐个连接 IMAP 拉取未读邮件，提取简历信息并入库。
      */
     public Map<String, Object> syncAllEmailAccounts() {
         List<RecruitMailAccount> accounts = mailAccountRepository.findByIsDeletedOrderByIdAsc(0)
                 .stream().filter(a -> a.getStatus() != null && a.getStatus() == 1).toList();
-        int failed = 0;
         List<Map<String, Object>> results = new java.util.ArrayList<>();
-        LocalDateTime now = LocalDateTime.now();
+        int synced = 0, failed = 0, noHost = 0;
         for (RecruitMailAccount a : accounts) {
-            Map<String, Object> r = new LinkedHashMap<>();
-            r.put("id", a.getId());
-            r.put("address", a.getEmailAddress());
-            r.put("status", "skipped");
-            r.put("message", "IMAP 采集由 AI 服务负责，当前跳过");
-            results.add(r);
             if (a.getImapHost() == null || a.getImapHost().isBlank()) {
-                failed++;
+                Map<String, Object> r = new LinkedHashMap<>();
+                r.put("id", a.getId());
+                r.put("address", a.getEmailAddress());
+                r.put("status", "error");
+                r.put("message", "未配置 IMAP 服务器地址");
+                results.add(r);
+                noHost++;
+                continue;
+            }
+            Map<String, Object> r = syncSingleAccount(a);
+            results.add(r);
+            if ("ok".equals(r.get("status"))) {
+                synced++;
             } else {
-                a.setLastSyncTime(now);
-                a.setUpdatedAt(now);
-                mailAccountRepository.save(a);
+                failed++;
             }
         }
         Map<String, Object> out = new LinkedHashMap<>();
-        out.put("synced", 0);
-        out.put("skipped", results.size());
+        out.put("synced", synced);
         out.put("failed", failed);
+        out.put("noHost", noHost);
         out.put("results", results);
         return out;
     }
 
+    /**
+     * 按 ID 同步单个邮箱账号。
+     */
+    public Map<String, Object> syncEmailAccountById(Long id) {
+        RecruitMailAccount account = mailAccountRepository.findById(id)
+                .orElse(null);
+        if (account == null) {
+            Map<String, Object> err = new LinkedHashMap<>();
+            err.put("id", id);
+            err.put("status", "error");
+            err.put("message", "邮箱账号不存在");
+            return err;
+        }
+        return syncSingleAccount(account);
+    }
+
+    /**
+     * 同步单个邮箱账号 — IMAP 连接 + 未读邮件采集 + 简历解析入库。
+     */
+    public Map<String, Object> syncSingleAccount(RecruitMailAccount account) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("id", account.getId());
+        out.put("address", account.getEmailAddress());
+        int count = 0;
+        int ingested = 0;
+        Store store = null;
+        try {
+            // 解密密码（对齐 MailService.decryptPassword 的容错逻辑）
+            String password = decryptMailPassword(account);
+            if (password == null || password.isBlank()) {
+                out.put("status", "error");
+                out.put("message", "邮箱密码未配置");
+                return out;
+            }
+
+            // IMAP 连接
+            int port = account.getImapPort() != null && account.getImapPort() > 0
+                    ? account.getImapPort() : 993;
+            Properties props = new Properties();
+            props.put("mail.store.protocol", "imaps");
+            props.put("mail.imaps.host", account.getImapHost());
+            props.put("mail.imaps.port", String.valueOf(port));
+            props.put("mail.imaps.ssl.enable", "true");
+            props.put("mail.imaps.connectiontimeout", "10000");
+            props.put("mail.imaps.timeout", "30000");
+
+            Session session = Session.getInstance(props);
+            store = session.getStore("imaps");
+            store.connect(account.getImapHost(), account.getEmailAddress(), password);
+
+            String folderName = account.getMonitorFolder() != null && !account.getMonitorFolder().isBlank()
+                    ? account.getMonitorFolder() : "INBOX";
+            Folder folder = store.getFolder(folderName);
+            folder.open(Folder.READ_WRITE);
+
+            Message[] messages = folder.getMessages();
+            for (Message msg : messages) {
+                if (!msg.isSet(jakarta.mail.Flags.Flag.SEEN)) {
+                    count++;
+                    boolean ok = processEmailMessage(msg, account);
+                    if (ok) {
+                        ingested++;
+                        msg.setFlag(jakarta.mail.Flags.Flag.SEEN, true);
+                    }
+                }
+            }
+            folder.close(false);
+            store.close();
+
+            // 更新最后同步时间
+            LocalDateTime now = LocalDateTime.now();
+            account.setLastSyncTime(now);
+            account.setUpdatedAt(now);
+            mailAccountRepository.save(account);
+
+            out.put("status", "ok");
+            out.put("totalMessages", count);
+            out.put("ingested", ingested);
+            out.put("message", "扫描 " + count + " 封未读邮件，入库 " + ingested + " 份简历");
+            log.info("邮箱 {} 同步完成: 扫描{}封, 入库{}份", account.getEmailAddress(), count, ingested);
+        } catch (Exception e) {
+            log.error("邮箱 {} 同步失败: {}", account.getEmailAddress(), e.getMessage());
+            out.put("status", "error");
+            out.put("message", "连接失败: " + e.getMessage());
+            out.put("totalMessages", count);
+            out.put("ingested", ingested);
+            if (store != null && store.isConnected()) {
+                try { store.close(); } catch (Exception ignored) { }
+            }
+        }
+        return out;
+    }
+
+    /**
+     * 处理单封邮件：检测简历关键词 → 提取文本 → 解析候选人信息 → 入库。
+     *
+     * @return true 如果成功解析并入库了简历
+     */
+    private boolean processEmailMessage(Message msg, RecruitMailAccount account) {
+        try {
+            String subject = msg.getSubject() != null ? msg.getSubject() : "";
+            String from = msg.getFrom() != null && msg.getFrom().length > 0
+                    ? msg.getFrom()[0].toString() : "";
+            String bodyText = extractTextFromPart(msg);
+
+            // 简历关键词检测（主题 + 正文 + 发件人）
+            if (!looksLikeResume(subject, bodyText, from)) {
+                return false;
+            }
+
+            // 提取候选人基本信息
+            String fullText = subject + "\n" + bodyText;
+            String name = extractName(fullText, from);
+            String phone = extractPhone(fullText);
+            String email = extractEmail(fullText, from);
+            String targetPosition = extractPosition(subject);
+            String eduLevel = extractEduLevel(fullText);
+
+            if (phone == null || phone.isBlank()) {
+                return false; // 至少要有手机号
+            }
+
+            // 计算手机哈希
+            String mobileHash = sha256(phone.replaceAll("[^0-9]", ""));
+
+            // 去重检查
+            if (candidateExistsByHash(mobileHash, email)) {
+                return false;
+            }
+
+            // 入库：Candidate + Resume
+            insertCandidateAndResume(name, phone, email, mobileHash, eduLevel,
+                    targetPosition, subject, bodyText, account.getOwnerUserId());
+            return true;
+        } catch (Exception e) {
+            String subject;
+            try { subject = msg.getSubject(); } catch (Exception ex) { subject = null; }
+            log.warn("处理邮件失败: subject={}, error={}",
+                    subject != null ? subject : "(无主题)", e.getMessage());
+            return false;
+        }
+    }
+
+    // ── 简历关键词检测 ──────────────────────────────────────────
+
+    private static final String[] RESUME_KEYWORDS = {
+            "简历", "应聘", "求职", "个人简历", "resume", "CV",
+            "工作申请", "岗位申请", "投递", "自荐", "人才"
+    };
+    private static final String[] RESUME_SENDERS = {
+            "boss", "zhaopin", "liepin", "51job", "前程无忧", "智联", "猎聘",
+            "hr", "recruit", "招聘"
+    };
+
+    private boolean looksLikeResume(String subject, String body, String from) {
+        String lowerSubject = subject.toLowerCase();
+        String lowerBody = body.toLowerCase();
+        String lowerFrom = from.toLowerCase();
+
+        for (String kw : RESUME_KEYWORDS) {
+            if (lowerSubject.contains(kw) || lowerBody.contains(kw)) {
+                return true;
+            }
+        }
+        for (String s : RESUME_SENDERS) {
+            if (lowerFrom.contains(s) || lowerSubject.contains(s)) {
+                return true;
+            }
+        }
+        // 有 .pdf / .docx / .doc 附件也视为简历投递
+        return lowerSubject.endsWith(".pdf") || lowerSubject.endsWith(".docx") || lowerSubject.endsWith(".doc");
+    }
+
+    // ── 文本提取 ────────────────────────────────────────────────
+
+    private String extractTextFromPart(Part part) throws Exception {
+        if (part.isMimeType("text/plain")) {
+            return part.getContent() != null ? String.valueOf(part.getContent()) : "";
+        }
+        if (part.isMimeType("text/html")) {
+            String html = part.getContent() != null ? String.valueOf(part.getContent()) : "";
+            return html.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ").trim();
+        }
+        if (part.isMimeType("multipart/*")) {
+            Multipart mp = (Multipart) part.getContent();
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < mp.getCount(); i++) {
+                String text = extractTextFromPart(mp.getBodyPart(i));
+                if (!text.isBlank()) {
+                    sb.append(text).append("\n");
+                }
+            }
+            return sb.toString();
+        }
+        return "";
+    }
+
+    // ── 信息提取 ────────────────────────────────────────────────
+
+    private static final Pattern PAT_PHONE = Pattern.compile("1[3-9]\\d{9}");
+    private static final Pattern PAT_EMAIL = Pattern.compile("[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}");
+
+    private String extractName(String text, String from) {
+        // 优先从文本中提取"姓名"后的内容
+        Pattern p = Pattern.compile("姓[\\s]*名[：:]*\\s*(\\S{2,4})");
+        Matcher m = p.matcher(text);
+        if (m.find()) {
+            return m.group(1).trim();
+        }
+        // 回退：从发件人中提取
+        if (from.contains("<")) {
+            String part = from.substring(0, from.indexOf('<')).trim();
+            if (!part.isBlank()) {
+                return part;
+            }
+        }
+        // 从邮件地址提取
+        Matcher em = PAT_EMAIL.matcher(from);
+        if (em.find()) {
+            String[] parts = em.group().split("@")[0].split("[._-]");
+            for (String part : parts) {
+                if (part.length() >= 2 && part.length() <= 5) {
+                    return part;
+                }
+            }
+        }
+        return from;
+    }
+
+    private String extractPhone(String text) {
+        Matcher m = PAT_PHONE.matcher(text);
+        return m.find() ? m.group() : null;
+    }
+
+    private String extractEmail(String text, String from) {
+        Matcher m = PAT_EMAIL.matcher(from);
+        if (m.find()) {
+            return m.group().toLowerCase();
+        }
+        Matcher tm = PAT_EMAIL.matcher(text);
+        return tm.find() ? tm.group().toLowerCase() : "";
+    }
+
+    private String extractPosition(String subject) {
+        Pattern p = Pattern.compile("([\\u4e00-\\u9fa5]{2,8}(工程师|经理|总监|专员|主管|开发|设计|运营|销售|HR|hr))");
+        Matcher m = p.matcher(subject);
+        if (m.find()) {
+            return m.group(1);
+        }
+        // 回退：主题中 "-" "—" 前的部分（去除姓名和动作词）
+        String s = subject.replaceAll("(简历|应聘|求职|投递|申请|个人)", "").trim();
+        if (s.contains("-")) {
+            s = s.substring(s.indexOf('-') + 1).trim();
+        }
+        if (s.contains("—")) {
+            s = s.substring(s.indexOf('—') + 1).trim();
+        }
+        return s.length() > 32 ? s.substring(0, 32) : s;
+    }
+
+    private String extractEduLevel(String text) {
+        String[] levels = {"博士", "硕士", "研究生", "本科", "大专", "高中"};
+        for (String lv : levels) {
+            if (text.contains(lv)) {
+                return lv;
+            }
+        }
+        return "本科"; // 默认
+    }
+
+    // ── 去重与入库 ──────────────────────────────────────────────
+
+    private boolean candidateExistsByHash(String mobileHash, String email) {
+        try {
+            List<?> rows = entityManager.createNativeQuery(
+                    "SELECT 1 FROM t_hr_candidate WHERE mobile_hash = :hash AND is_deleted = 0 LIMIT 1")
+                    .setParameter("hash", mobileHash)
+                    .getResultList();
+            if (!rows.isEmpty()) {
+                return true;
+            }
+        } catch (Exception ignored) { }
+        if (email != null && !email.isBlank()) {
+            try {
+                List<?> rows = entityManager.createNativeQuery(
+                        "SELECT 1 FROM t_hr_candidate WHERE email = :email AND is_deleted = 0 LIMIT 1")
+                        .setParameter("email", email.toLowerCase())
+                        .getResultList();
+                if (!rows.isEmpty()) {
+                    return true;
+                }
+            } catch (Exception ignored) { }
+        }
+        return false;
+    }
+
+    private void insertCandidateAndResume(String name, String phone, String email,
+                                           String mobileHash, String eduLevel, String targetPosition,
+                                           String subject, String bodyText, Long ownerUserId) {
+        LocalDateTime now = LocalDateTime.now();
+        try {
+            // 1. 插入 Candidate
+            entityManager.createNativeQuery(
+                    "INSERT INTO t_hr_candidate (candidate_no, candidate_name, mobile, email, " +
+                    "mobile_hash, edu_level, static_ability_score, current_position, status, source, note, " +
+                    "created_at, updated_at, is_deleted) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'available', 'email', ?, ?, ?, 0)")
+                    .setParameter(1, "C" + now.format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss")))
+                    .setParameter(2, name != null ? name : "未知")
+                    .setParameter(3, phone)
+                    .setParameter(4, email)
+                    .setParameter(5, mobileHash)
+                    .setParameter(6, eduLevel)
+                    .setParameter(7, emailProfileScore(eduLevel))
+                    .setParameter(8, targetPosition != null ? targetPosition : "未知")
+                    .setParameter(9, "邮件主题: " + (subject.length() > 256 ? subject.substring(0, 256) : subject))
+                    .setParameter(10, now)
+                    .setParameter(11, now)
+                    .executeUpdate();
+
+            // 2. 获取 candidate_id
+            List<?> ids = entityManager.createNativeQuery(
+                    "SELECT id FROM t_hr_candidate WHERE mobile_hash = :hash AND is_deleted = 0 ORDER BY id DESC LIMIT 1")
+                    .setParameter("hash", mobileHash)
+                    .getResultList();
+            if (ids.isEmpty()) {
+                return;
+            }
+            long candidateId = ((Number) ids.get(0)).longValue();
+
+            // 3. 插入 Resume（文本提取结果作为简历内容）
+            String resumeContent = subject + "\n\n" + (bodyText.length() > 5000 ? bodyText.substring(0, 5000) : bodyText);
+            entityManager.createNativeQuery(
+                    "INSERT INTO t_hr_resume (candidate_id, file_name, file_type, content_text, " +
+                    "storage_time, source, source_channel, owner_user_id, " +
+                    "created_at, updated_at, is_deleted) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)")
+                    .setParameter(1, candidateId)
+                    .setParameter(2, subject.length() > 128 ? subject.substring(0, 128) : subject)
+                    .setParameter(3, "email")
+                    .setParameter(4, resumeContent)
+                    .setParameter(5, now)
+                    .setParameter(6, "mail")
+                    .setParameter(7, "邮件投递")
+                    .setParameter(8, ownerUserId != null ? ownerUserId : 1L)
+                    .setParameter(9, now)
+                    .setParameter(10, now)
+                    .executeUpdate();
+
+            log.info("邮件简历入库: name={}, phone={}, position={}", name, phone, targetPosition);
+        } catch (Exception e) {
+            log.warn("入库失败: name={}, error={}", name, e.getMessage());
+        }
+    }
+
+    /** 邮箱简历只解析到学历，其余维度未知；按学历给画像分（0-100），其余维度给基础分。 */
+    private int emailProfileScore(String eduLevel) {
+        int edu = switch (eduLevel == null ? "" : eduLevel) {
+            case "博士" -> 35;
+            case "硕士", "研究生" -> 28;
+            case "本科" -> 22;
+            case "大专" -> 15;
+            default -> 8; // 高中/未知
+        };
+        // 院校未知 +4、工龄未知 +6、大厂 0、证书 0
+        return Math.max(0, Math.min(100, edu + 4 + 6));
+    }
+
+    // ── 工具方法 ────────────────────────────────────────────────
+
+    private static String sha256(String input) {
+        try {
+            byte[] hash = MessageDigest.getInstance("SHA-256").digest(
+                    input.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hash);
+        } catch (NoSuchAlgorithmException e) {
+            return input; // 不应发生
+        }
+    }
+
+
+    // DOMAIN_IMAP_FALLBACK for detectImapServer
+    private static final Map<String, String[]> DOMAIN_IMAP_FALLBACK = Map.ofEntries(
+            Map.entry("qq.com", new String[]{"QQ邮箱", "imap.qq.com"}),
+            Map.entry("163.com", new String[]{"163邮箱", "imap.163.com"}),
+            Map.entry("126.com", new String[]{"126邮箱", "imap.126.com"}),
+            Map.entry("gmail.com", new String[]{"Gmail", "imap.gmail.com"}),
+            Map.entry("outlook.com", new String[]{"Outlook", "outlook.office365.com"}),
+            Map.entry("hotmail.com", new String[]{"Outlook", "outlook.office365.com"}),
+            Map.entry("live.com", new String[]{"Outlook", "outlook.office365.com"}),
+            Map.entry("aliyun.com", new String[]{"阿里企业邮箱", "imap.qiye.aliyun.com"}),
+            Map.entry("exmail.qq.com", new String[]{"腾讯企业邮箱", "imap.exmail.qq.com"})
+    );
+
     private String encryptMailPassword(String raw) {
         try {
-            return AesUtil.encrypt(raw, cryptoSecret());
+            return AesUtil.encrypt(raw, cryptoSecret);
         } catch (Exception e) {
             return raw;
+        }
+    }
+
+    /**
+     * 解密邮箱密码，对齐 MailService.decryptPassword。
+     * 依次尝试 AES 解密，失败则明文兜底。
+     */
+    private String decryptMailPassword(RecruitMailAccount account) {
+        String raw = account.getPasswordEncrypted();
+        if (raw == null || raw.isBlank()) return null;
+        if (raw.startsWith("enc:")) {
+            try { return AesUtil.decrypt(raw.substring(4), cryptoSecret); }
+            catch (Exception e) { return null; }
+        }
+        try {
+            return AesUtil.decrypt(raw, cryptoSecret);
+        } catch (Exception ignored) {
+            return raw; // 明文兜底
         }
     }
 
@@ -780,6 +1492,107 @@ public class ConfigService {
         }).toList();
     }
 
+    /**
+     * Write an audit log entry (aligns with Python append_audit_log).
+     */
+    @Transactional
+    public void appendAuditLog(String operatorName, String module, String action, String detail) {
+        AuditLog log = new AuditLog();
+        log.setOperatorName(operatorName != null ? operatorName : "系统");
+        log.setModule(module);
+        log.setAction(action);
+        log.setDetail(detail != null && detail.length() > 512 ? detail.substring(0, 512) : detail);
+        log.setOperateTime(LocalDateTime.now());
+        log.setCreatedAt(LocalDateTime.now());
+        log.setUpdatedAt(LocalDateTime.now());
+        log.setIsDeleted(0);
+        auditLogRepository.save(log);
+    }
+
+    // ── 系统配置（key-value 持久化） ───────────────────────
+
+    private Optional<String> getConfigValue(String configKey) {
+        return systemConfigRepository.findByConfigKeyAndIsDeleted(configKey, 0)
+                .map(SystemConfig::getConfigValue);
+    }
+
+    @Transactional
+    private void setConfigValue(String configKey, String configValue) {
+        SystemConfig row = systemConfigRepository.findByConfigKeyAndIsDeleted(configKey, 0).orElse(null);
+        LocalDateTime now = LocalDateTime.now();
+        if (row != null) {
+            row.setConfigValue(configValue);
+            row.setUpdatedAt(now);
+            systemConfigRepository.save(row);
+        } else {
+            SystemConfig n = new SystemConfig();
+            n.setConfigKey(configKey);
+            n.setConfigValue(configValue);
+            n.setCreatedAt(now);
+            n.setUpdatedAt(now);
+            n.setIsDeleted(0);
+            systemConfigRepository.save(n);
+        }
+    }
+
+    // ── 邮件规则（email-rules） ──────────────────────────────
+
+    /**
+     * GET /api/config/email-rules — resume detection rule config.
+     */
+    public Map<String, Object> getEmailRules() {
+        String json = getConfigValue("email_rules").orElse(null);
+        Map<String, Object> rules = parseJsonMap(json);
+        if (rules.isEmpty()) {
+            // Default values matching Python config_service.py
+            rules.put("resume_rule", "contains_resume");
+            rules.put("skip_newsletter", true);
+            rules.put("skip_spam_words", "退订,unsubscribe,广告,promotion,newsletter");
+            rules.put("attachment_types", ".pdf,.doc,.docx,.png,.jpg,.txt");
+            rules.put("strict_extract_name", true);
+            rules.put("max_attachment_mb", 15);
+        }
+        return rules;
+    }
+
+    /**
+     * PUT /api/config/email-rules — save resume detection rule config.
+     */
+    @Transactional
+    public Map<String, Object> saveEmailRules(Map<String, Object> data) {
+        setConfigValue("email_rules", toJson(data));
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("saved", true);
+        return result;
+    }
+
+    // ── 渠道成本（channel-costs） ────────────────────────────
+
+    /**
+     * GET /api/config/channel-costs — persisted channel cost overrides.
+     */
+    public Map<String, Object> getChannelCosts() {
+        String json = getConfigValue("channel_costs").orElse(null);
+        return parseJsonMap(json);
+    }
+
+    /**
+     * PUT /api/config/channel-costs — save a single channel's cost override.
+     */
+    @Transactional
+    @CacheEvict(cacheNames = "config", key = "'channels'")
+    public Map<String, Object> saveChannelCost(String code, String cost) {
+        Map<String, Object> costs = getChannelCosts();
+        costs.put(code, cost);
+        setConfigValue("channel_costs", toJson(costs));
+        // Also update in-memory fallback map
+        CHANNEL_COST_MAP.put(code, cost);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("saved", true);
+        result.put("code", code);
+        return result;
+    }
+
     // ── API 密钥（只返回掩码，绝不返回明文） ────────────────
 
     public Map<String, Object> getApiKeys() {
@@ -867,8 +1680,37 @@ public class ConfigService {
             return result;
         }
         if ("dify".equals(keyName)) {
-            result.put("supported", false);
-            result.put("message", "Dify 为兼容保留配置，暂不支持连通性测试");
+            String env = System.getenv("DIFY_API_KEY");
+            String stored = env != null && !env.isBlank() ? env : decryptStoredKey(keyName);
+            result.put("source", env != null && !env.isBlank() ? "env" : (stored != null ? "db" : null));
+            if (stored == null || stored.isBlank()) {
+                result.put("message", "未配置密钥，请先保存");
+                return result;
+            }
+            String baseEnv = System.getenv("DIFY_BASE_URL");
+            String base = (baseEnv != null && !baseEnv.isBlank()) ? baseEnv : "https://api.dify.ai/v1";
+            try {
+                java.net.HttpURLConnection conn = (java.net.HttpURLConnection)
+                        new java.net.URL(base.replaceAll("/+$", "") + "/info").openConnection();
+                conn.setRequestMethod("GET");
+                conn.setRequestProperty("Authorization", "Bearer " + stored);
+                conn.setConnectTimeout(10000);
+                conn.setReadTimeout(15000);
+                int status = conn.getResponseCode();
+                if (status == 200) {
+                    result.put("ok", true);
+                    result.put("message", "连接成功，Dify 应用可用");
+                } else if (status == 401 || status == 403) {
+                    result.put("message", "Dify API Key 无效（HTTP " + status + "）");
+                } else if (status == 404) {
+                    result.put("message", "Dify 应用不存在或 Key 类型不匹配（HTTP 404）");
+                } else {
+                    result.put("message", "Dify 返回 HTTP " + status);
+                }
+                conn.disconnect();
+            } catch (Exception e) {
+                result.put("message", "网络请求失败：" + e.getClass().getSimpleName());
+            }
             return result;
         }
 
@@ -941,13 +1783,13 @@ public class ConfigService {
         return result;
     }
 
-    private String decryptStoredKey(String keyName) {
+    public String decryptStoredKey(String keyName) {
         ApiKeyConfig row = apiKeyRepository.findByKeyNameAndIsDeleted(keyName, 0).orElse(null);
         if (row == null || row.getValueEncrypted() == null || row.getValueEncrypted().isEmpty()) {
             return null;
         }
         try {
-            return AesUtil.decrypt(row.getValueEncrypted(), cryptoSecret());
+            return AesUtil.decrypt(row.getValueEncrypted(), cryptoSecret);
         } catch (Exception e) {
             return null;
         }

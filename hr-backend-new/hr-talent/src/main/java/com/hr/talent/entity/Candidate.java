@@ -88,4 +88,45 @@ public class Candidate {
 
     @Column(name = "is_deleted")
     private Integer isDeleted;
+
+    /**
+     * 计算静态画像分（0-100），落库到 static_ability_score。
+     * 维度：学历 35 + 院校 20 + 工龄 20 + 大厂 15 + 证书 10，硬规则、确定性，不调 AI。
+     */
+    public BigDecimal computeStaticAbilityScore() {
+        // 学历 (0-35)：大专 15 / 本科 22 / 硕士 28 / 博士 35
+        int edu = 8;
+        if (eduLevel != null) {
+            edu = switch (eduLevel) {
+                case 1 -> 15;
+                case 2 -> 22;
+                case 3 -> 28;
+                case 4 -> 35;
+                default -> 8;
+            };
+        }
+        // 院校 (0-20)：普通 8 / 211 13 / 985 18 / C9 20
+        int school = 4;
+        if (schoolLevel != null) {
+            school = switch (schoolLevel) {
+                case 1 -> 8;
+                case 2 -> 13;
+                case 3 -> 18;
+                case 4 -> 20;
+                default -> 4;
+            };
+        }
+        // 工龄 (0-20)：每年 +2，上限 20
+        int years = 6;
+        if (workYears != null) {
+            years = Math.min(20, workYears * 2);
+        }
+        // 大厂 (0-15)
+        int bigCompany = bigCompanyFlag != null && bigCompanyFlag == 1 ? 15 : 0;
+        // 证书 (0-10)：每张 +2，上限 10
+        int cert = Math.min(10, (certCount != null ? certCount : 0) * 2);
+
+        int score = Math.max(0, Math.min(100, edu + school + years + bigCompany + cert));
+        return BigDecimal.valueOf(score);
+    }
 }

@@ -253,10 +253,12 @@ async function login() {
   try {
     const result = await apiLogin(username.value.trim(), password.value, rememberMe.value);
     if (result?.token) localStorage.setItem('hr_token', result.token);
+    if (Array.isArray(result?.menus)) localStorage.setItem('hr_menus', JSON.stringify(result.menus));
     if (result?.user) {
       localStorage.setItem('hr_role', result.user.role);
       localStorage.setItem('hr_user', result.user.name || result.user.role);
-      setAuth(result.user.name || result.user.role, result.user.role);
+      if (result.user.id) localStorage.setItem('hr_userId', result.user.id);
+      setAuth(result.user.name || result.user.role, result.user.role, result.user.id, result.menus);
     }
     // Force password change on first login or after admin reset
     if (result?.user?.mustChangePassword) {

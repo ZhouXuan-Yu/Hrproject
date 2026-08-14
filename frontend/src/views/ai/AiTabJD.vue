@@ -4,7 +4,7 @@
     <AiConversation>
       <!-- AI intro -->
       <AiChatMessage role="ai" status="complete">
-        <p>输入岗位信息，我帮你生成结构化的 JD 草稿，包括岗位职责、必备技能、加分项和任职资格。所有内容需人工审核确认后使用。</p>
+        <p>输入岗位信息，我帮你生成一份完整的 JD 草稿（岗位概述、岗位职责、任职要求、加分项），可直接用于招聘发布。所有内容需人工审核确认后使用。</p>
       </AiChatMessage>
 
       <!-- Thinking panel (思考 + 实时生成过程都在面板内) -->
@@ -36,37 +36,6 @@
               <div data-slot="ai-jd-section-title">JD 全文</div>
               <div data-slot="ai-jd-fulltext">
                 <AiMarkdown :content="jdResult.jd_text" />
-              </div>
-            </div>
-            <div data-slot="ai-jd-section">
-              <div data-slot="ai-jd-section-title">岗位职责</div>
-              <ol data-slot="ai-jd-list">
-                <li v-for="(r, i) in jdResult.responsibilities" :key="'r'+i">{{ r }}</li>
-              </ol>
-            </div>
-            <div data-slot="ai-jd-section">
-              <div data-slot="ai-jd-section-title">必备技能</div>
-              <div data-slot="ai-jd-skill-table">
-                <div v-for="s in jdResult.required_skills" :key="s.name" data-slot="ai-jd-skill-row">
-                  <span data-slot="ai-jd-skill-name">{{ s.name }}</span>
-                  <StatusBadge :type="s.weight === '必须' ? 'done' : 'progress'">{{ s.weight }}</StatusBadge>
-                  <span data-slot="ai-jd-skill-desc">{{ s.description }}</span>
-                </div>
-              </div>
-            </div>
-            <div v-if="jdResult.plus_skills?.length" data-slot="ai-jd-section">
-              <div data-slot="ai-jd-section-title">加分项</div>
-              <ul data-slot="ai-jd-list">
-                <li v-for="s in jdResult.plus_skills" :key="s.name">{{ s.name }} — {{ s.description }}</li>
-              </ul>
-            </div>
-            <div data-slot="ai-jd-section">
-              <div data-slot="ai-jd-section-title">任职资格</div>
-              <div data-slot="ai-jd-info-grid">
-                <div v-for="(v, k) in jdResult.qualifications" :key="k" data-slot="ai-jd-info-item">
-                  <span data-slot="ai-jd-info-label">{{ qualLabels[k] || k }}</span>
-                  <span data-slot="ai-jd-info-value">{{ v }}</span>
-                </div>
               </div>
             </div>
           </div>
@@ -103,7 +72,8 @@
       <AiPromptInput
         v-model="jdForm.requirements"
         :status="jdStatus"
-        :disabled="!jdForm.position || !jdForm.department"
+        :disabled="!jdForm.position"
+        :require-value="false"
         placeholder="补充要求 (选填)，例如：大厂背景、熟悉微服务架构..."
         hint=""
         layout="compact"
@@ -122,21 +92,18 @@ import AiChatMessage from '../../components/ai/AiChatMessage.vue';
 import AiPromptInput from '../../components/ai/AiPromptInput.vue';
 import AiMarkdown from '../../components/ai/AiMarkdown.vue';
 import AiDisclaimer from '../../components/ai/AiDisclaimer.vue';
-import StatusBadge from '../../components/StatusBadge.vue';
-import { runJdGenerate } from '../../api/ai.js';
 import { useStreaming } from '../../composables/useStreaming.js';
 import { fetchDepartments } from '../../api/config.js';
 
 const showToast = inject('showToast');
 
 const levels = ['初级', '中级', '高级', '资深', '专家'];
-const qualLabels = { education: '学历', experience: '经验', industry: '行业', soft: '软技能', others: '其他' };
 const departments = ref([]);
 
 async function loadDepartments() {
   try {
     const list = await fetchDepartments();
-    departments.value = (list || []).map(d => d.name || d);
+    departments.value = (list || []).map(d => d.deptName || d.name || d);
   } catch (_) {
     departments.value = [];
   }
@@ -160,98 +127,29 @@ const jdThinkingDisplay = computed(() => {
   return parts.join('\n');
 });
 
-// Streaming (SSE) — 流式优先，结构化缺失时用阻塞式 API 兜底补齐
+// Streaming (SSE) — 流式生成 JD 全文，实时展示在思考面板与结果区
 const {
   content: jdStreamContent,
   thinking: jdThinking,
-  isStreaming: jdStreaming,
   error: jdStreamError,
-  result: jdStreamResult,
   start: startJdStream,
-  stop: stopJdStream,
 } = useStreaming();
 
-// --- 结构化字段归一化（兼容后端返回字符串数组的旧格式） ---
-function _nonEmptyArr(v) { return Array.isArray(v) && v.length > 0; }
-
-function _asStrList(list) {
-  if (!_nonEmptyArr(list)) return [];
-  return list
-    .map((x) => (typeof x === 'string' ? x : (x?.name || x?.skill || '')))
-    .filter(Boolean);
-}
-
-function _asSkillRows(list, defaultWeight) {
-  if (!_nonEmptyArr(list)) return [];
-  return list
-    .map((s) => (typeof s === 'string'
-      ? { name: s, weight: defaultWeight, description: '' }
-      : { name: s?.name || '', weight: s?.weight || defaultWeight, description: s?.description || '' }))
-    .filter((s) => s.name);
-}
-
-function _asPlusRows(list) {
-  if (!_nonEmptyArr(list)) return [];
-  return list
-    .map((s) => (typeof s === 'string'
-      ? { name: s, description: '' }
-      : { name: s?.name || '', description: s?.description || '' }))
-    .filter((s) => s.name);
-}
-
-function _asQual(q) {
-  if (!q || typeof q !== 'object') return {};
-  const out = {};
-  for (const [k, v] of Object.entries(q)) {
-    const val = Array.isArray(v) ? v.join('；') : String(v ?? '');
-    if (val) out[k] = val;
-  }
-  return out;
-}
-
-function _hasQual(q) { return q && typeof q === 'object' && Object.keys(q).length > 0; }
-
 async function generateJd() {
-  if (!jdForm.position || !jdForm.department) return;
+  if (!jdForm.position) return;
   jdError.value = ''; jdLoading.value = true; jdResult.value = null; jdThinkingUsed.value = true;
 
-  // 1) 流式生成（useStreaming 内部捕获异常，不会 reject）
   await startJdStream('jd-generate', { ...jdForm });
   if (jdStreamError.value) { jdError.value = jdStreamError.value; jdLoading.value = false; return; }
 
-  // 2) 结构化字段缺失（流式解析失败）时，调用阻塞式 API 补齐；
-  //    流式的 Markdown 正文仍保留展示
-  const sr = jdStreamResult.value || {};
-  const incomplete = !_nonEmptyArr(sr.responsibilities) || !_nonEmptyArr(sr.required_skills);
-  let structured = sr;
-  if (incomplete) {
-    try {
-      const blocking = await runJdGenerate({ ...jdForm });
-      structured = {
-        responsibilities: _nonEmptyArr(sr.responsibilities) ? sr.responsibilities : blocking.responsibilities,
-        required_skills: _nonEmptyArr(sr.required_skills) ? sr.required_skills : blocking.required_skills,
-        plus_skills: _nonEmptyArr(sr.plus_skills) ? sr.plus_skills : blocking.plus_skills,
-        qualifications: _hasQual(sr.qualifications) ? sr.qualifications : blocking.qualifications,
-        jd_text: sr.jd_text || blocking.jd_text,
-        disclaimer: sr.disclaimer || blocking.disclaimer,
-      };
-    } catch (_e) { /* 保留流式已拿到的部分 */ }
-  }
-
-  // 3) 汇总结果
-  let jdText = jdStreamContent.value || structured.jd_text || '';
-  // 流式正文若是纯 JSON（新提示词的标准输出），展示结构化 jd_text 字段
-  if (jdText.trim().startsWith('{')) jdText = structured.jd_text || '';
+  let jdText = jdStreamContent.value || '';
+  // 流式正文若是纯 JSON（异常情况），退回空避免展示原始 JSON
+  if (jdText.trim().startsWith('{')) jdText = '';
 
   jdResult.value = {
     jd_text: jdText,
     position: jdForm.position,
     department: jdForm.department,
-    responsibilities: _asStrList(structured.responsibilities),
-    required_skills: _asSkillRows(structured.required_skills, '必须'),
-    plus_skills: _asPlusRows(structured.plus_skills),
-    qualifications: _asQual(structured.qualifications),
-    disclaimer: structured.disclaimer || '此内容由AI生成，请人工审核确认后使用',
   };
   jdLoading.value = false;
   showToast('JD 草稿生成完成');
@@ -289,7 +187,7 @@ loadDepartments();
 [data-slot="ai-jd-section"] { margin-bottom:16px }
 [data-slot="ai-jd-section-title"] { font-size:12px;font-weight:700;color:var(--c-text);margin-bottom:8px;display:flex;align-items:center;gap:6px }
 [data-slot="ai-jd-section-title"]::before { content:'';width:3px;height:12px;background:var(--c-primary);border-radius:2px }
-[data-slot="ai-jd-fulltext"] { padding:12px 14px;background:var(--c-surface-elevated);border:1px solid var(--c-border-light);border-radius:var(--radius-sm);max-height:280px;overflow-y:auto }
+[data-slot="ai-jd-fulltext"] { padding:22px 26px;background:var(--c-surface-elevated);border:1px solid var(--c-border-light);border-radius:var(--radius-sm) }
 [data-slot="ai-jd-list"] { padding-left:16px;font-size:13px;color:var(--c-body);line-height:2 }
 [data-slot="ai-jd-skill-table"] { border:1px solid var(--c-border);border-radius:var(--radius-sm);overflow:hidden }
 [data-slot="ai-jd-skill-row"] { display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--c-border-light);font-size:12px }
@@ -311,7 +209,7 @@ input:focus-visible, select:focus-visible { outline:2px solid var(--c-primary);o
   [data-slot="ai-jd-info-grid"] { grid-template-columns: 1fr; }
   [data-slot="ai-jd-skill-row"] { flex-wrap: wrap; gap: 4px; }
   [data-slot="ai-jd-skill-name"] { min-width: auto; }
-  [data-slot="ai-jd-fulltext"] { max-height: 200px; padding: 10px 12px; }
+  [data-slot="ai-jd-fulltext"] { padding: 16px 18px; }
   [data-slot="ai-input-area"] input,
   [data-slot="ai-input-area"] select { min-width: 100%; }
 }

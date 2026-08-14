@@ -57,4 +57,14 @@ public class DashboardController {
             @RequestParam(name = "position_id", required = false) Long positionId) {
         return ApiResponse.success(dashboardService.getMonthlyStats(year, deptId, positionId));
     }
+
+    /**
+     * GET /api/dashboard/home — 角色感知个人工作台首页。
+     * 对齐 Flask GET /api/dashboard/home。
+     */
+    @GetMapping("/home")
+    public ApiResponse<Map<String, Object>> home() {
+        return ApiResponse.success(dashboardService.getHomeData(
+                SecurityUtils.getRoleCode(), SecurityUtils.getUserId()));
+    }
 }

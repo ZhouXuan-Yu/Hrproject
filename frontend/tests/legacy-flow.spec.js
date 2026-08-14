@@ -303,7 +303,7 @@ test('interview rows support multi-select clear and delete confirmation', async 
   await checks.nth(0).check();
   await expect(page.getByTestId('interview-batch-bar')).toBeVisible();
   await checks.nth(1).check();
-  await page.getByTestId('interview-clear-selection').click();
+  await page.getByTestId('interview-deselect').click();
   await expect(page.getByTestId('interview-batch-bar')).toHaveCount(0);
 
   await checks.nth(0).check();

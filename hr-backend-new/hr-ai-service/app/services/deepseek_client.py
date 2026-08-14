@@ -3,6 +3,7 @@
 提供 chat_completion / chat_completion_json / chat_completion_stream。
 迁移自现有 Flask 后端 app/services/deepseek_client.py。
 """
+import contextvars
 import json
 import logging
 import time
@@ -17,12 +18,21 @@ log = logging.getLogger(__name__)
 _client: Optional[OpenAI] = None
 _client_key: Optional[str] = None
 
+# 请求级 API key（由 routes 从请求头 X-DeepSeek-Key 注入，优先于 .env）
+_request_api_key: contextvars.ContextVar[str] = contextvars.ContextVar('request_api_key', default='')
+
 DISCLAIMER = "此内容由AI生成，请人工审核确认后使用"
+
+
+def set_request_api_key(key: str) -> None:
+    """设置当前请求使用的 DeepSeek key（空值忽略，回落到 .env）。"""
+    if key:
+        _request_api_key.set(key)
 
 
 def _get_client() -> OpenAI:
     global _client, _client_key
-    api_key = settings.DEEPSEEK_API_KEY
+    api_key = _request_api_key.get() or settings.DEEPSEEK_API_KEY
     if not api_key:
         raise RuntimeError('DeepSeek API key 未配置：请设置 DEEPSEEK_API_KEY 环境变量')
     if _client is not None and _client_key == api_key:

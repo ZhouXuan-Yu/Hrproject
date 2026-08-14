@@ -81,6 +81,11 @@ public class HireController {
         return ApiResponse.success(hireService.expireOffers());
     }
 
+    @PostMapping("/offers/followup")
+    public ApiResponse<Map<String, Object>> offerFollowup() {
+        return ApiResponse.success(hireService.offerFollowup());
+    }
+
     @GetMapping("/entries")
     public Map<String, Object> listEntries(
             @RequestParam(defaultValue = "1") int page,

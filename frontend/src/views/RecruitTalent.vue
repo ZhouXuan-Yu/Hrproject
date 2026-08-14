@@ -131,7 +131,7 @@
         <div style="display:flex;gap:8px;align-items:center">
           <button class="btn btn-primary btn-sm" id="addToDemandBtn" @click="openDemandModal">加入需求</button>
           <button class="btn btn-outline btn-sm" @click="batchContact">批量联系</button>
-          <button class="btn btn-ghost btn-sm" @click="clearSelectionExt">清除选择</button>
+          <button class="btn btn-ghost btn-sm" @click="clearSelectionExt">取消选中</button>
         </div>
       </div>
 
@@ -188,7 +188,7 @@
         <span>已选择 <span class="count" id="batchCountInt">{{ checkedIntCount }}</span> 位员工</span>
         <div style="display:flex;gap:8px">
           <button class="btn btn-primary btn-sm" @click="toast.info('请选择目标岗位后关联内部员工')">加入需求</button>
-          <button class="btn btn-ghost btn-sm" @click="clearSelectionInt">清除选择</button>
+          <button class="btn btn-ghost btn-sm" @click="clearSelectionInt">取消选中</button>
         </div>
       </div>
     </div>
@@ -425,7 +425,7 @@ const selectedDemandId = ref('');
 const selectedCandidates = computed(() =>
   Object.keys(checkedExt)
     .filter(k => checkedExt[k])
-    .map(id => EXT_DATA_SOURCE.value.find(x => x.id === id))
+    .map(id => EXT_DATA_SOURCE.value.find(x => String(x.id) === String(id)))
     .filter(Boolean)
     .map(c => ({
       id: c.id,
@@ -655,7 +655,7 @@ function renderExt() { loadFromApi(); }
 function openNote(id, name) {
   currentNoteId.value = id; currentNoteType.value = 'ext';
   noteTarget.value = name;
-  const c = EXT_DATA_SOURCE.value.find(x => x.id === id);
+  const c = EXT_DATA_SOURCE.value.find(x => String(x.id) === String(id));
   noteText.value = c ? c.note : '';
   showNoteModal.value = true;
 }
@@ -744,7 +744,7 @@ function openContactModal(name, id) {
 // Batch
 async function addToDemand(demandId, demandName) {
   const checkedIds = Object.keys(checkedExt).filter(k => checkedExt[k]);
-  const names = checkedIds.map(id => { const c = EXT_DATA_SOURCE.value.find(x => x.id === id); return c ? c.name : ''; }).filter(Boolean);
+  const names = checkedIds.map(id => { const c = EXT_DATA_SOURCE.value.find(x => String(x.id) === String(id)); return c ? c.name : ''; }).filter(Boolean);
   if (names.length === 0) return;
 
   // 并行调用真实 link 接口，按返回的 linked 判定成败，汇总提示
@@ -794,7 +794,7 @@ async function addToDemand(demandId, demandName) {
 
 function batchContact() {
   const checkedIds = Object.keys(checkedExt).filter(k => checkedExt[k]);
-  const names = checkedIds.map(id => { const c = EXT_DATA_SOURCE.value.find(x => x.id === id); return c ? c.name : ''; }).filter(Boolean);
+  const names = checkedIds.map(id => { const c = EXT_DATA_SOURCE.value.find(x => String(x.id) === String(id)); return c ? c.name : ''; }).filter(Boolean);
   if (names.length === 0) return;
   contactCandidateId.value = '';
   contactCandidateName.value = '';

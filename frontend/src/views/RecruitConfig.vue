@@ -18,10 +18,10 @@
       </div>
       <div class="table-wrap data-region">
         <table><thead><tr>
-          <th>ID</th><th>部门名称</th><th>排序</th><th>状态</th><th style="width:140px">操作</th>
+          <th>ID</th><th>部门名称</th><th>人数</th><th>状态</th><th style="width:140px">操作</th>
         </tr></thead><tbody>
           <tr v-for="d in deptList" :key="d.id">
-            <td>{{ d.id }}</td><td>{{ d.name }}</td><td>{{ d.sortNum || 0 }}</td>
+            <td>{{ d.id }}</td><td>{{ d.name }}</td><td>{{ d.headcount || 0 }}</td>
             <td><span :style="{color: d.status === 1 ? 'var(--c-done)' : 'var(--c-error)', fontWeight:600}">{{ d.status === 1 ? '启用' : '停用' }}</span></td>
             <td class="row-actions">
               <a href="#" class="btn btn-text btn-sm" @click.prevent="openDeptEdit(d)">编辑</a>
@@ -35,14 +35,21 @@
 
     <!-- 部门编辑弹窗 -->
     <BaseModal v-if="deptDialogVisible" :title="deptEditingId ? '编辑部门' : '新增部门'" @close="deptDialogVisible = false">
-      <div class="form-grid">
-        <div class="form-group"><label>部门名称 <span style="color:var(--c-error)">*</span></label><input type="text" v-model="deptForm.name" placeholder="如：技术研发部"></div>
-        <div class="form-group"><label>排序号</label><input type="number" v-model.number="deptForm.sortNum" placeholder="越小越靠前"></div>
+      <div class="dept-dialog-body">
+        <div class="dept-dialog-form">
+          <label class="dept-dialog-label">部门名称 <span class="dept-dialog-required">*</span></label>
+          <input type="text" v-model="deptForm.name" placeholder="例如：技术研发部、市场部" class="dept-dialog-input" ref="deptNameInputRef" @keyup.enter="saveDept" maxlength="32">
+          <div class="dept-dialog-hint">{{ deptForm.name.length }}/32 个字符</div>
+        </div>
+        <div v-if="deptFormError" class="dept-dialog-error">{{ deptFormError }}</div>
       </div>
-      <div v-if="deptFormError" style="color:var(--c-error);font-size:13px;margin-top:8px">{{ deptFormError }}</div>
       <template #footer>
-        <button class="btn btn-outline btn-sm" @click="deptDialogVisible = false">取消</button>
-        <button class="btn btn-primary btn-sm" :disabled="deptSaving" @click="saveDept">{{ deptSaving ? '保存中...' : '保存' }}</button>
+        <div class="dept-dialog-footer">
+          <button class="btn-cancel" @click="deptDialogVisible = false">取消</button>
+          <button class="btn-save" :disabled="deptSaving" @click="saveDept">
+            {{ deptSaving ? '保存中…' : (deptEditingId ? '保存修改' : '创建部门') }}
+          </button>
+        </div>
       </template>
     </BaseModal>
 
@@ -193,6 +200,7 @@
             </td>
             <td class="row-actions">
               <a href="#" class="btn btn-text btn-sm" @click.prevent="toggleChanStatus(ch)">{{ ch.status === '启用' ? '停用' : '启用' }}</a>
+              <a href="#" class="btn btn-text-danger btn-sm" @click.prevent="deleteChan(ch)">删除</a>
             </td>
           </tr>
         </tbody>
@@ -419,6 +427,29 @@
       <span v-if="rolePermMsg" :style="{color: rolePermOk ? 'var(--c-done)' : 'var(--c-error)', marginLeft:'10px', fontSize:'13px'}">{{ rolePermMsg }}</span>
     </BaseAccordion>
 
+    <!-- 数据范围配置 -->
+    <BaseAccordion title="数据范围配置">
+      <div class="accordion-desc">配置各角色默认可见的数据范围（五档）。个人账号可在「账号管理」里单独覆盖。优先级：个人覆盖 &gt; 角色默认 &gt; 系统兜底。</div>
+      <table class="config-table">
+        <thead><tr><th>角色</th><th>数据范围</th></tr></thead>
+        <tbody>
+          <tr v-for="rs in roleDataScopes" :key="rs.roleCode">
+            <td>{{ rs.role }}</td>
+            <td>
+              <select v-model="rs.scopeType" style="padding:6px 10px;border:1px solid var(--c-border);border-radius:6px;font-size:13px">
+                <option v-for="opt in SCOPE_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+              <span v-if="rs.isDefault" style="margin-left:8px;font-size:12px;color:var(--text-muted)">系统默认</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <button class="btn btn-primary btn-sm" :disabled="roleScopeSaving" @click="saveRoleDataScopes" style="margin-top:12px">
+        {{ roleScopeSaving ? '保存中...' : '保存数据范围' }}
+      </button>
+      <span v-if="roleScopeMsg" :style="{color: roleScopeOk ? 'var(--c-done)' : 'var(--c-error)', marginLeft:'10px', fontSize:'13px'}">{{ roleScopeMsg }}</span>
+    </BaseAccordion>
+
     <!-- 操作日志 -->
     <BaseAccordion title="操作日志">
       <div class="audit-export-bar">
@@ -549,7 +580,7 @@
 </template>
 
 <script setup>
-import { reactive, ref, computed, onMounted, watch } from 'vue';
+import { reactive, ref, computed, onMounted, watch, nextTick } from 'vue';
 import WorkbenchLayout from '../layouts/WorkbenchLayout.vue';
 import StatCardRow from '../components/StatCardRow.vue';
 import StatusBadge from '../components/StatusBadge.vue';
@@ -560,15 +591,16 @@ import { useConfirmDialog } from '../composables/useConfirmDialog.js';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
 import { api } from '../api/index.js';
 import { fetchIngestLog, fetchMailLog } from '../api/talent.js';
-import { createDepartment, updateDepartment, deleteDepartment, toggleDepartmentStatus, createPosition, updatePosition, deletePosition, togglePositionStatus } from '../api/auth.js';
+import { createDepartment, updateDepartment, deleteDepartment, toggleDepartmentStatus, createPosition, updatePosition, deletePosition, togglePositionStatus, fetchRoleDataScopes, updateRoleDataScopes } from '../api/auth.js';
 import {
   fetchEmailAccounts, fetchChannels, fetchScoreRules, fetchNotifyTemplates,
   fetchRolePermissions, updateRolePermissions, fetchAuditLogs, fetchApiKeys, saveApiKeys, testApiKey, fetchTencentStatus, fetchFeishuStatus,
   createEmailAccount, updateEmailAccount, deleteEmailAccount, resolveEmailServer,
-  createChannel, updateChannel,
+  createChannel, updateChannel, deleteChannel,
   updateScoreRules,
   createNotifyTemplate, updateNotifyTemplate, deleteNotifyTemplate,
   fetchKnowledgeBase, updateKnowledgeBase,
+  fetchEmailRules, saveEmailRules, saveChannelCost,
 } from '../api/config.js';
 
 const { toast } = useToast();
@@ -577,13 +609,23 @@ const { confirmDialog, askConfirm, onConfirmDialogConfirm, onConfirmDialogCancel
 
 const emailAccounts = ref([]);
 const emailConfig = reactive({
-  resumeRule: localStorage.getItem('hr_email_resume_rule') || 'ai',
-  spamFilter: localStorage.getItem('hr_email_spam_filter') || 'standard',
+  resumeRule: 'ai',
+  spamFilter: 'standard',
   attachmentTypes: 'PDF, DOCX, DOC',
 });
-// Persist email config changes to localStorage (best-effort, until DB column added)
-watch(() => emailConfig.resumeRule, v => localStorage.setItem('hr_email_resume_rule', v));
-watch(() => emailConfig.spamFilter, v => localStorage.setItem('hr_email_spam_filter', v));
+// 保存到后端（不再是 localStorage）
+async function persistEmailRules() {
+  try {
+    await saveEmailRules({
+      resumeRule: emailConfig.resumeRule,
+      spamFilter: emailConfig.spamFilter,
+      attachmentTypes: emailConfig.attachmentTypes,
+    });
+  } catch (e) { /* 静默失败，下次加载时恢复 */ }
+}
+watch(() => emailConfig.resumeRule, persistEmailRules);
+watch(() => emailConfig.spamFilter, persistEmailRules);
+watch(() => emailConfig.attachmentTypes, persistEmailRules);
 const channels = ref([]);
 const scoreRules = reactive({
   profileWeight: 0.10, matchWeight: 0.90,
@@ -607,6 +649,42 @@ const allMenuLabels = ref({});
 const rolePermSaving = ref(false);
 const rolePermMsg = ref('');
 const rolePermOk = ref(false);
+
+// ── 数据范围（五档）角色默认 ──
+const roleDataScopes = ref([]);
+const roleScopeSaving = ref(false);
+const roleScopeMsg = ref('');
+const roleScopeOk = ref(false);
+const SCOPE_OPTIONS = [
+  { value: 'all', label: '全公司' },
+  { value: 'dept', label: '本部门' },
+  { value: 'dept_and_self', label: '本部门 + 指定给自己的' },
+  { value: 'self', label: '仅自己' },
+  { value: 'none', label: '无' },
+];
+
+async function loadRoleDataScopes() {
+  try { roleDataScopes.value = await fetchRoleDataScopes() || []; }
+  catch (e) { console.warn('loadRoleDataScopes failed:', e); }
+}
+
+async function saveRoleDataScopes() {
+  roleScopeSaving.value = true;
+  roleScopeMsg.value = '';
+  const payload = {};
+  roleDataScopes.value.forEach(rs => { payload[rs.roleCode] = rs.scopeType; });
+  try {
+    await updateRoleDataScopes(payload);
+    roleScopeOk.value = true;
+    roleScopeMsg.value = '数据范围已保存并即时生效';
+    await loadRoleDataScopes();
+  } catch (e) {
+    roleScopeOk.value = false;
+    roleScopeMsg.value = e.message || '保存失败';
+  } finally {
+    roleScopeSaving.value = false;
+  }
+}
 
 function initEditablePermissions() {
   const rp = rolePermissions.value || [];
@@ -668,28 +746,32 @@ const deptList = ref([]);
 const deptOptionsAll = ref([]);  // 含停用的完整列表（供岗位选择部门用）
 const deptDialogVisible = ref(false);
 const deptEditingId = ref(null);
-const deptForm = reactive({ name: '', sortNum: 0 });
+const deptNameInputRef = ref(null);
+const deptForm = reactive({ name: '' });
 const deptFormError = ref('');
 const deptSaving = ref(false);
 const deptNameMap = computed(() => {
   const m = {};
-  deptOptionsAll.value.forEach(d => { m[d.id] = d.name; });
+  deptOptionsAll.value.forEach(d => { m[d.id] = d.deptName || d.name; });
   return m;
 });
 
 function openDeptCreate() {
   deptEditingId.value = null;
   deptForm.name = '';
-  deptForm.sortNum = 0;
   deptFormError.value = '';
   deptDialogVisible.value = true;
+  nextTick(() => deptNameInputRef.value?.focus());
 }
 function openDeptEdit(d) {
   deptEditingId.value = d.id;
   deptForm.name = d.name;
-  deptForm.sortNum = d.sortNum || 0;
   deptFormError.value = '';
   deptDialogVisible.value = true;
+  nextTick(() => {
+    deptNameInputRef.value?.focus();
+    deptNameInputRef.value?.select();
+  });
 }
 async function saveDept() {
   if (!deptForm.name.trim()) { deptFormError.value = '请输入部门名称'; return; }
@@ -697,10 +779,10 @@ async function saveDept() {
   deptFormError.value = '';
   try {
     if (deptEditingId.value) {
-      await updateDepartment(deptEditingId.value, { name: deptForm.name.trim(), sortNum: deptForm.sortNum });
+      await updateDepartment(deptEditingId.value, { name: deptForm.name.trim() });
       toast.success('部门已更新');
     } else {
-      await createDepartment({ name: deptForm.name.trim(), sortNum: deptForm.sortNum });
+      await createDepartment({ name: deptForm.name.trim() });
       toast.success('部门已创建');
     }
     deptDialogVisible.value = false;
@@ -945,10 +1027,11 @@ const reverseStatus = (s) => normalizeStatus(s) ? 0 : 1;
 
 async function loadAll() {
   try {
-    const [emails, chs, rules, notifs, roles, logs, keys, tStatus, fStatus, kb] = await Promise.all([
+    const [emails, chs, rules, notifs, roles, logs, keys, tStatus, fStatus, kb, emailRules] = await Promise.all([
       fetchEmailAccounts(), fetchChannels(), fetchScoreRules(),
       fetchNotifyTemplates(), fetchRolePermissions(), fetchAuditLogs(),
       fetchApiKeys(), fetchTencentStatus(), fetchFeishuStatus(), fetchKnowledgeBase(),
+      fetchEmailRules().catch(() => null),
     ]);
     if (emails) emailAccounts.value = emails;
     if (chs) channels.value = chs;
@@ -960,6 +1043,7 @@ async function loadAll() {
     if (logs) auditLogs.value = logs;
     loadDeptAndPosition();
     if (kb) Object.assign(knowledgeForm, kb);
+    if (emailRules) Object.assign(emailConfig, emailRules);
     if (keys) {
       secretKeys.value = Object.values(keys)
         .filter(k => !k.key_name.startsWith('tencent_') && k.key_name !== 'feishu' && k.key_name !== 'feishu_app_id')
@@ -1069,7 +1153,7 @@ async function loadMailMonitor() {
   }
 }
 
-onMounted(() => { loadAll(); loadMailMonitor(); });
+onMounted(() => { loadAll(); loadMailMonitor(); loadRoleDataScopes(); });
 
 // ── API Keys ──
 async function saveApiKey(keyInfo) {
@@ -1294,11 +1378,22 @@ function onFolderChange() {
 }
 async function testConnection() {
   emailSaving.value = true;
-  if (editingEmail.value?.id) {
-    try { await updateEmailAccount(editingEmail.value.id, { __test_conn: true }); } catch (e) { /* ignore */ }
+  try {
+    if (editingEmail.value?.id) {
+      const r = await updateEmailAccount(editingEmail.value.id, { __test_conn: true });
+      if (r && r.test_ok) {
+        toast.success('连接成功！\n服务器：' + emailForm.server + '\n端口：' + emailForm.port);
+      } else {
+        toast.error('连接失败：' + ((r && r.test_msg) || '未知错误'));
+      }
+    } else {
+      toast.warning('请先保存邮箱账号后再测试连接');
+    }
+  } catch (e) {
+    toast.error('连接测试异常: ' + (e.message || '未知错误'));
+  } finally {
+    emailSaving.value = false;
   }
-  emailSaving.value = false;
-  toast.success('连接成功！\n服务器：' + emailForm.server + '\n端口：' + emailForm.port);
 }
 async function submitEmail() {
   if (!validateEmailAddr()) return;
@@ -1365,16 +1460,37 @@ async function updateChanCost(ch, e) {
   const val = e.target.value.trim();
   if (val === ch.cost) return;
   try {
-    await updateChannel(ch.code, { cost: val });
+    await saveChannelCost(ch.code, val);
+    ch.cost = val; // 即时更新，不需要重新加载全部
   } catch (err) {
     toast.error('更新失败: ' + err.message);
   }
-  await loadAll();
+}
+async function deleteChan(ch) {
+  const ok = await askConfirm({
+    title: '删除渠道',
+    message: `确定删除渠道「${ch.name}」吗？`,
+    detail: '删除后该渠道将不再出现在渠道配置和统计中，可重新新增后启用。',
+    type: 'danger',
+    confirmText: '删除',
+  });
+  if (!ok) return;
+  try {
+    await deleteChannel(ch.code);
+    await loadAll();
+    toast.success('渠道已删除：' + ch.name);
+  } catch (e) {
+    toast.error('删除失败: ' + e.message);
+  }
 }
 async function submitChannel() {
   if (!chanForm.name) { toast.warning('请填写渠道名称'); return; }
   try {
-    await createChannel({ name: chanForm.name, type: chanForm.type, cost: chanForm.cost, status: 1 });
+    const result = await createChannel({ name: chanForm.name, type: chanForm.type, cost: chanForm.cost, status: 1 });
+    // 如果是新渠道且费用不为0，立即持久化费用
+    if (chanForm.cost && chanForm.cost !== '¥0' && result && result.name) {
+      try { await saveChannelCost(result.name.toUpperCase(), chanForm.cost); } catch (_) {}
+    }
   } catch (e) {
     toast.error('新增失败: ' + e.message);
   }
@@ -1740,4 +1856,32 @@ async function deleteTemplate(tpl) {
 .form-grid .form-group { display: flex; flex-direction: column; }
 .form-grid .form-group label { font-size: 12px; color: var(--c-sub); margin-bottom: 4px; }
 .form-grid .form-group input, .form-grid .form-group select { padding: 6px 10px; border: 1px solid var(--c-border); border-radius: 6px; font-size: 13px; }
+
+/* ── 部门弹窗 ── */
+.dept-dialog-body { padding: 4px 0; }
+.dept-dialog-form { display: flex; flex-direction: column; }
+.dept-dialog-label { font-size: 13px; font-weight: 600; color: var(--c-text, #172033); margin-bottom: 8px; }
+.dept-dialog-required { color: var(--c-error, #EF4444); }
+.dept-dialog-input {
+  padding: 10px 12px; border: 1.5px solid var(--c-border, #E1E6EF);
+  border-radius: 8px; font-size: 14px; background: var(--c-card, #FFFFFF);
+  color: var(--c-text, #172033); outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+.dept-dialog-input:focus { border-color: var(--c-primary, #4F6EF7); box-shadow: 0 0 0 3px rgba(79,110,247,.12); }
+.dept-dialog-input::placeholder { color: var(--c-muted, #8C95A6); }
+.dept-dialog-hint { font-size: 11px; color: var(--c-muted, #8C95A6); margin-top: 6px; }
+.dept-dialog-error {
+  margin-top: 12px; padding: 10px 14px; background: #FEF2F2; border: 1px solid #FECACA;
+  border-radius: 8px; color: var(--c-error, #EF4444); font-size: 13px;
+}
+.dept-dialog-footer { display: flex; justify-content: space-between; flex: 1; padding: 0 60px; }
+.btn-cancel, .btn-save {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 100px; padding: 8px 0; font-size: 13px; border-radius: 6px; border: none; cursor: pointer;
+  background: var(--c-primary, #4F6EF7); color: #fff;
+}
+.btn-cancel:hover, .btn-save:hover { opacity: 0.9; }
+.btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
+:deep(.modal-footer) { justify-content: flex-start; }
 </style>

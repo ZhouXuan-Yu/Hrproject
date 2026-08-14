@@ -1,15 +1,8 @@
 package com.hr.auth.controller;
 
-import com.hr.auth.entity.IamDept;
-import com.hr.auth.entity.IamPosition;
-import com.hr.auth.entity.IamUser;
-import com.hr.auth.repository.IamDeptRepository;
-import com.hr.auth.repository.IamPositionRepository;
-import com.hr.auth.repository.IamUserRepository;
 import com.hr.auth.service.UserManagementService;
 import com.hr.common.annotation.RequireRole;
 import com.hr.common.dto.ApiResponse;
-import com.hr.common.util.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -22,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,11 +30,24 @@ import java.util.Map;
 public class UserManagementController {
 
     private final UserManagementService managementService;
-    private final IamUserRepository userRepository;
-    private final IamDeptRepository deptRepository;
-    private final IamPositionRepository positionRepository;
 
     // ── 用户管理 ──────────────────────────────────────────────
+
+    @GetMapping("/users")
+    public ApiResponse<List<Map<String, Object>>> listUsers(
+            @RequestParam(name = "keyword", required = false) String keyword,
+            @RequestParam(name = "role", required = false) String role,
+            @RequestParam(name = "status", required = false) Integer status,
+            @RequestParam(name = "page", defaultValue = "1") int page,
+            @RequestParam(name = "pageSize", defaultValue = "20") int pageSize) {
+        Map<String, Object> result = managementService.listUsers(keyword, role, status, page, pageSize);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> items = (List<Map<String, Object>>) result.getOrDefault("data", Collections.emptyList());
+        int total = ((Number) result.getOrDefault("total", 0)).intValue();
+        int p = ((Number) result.getOrDefault("page", 1)).intValue();
+        int ps = ((Number) result.getOrDefault("pageSize", 20)).intValue();
+        return ApiResponse.successList(items, total, p, ps);
+    }
 
     @PostMapping("/users")
     public ApiResponse<Map<String, Object>> createUser(@RequestBody Map<String, Object> body) {
@@ -85,57 +92,9 @@ public class UserManagementController {
         return ApiResponse.success(managementService.batchCreateUsers(users));
     }
 
-    @PutMapping("/change-password")
-    public ApiResponse<Map<String, Object>> changePassword(@RequestBody Map<String, Object> body) {
-        String oldPwd = body != null && body.get("oldPassword") != null
-                ? String.valueOf(body.get("oldPassword")) : null;
-        String newPwd = body != null && body.get("newPassword") != null
-                ? String.valueOf(body.get("newPassword")) : null;
-        return ApiResponse.success(managementService.changePassword(SecurityUtils.getUserId(), oldPwd, newPwd));
-    }
-
     @GetMapping("/pending-accounts")
     public ApiResponse<List<Map<String, Object>>> pendingAccounts() {
-        return ApiResponse.success(findPendingAccounts());
-    }
-
-    private List<Map<String, Object>> findPendingAccounts() {
-        List<Map<String, Object>> result = new ArrayList<>();
-        List<IamUser> allUsers = userRepository.findAll(
-                (root, query, cb) -> cb.equal(root.get("isDeleted"), 0));
-        for (IamUser u : allUsers) {
-            if (u.getStatus() != null && u.getStatus() == 1 && u.getMustChangePassword() != null
-                    && u.getMustChangePassword() == 1) {
-                Map<String, Object> m = new LinkedHashMap<>();
-                m.put("candidateId", u.getUserId());
-                m.put("candidateName", u.getRealName());
-                m.put("mobile", u.getMobile() != null ? u.getMobile() : "");
-                m.put("email", u.getEmail() != null ? u.getEmail() : "");
-                m.put("deptId", u.getDeptId());
-                m.put("deptName", resolveDeptName(u.getDeptId()));
-                m.put("positionId", u.getPositionId());
-                m.put("positionName", resolvePositionName(u.getPositionId()));
-                m.put("statusLabel", "待首次登录");
-                result.add(m);
-            }
-        }
-        return result;
-    }
-
-    private String resolveDeptName(Long deptId) {
-        if (deptId == null) {
-            return "";
-        }
-        return deptRepository.findById(deptId)
-                .map(IamDept::getDeptName).orElse("");
-    }
-
-    private String resolvePositionName(Long positionId) {
-        if (positionId == null) {
-            return "";
-        }
-        return positionRepository.findById(positionId)
-                .map(IamPosition::getPositionName).orElse("");
+        return ApiResponse.success(managementService.findPendingAccounts());
     }
 
     // ── 部门管理 ──────────────────────────────────────────────
