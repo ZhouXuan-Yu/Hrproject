@@ -8,4 +8,7 @@ import java.util.List;
 public interface RoleMenuPermissionRepository extends JpaRepository<RoleMenuPermission, Long> {
 
     List<RoleMenuPermission> findByIsDeletedOrderByRoleCodeAsc(Integer isDeleted);
+
+    List<RoleMenuPermission> findByRoleCodeAndEnabledAndIsDeletedOrderByIdAsc(
+            String roleCode, Integer enabled, Integer isDeleted);
 }

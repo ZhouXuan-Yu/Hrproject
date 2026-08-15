@@ -43,6 +43,9 @@ public class IamUser {
     @Column(name = "role_code")
     private String roleCode;
 
+    @Column(name = "data_scope")
+    private String dataScope;
+
     @Column(name = "email")
     private String email;
 

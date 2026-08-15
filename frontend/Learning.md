@@ -313,6 +313,24 @@ Claude.md（根目录）描述项目为”原型 HTML+CSS+JS，未来迁移 Vue 
 - 知识图谱用 moderate 模式索引，确认函数节点数量增长。
 - 根目录文档只做项目级入口导航，详细内容统一在 frontend/Claude.md。
 
+## 复盘 #18 - offer 确认 parseLong 无条件转 int 导致 offer 分支崩溃
+
+### 问题
+
+`ConfirmController.applyAction` 里 `Long.parseLong(payload.get("ref"))` 无条件执行，但 offer 的 ref 是 offerNo 字符串（"OF..."），导致 offer「接受/拒绝」报「确认链接无效」。
+
+### 为什么错
+
+- 面试的 ref 是数字 bookId，offer 的 ref 是字符串 offerNo，两者类型不同
+- 写 Java 时把 parseLong 写成了通用逻辑，没区分 interview/offer 两个分支
+- Python 原版 `confirm_service.py` 早就区分了：interview 用 int(ref)，offer 用 offer_no 字符串查询
+
+### 下次如何改
+
+- 迁移 Python → Java 时，先读 Python 原版的分支逻辑，不要凭直觉统一类型转换
+- token 的 ref 字段在不同 kind 下类型不同，解析必须按 kind 分别处理
+- 修复前先看 Python 怎么写的，保持口径一致
+
 ## 规则沉淀
 
 | 规则 | 说明 |

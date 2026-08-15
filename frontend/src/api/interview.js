@@ -13,7 +13,7 @@ export async function fetchInterviewAlerts() {
 }
 
 export async function createInterview(data) {
-  const r = await api.post('/interview/create', data);
+  const r = await api.post('/interview/create', data, { timeout: 60000 });
   return r.data;
 }
 

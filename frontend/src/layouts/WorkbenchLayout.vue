@@ -92,7 +92,7 @@ const { isOnline } = useOnline();
 const role = computed(() => getRole());
 const user = computed(() => getUser());
 const userInitial = computed(() => user.value.charAt(0).toUpperCase());
-const visibleMenus = computed(() => getVisibleMenus(role.value));
+const visibleMenus = computed(() => getVisibleMenus());
 const roleLabel = computed(() => ROLE_LABELS[role.value] || role.value);
 const roleBadgeClass = computed(() => ROLE_CLASS[role.value] || '');
 

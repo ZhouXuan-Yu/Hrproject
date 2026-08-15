@@ -16,6 +16,7 @@ export async function logout() {
   localStorage.removeItem('hr_token');
   localStorage.removeItem('hr_role');
   localStorage.removeItem('hr_user');
+  localStorage.removeItem('hr_menus');
 }
 
 // ── User management (admin only) ──
@@ -34,6 +35,10 @@ export async function changePassword(oldPwd, newPwd) { const r = await api.put('
 export async function forgotPassword(username, channel) { const r = await api.post('/auth/forgot-password', { username, channel }); return r.data; }
 export async function verifyResetCode(username, code, newPassword) { const r = await api.post('/auth/verify-reset-code', { username, code, newPassword }); return r.data; }
 export async function batchCreateUsers(users) { const r = await api.post("/auth/users/batch", { users }); return r.data; }
+
+// ── 角色数据范围（五档，admin only）──
+export async function fetchRoleDataScopes() { const r = await api.get('/auth/role-data-scopes'); return r.data; }
+export async function updateRoleDataScopes(d) { const r = await api.put('/auth/role-data-scopes', d); return r.data; }
 
 export async function firstTimeSetup(data) { const r = await api.post('/auth/setup', data); return r.data; }
 

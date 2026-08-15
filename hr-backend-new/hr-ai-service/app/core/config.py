@@ -11,6 +11,10 @@ class Settings:
     DEEPSEEK_BASE_URL: str = os.getenv('DEEPSEEK_BASE_URL', 'https://api.deepseek.com')
     DEEPSEEK_MODEL: str = os.getenv('DEEPSEEK_MODEL', 'deepseek-chat')
 
+    # Dify（配置驱动：配了才走 Dify 编排，未配/失败回退 DeepSeek）
+    DIFY_API_KEY: str = os.getenv('DIFY_API_KEY', '')
+    DIFY_BASE_URL: str = os.getenv('DIFY_BASE_URL', 'https://api.dify.ai/v1')
+
     # 服务
     HOST: str = os.getenv('AI_SERVICE_HOST', '0.0.0.0')
     PORT: int = int(os.getenv('AI_SERVICE_PORT', '8100'))

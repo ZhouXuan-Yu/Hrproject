@@ -81,7 +81,7 @@ const MUTATION_CACHE_MAP = [
   { write: '/talent', read: ['/talent/list', '/talent/ingest-log'] },
   { write: '/demand', read: ['/demand/list', '/demand/'] },
   { write: '/interview', read: ['/interview/list', '/interview/alerts', '/interview/calendar'] },
-  { write: '/config', read: ['/config/channels', '/config/email-accounts', '/config/notify-templates', '/config/knowledge-base', '/config/score-rules'] },
+  { write: '/config', read: ['/config/channels', '/config/email-accounts', '/config/notify-templates', '/config/knowledge-base', '/config/score-rules', '/config/role-permissions'] },
   { write: '/auth', read: ['/auth/users', '/auth/departments', '/auth/positions'] },
   { write: '/hire', read: ['/hire/offers', '/hire/entries'] },
   { write: '/dashboard', read: ['/dashboard'] },
@@ -108,7 +108,7 @@ function invalidateAfterMutation(method, path) {
 export function invalidateCache(urlPrefixes) {
   const prefixes = Array.isArray(urlPrefixes) ? urlPrefixes : [urlPrefixes]
   for (const key of [...responseCache.keys()]) {
-    if (prefixes.some(p => key.includes(`:${p}`))) {
+    if (prefixes.some(p => key.includes(p))) {
       responseCache.delete(key)
     }
   }

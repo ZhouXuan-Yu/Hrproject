@@ -12,4 +12,6 @@ public interface ResumeMatchRepository extends JpaRepository<ResumeMatch, Long>,
 
     List<ResumeMatch> findByResumeIdInAndDemandIdAndIsDeleted(
             Collection<Long> resumeIds, Long demandId, Integer isDeleted, Sort sort);
+
+    List<ResumeMatch> findByResumeIdInAndIsDeleted(Collection<Long> resumeIds, Integer isDeleted);
 }

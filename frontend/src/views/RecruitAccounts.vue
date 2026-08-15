@@ -22,11 +22,12 @@
 
     <div class="table-wrap data-region" style="margin-bottom:12px">
       <table><thead><tr>
-        <th>工号</th><th>姓名</th><th>部门</th><th>岗位</th><th>角色</th><th>手机号</th><th>状态</th><th style="width:140px">操作</th>
+        <th>工号</th><th>姓名</th><th>部门</th><th>岗位</th><th>角色</th><th>数据范围</th><th>手机号</th><th>状态</th><th style="width:140px">操作</th>
       </tr></thead><tbody>
         <tr v-for="u in userList" :key="u.userId" :class="u.status === 0 ? 'row-archived' : ''">
           <td>{{ u.employeeNo || u.username }}</td><td>{{ u.realName }}</td><td>{{ u.deptName }}</td><td>{{ u.positionName }}</td>
           <td><StatusBadge :type="u.roleCode === 'admin' ? 'done' : (u.roleCode === 'hr' ? 'progress' : 'draft')">{{ roleLabel(u.roleCode) }}</StatusBadge></td>
+          <td>{{ scopeLabel(u.dataScope) }}</td>
           <td>{{ u.mobile || '—' }}</td>
           <td><span :style="{color: u.status === 1 ? 'var(--success)' : 'var(--error)', fontWeight:600}">{{ u.statusLabel }}</span></td>
           <td class="row-actions">
@@ -69,6 +70,7 @@
         </select></div>
         <div class="form-group"><label>部门</label><select v-model="userForm.deptId"><option value="">— 请选择 —</option><option v-for="d in deptOptions" :key="d.id" :value="d.id">{{ d.name }}</option></select></div>
         <div class="form-group"><label>岗位</label><select v-model="userForm.positionId"><option value="">— 请选择 —</option><option v-for="p in positionOptions" :key="p.id" :value="p.id">{{ p.name }}</option></select></div>
+        <div class="form-group"><label>数据范围 <span style="color:var(--text-muted);font-weight:400">（覆盖角色默认）</span></label><select v-model="userForm.dataScope"><option value="">跟随角色</option><option v-for="opt in SCOPE_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option></select></div>
       </div>
       <div v-if="!userEditingId && pendingList.length" style="margin-top:12px;padding:10px 12px;background:var(--surface-elevated);border:1px solid var(--border);border-radius:8px">
         <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">待开通工号（勾选后自动填充，可多选，可修改）</div>
@@ -106,6 +108,7 @@ import StatusBadge from '../components/StatusBadge.vue';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
 import { useConfirmDialog } from '../composables/useConfirmDialog.js';
 import { fetchUsers, createUser, updateUser, toggleUserStatus, deleteUser, resetUserPassword, fetchPositions, fetchPendingAccounts } from '../api/auth.js';
+import { setAuth, getUserId } from '../composables/useAuth.js';
 
 const userList = ref([]);
 const userTotal = ref(0);
@@ -118,7 +121,7 @@ const userFormError = ref('');
 const userCreateMsg = ref('');
 const userResetMsg = ref('');
 const userResetOk = ref(false);
-const userForm = reactive({ employeeNo: '', realName: '', mobile: '', email: '', roleCode: 'employee', deptId: '', positionId: '' });
+const userForm = reactive({ employeeNo: '', realName: '', mobile: '', email: '', roleCode: 'employee', deptId: '', positionId: '', dataScope: '' });
 const deptOptions = ref([]);
 const positionOptions = ref([]);
 const roleOptions = [
@@ -126,6 +129,17 @@ const roleOptions = [
   { value: 'dept_head', label: '部门负责人' }, { value: 'director', label: '总监' },
   { value: 'employee', label: '基层员工' }, { value: 'interviewer', label: '面试官' },
 ];
+const SCOPE_OPTIONS = [
+  { value: 'all', label: '全公司' },
+  { value: 'dept', label: '本部门' },
+  { value: 'dept_and_self', label: '本部门 + 指定给自己的' },
+  { value: 'self', label: '仅自己' },
+  { value: 'none', label: '无' },
+];
+function scopeLabel(code) {
+  if (!code) return '跟随角色';
+  return SCOPE_OPTIONS.find(o => o.value === code)?.label || code;
+}
 
 const { confirmDialog, askConfirm, onConfirmDialogConfirm, onConfirmDialogCancel } = useConfirmDialog();
 
@@ -215,7 +229,7 @@ function openUserCreate() {
   userCreateMsg.value = '';
   batchPending.value = [];
   _batchQueue = [];
-  Object.assign(userForm, { employeeNo:'', realName:'', mobile:'', email:'', roleCode:'employee', deptId:'', positionId:'' });
+  Object.assign(userForm, { employeeNo:'', realName:'', mobile:'', email:'', roleCode:'employee', deptId:'', positionId:'', dataScope:'' });
   userDialogVisible.value = true;
   loadPending();
 }
@@ -229,7 +243,7 @@ function openUserEdit(u) {
   Object.assign(userForm, {
     employeeNo: u.employeeNo || u.username, realName: u.realName, mobile: u.mobile || '',
     email: u.email || '', roleCode: u.roleCode,
-    deptId: u.deptId || '', positionId: u.positionId || '',
+    deptId: u.deptId || '', positionId: u.positionId || '', dataScope: u.dataScope || '',
   });
   userDialogVisible.value = true;
 }
@@ -248,9 +262,16 @@ async function saveUser() {
     const payload = {
       realName: userForm.realName, mobile: userForm.mobile, email: userForm.email,
       roleCode: userForm.roleCode, deptId: userForm.deptId || null, positionId: userForm.positionId || null,
+      dataScope: userForm.dataScope || null,
     };
     if (userEditingId.value) {
       await updateUser(userEditingId.value, payload);
+      // 如果修改的是当前登录用户，更新侧边栏缓存
+      const curId = getUserId();
+      if (curId && String(userEditingId.value) === String(curId)) {
+        localStorage.setItem('hr_user', payload.realName);
+        setAuth(payload.realName, localStorage.getItem('hr_role'), curId);
+      }
       userDialogVisible.value = false;
     } else {
       if (userForm.employeeNo) payload.employeeNo = userForm.employeeNo;

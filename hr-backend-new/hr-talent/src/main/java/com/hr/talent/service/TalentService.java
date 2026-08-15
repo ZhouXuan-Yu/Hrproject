@@ -26,11 +26,14 @@ import com.hr.talent.repository.ResumeMatchRepository;
 import com.hr.talent.repository.ResumeRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mail.SimpleMailMessage;
+import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -43,11 +46,16 @@ import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * 人才库服务，对齐 Flask talent_service.py 核心逻辑。
@@ -81,6 +89,12 @@ public class TalentService {
     private final FileEntityRepository fileEntityRepository;
     private final MailLogRepository mailLogRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final JdbcTemplate jdbcTemplate;
+
+    /** 可选：配置 SMTP 后自动注入，未配置时为 null */
+    @Autowired(required = false)
+    private JavaMailSender mailSender;
+
     private static final String UPLOAD_DIR = System.getProperty("user.dir") + "/uploads";
 
     /**
@@ -114,6 +128,7 @@ public class TalentService {
 
         List<Map<String, Object>> list = content.stream()
                 .map(c -> toCandidateMap(c, resumeByCandidate)).toList();
+        attachLinkedDemands(list, content);
         return pageData(list, result.getTotalElements(), page, pageSize);
     }
 
@@ -448,18 +463,41 @@ public class TalentService {
 
         if (channel.contains("email") || channel.contains("mail")) {
             String draft = body.get("draft") != null ? String.valueOf(body.get("draft")) : "";
-            if (contact.get("email") == null || String.valueOf(contact.get("email")).isBlank()) {
+            String recipientEmail = contact.get("email") != null
+                    ? String.valueOf(contact.get("email")) : "";
+            if (recipientEmail.isBlank()) {
                 sendResult.put("attempted", true);
                 sendResult.put("message", "candidate email is empty");
             } else if (draft.isBlank()) {
                 sendResult.put("attempted", true);
                 sendResult.put("message", "draft is empty");
-            } else {
-                // 邮件发送需邮件服务，当前仅记录（对齐后端可发送能力）
+            } else if (mailSender == null) {
                 sendResult.put("attempted", true);
                 sendResult.put("sent", false);
-                sendResult.put("message", "邮件服务未接入，已记录");
-                sendResult.put("recipient", contact.get("email"));
+                sendResult.put("message", "邮件服务未配置(SMTP)，已记录");
+                sendResult.put("recipient", recipientEmail);
+                log.info("[CONTACT] email to={} (SMTP 未配置，仅记录)", recipientEmail);
+            } else {
+                try {
+                    String subject = body.get("subject") != null
+                            ? String.valueOf(body.get("subject")) : "Recruiting Follow-up";
+                    SimpleMailMessage msg = new SimpleMailMessage();
+                    msg.setTo(recipientEmail);
+                    msg.setSubject(subject);
+                    msg.setText(draft);
+                    mailSender.send(msg);
+                    sendResult.put("attempted", true);
+                    sendResult.put("sent", true);
+                    sendResult.put("message", "sent");
+                    sendResult.put("recipient", recipientEmail);
+                    log.info("[CONTACT] email sent to {}", recipientEmail);
+                } catch (Exception e) {
+                    log.error("[CONTACT] email send failed to {}: {}", recipientEmail, e.getMessage());
+                    sendResult.put("attempted", true);
+                    sendResult.put("sent", false);
+                    sendResult.put("message", "发送失败: " + e.getMessage());
+                    sendResult.put("recipient", recipientEmail);
+                }
             }
         } else if (channel.contains("feishu") || channel.contains("飞书")) {
             String draft = body.get("draft") != null ? String.valueOf(body.get("draft")) : "";
@@ -586,32 +624,108 @@ public class TalentService {
             fe.setIsDeleted(0);
             fileEntityRepository.save(fe);
 
-            String name = original.substring(0, dot < 0 ? original.length() : dot).trim();
-            Candidate candidate = candidateRepository.findFirstByCandidateNameAndIsDeleted(name, 0)
-                    .orElseGet(() -> {
-                        Candidate c = new Candidate();
-                        c.setCandidateNo("C" + System.currentTimeMillis());
-                        c.setCandidateName(name);
-                        c.setStatus("available");
-                        c.setBlackFlag(0);
-                        c.setBigCompanyFlag(0);
-                        c.setCertCount(0);
-                        c.setSourceChannel("手动上传");
-                        c.setCreatedAt(LocalDateTime.now());
-                        c.setUpdatedAt(LocalDateTime.now());
-                        c.setIsDeleted(0);
-                        return candidateRepository.save(c);
-                    });
+            // 尝试提取文本并解析（对齐 Python ai_engine.parse_resume）
+            String extractedText = "";
+            try {
+                byte[] bytes = file.getBytes();
+                // 尝试 UTF-8 解码纯文本，非纯文本则会失败
+                extractedText = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+                // 如果包含太多乱码字符，说明可能是二进制格式
+                if (extractedText.length() > 0) {
+                    long nonPrintable = extractedText.chars()
+                            .filter(c -> c < 32 && c != '\n' && c != '\r' && c != '\t').count();
+                    if (nonPrintable > extractedText.length() * 0.3) {
+                        extractedText = ""; // 二进制文件，跳过文本提取
+                    }
+                }
+            } catch (Exception e) {
+                log.debug("Text extraction skipped for {}", original);
+            }
+
+            Map<String, Object> parsed = extractedText.isBlank()
+                    ? ResumeParser.defaultResult()
+                    : ResumeParser.parse(extractedText);
+
+            String parsedName = String.valueOf(parsed.get("name"));
+            String name = (!"未知".equals(parsedName) && !parsedName.isBlank())
+                    ? parsedName : original.substring(0, dot < 0 ? original.length() : dot).trim();
+
+            // 判断学历数字编码
+            int eduLevel = mapEduLevel(String.valueOf(parsed.get("edu_level")));
+            // 判断学校层次数字编码
+            int schoolLevel = mapSchoolLevel(String.valueOf(parsed.get("school_level")));
+
+            // 去重：按手机号或邮箱匹配已有候选人
+            String parsedPhone = String.valueOf(parsed.getOrDefault("phone", ""));
+            String parsedEmail = String.valueOf(parsed.getOrDefault("email", ""));
+
+            Candidate candidate = null;
+            if (!parsedPhone.isBlank()) {
+                candidate = candidateRepository
+                        .findAll((root, query, cb) -> cb.and(
+                                cb.equal(root.get("mobile"), parsedPhone),
+                                cb.equal(root.get("isDeleted"), 0)))
+                        .stream().findFirst().orElse(null);
+            }
+            if (candidate == null && !parsedEmail.isBlank()) {
+                candidate = candidateRepository
+                        .findAll((root, query, cb) -> cb.and(
+                                cb.equal(root.get("email"), parsedEmail),
+                                cb.equal(root.get("isDeleted"), 0)))
+                        .stream().findFirst().orElse(null);
+            }
+            // 按姓名匹配（已有同名候选人则追加简历）
+            if (candidate == null) {
+                candidate = candidateRepository.findFirstByCandidateNameAndIsDeleted(name, 0).orElse(null);
+            }
+
+            if (candidate == null) {
+                candidate = new Candidate();
+                candidate.setCandidateNo("C" + System.currentTimeMillis());
+                candidate.setCandidateName(name);
+                candidate.setMobile(parsedPhone.isBlank() ? null : parsedPhone);
+                candidate.setEmail(parsedEmail.isBlank() ? null : parsedEmail);
+                candidate.setEduLevel(eduLevel);
+                candidate.setSchoolLevel(schoolLevel);
+                candidate.setWorkYears(((Number) parsed.get("work_years")).intValue());
+                candidate.setSourceChannel("手动上传");
+                candidate.setStatus("available");
+                candidate.setBlackFlag(0);
+                candidate.setBigCompanyFlag(0);
+                candidate.setCertCount(0);
+                candidate.setStaticAbilityScore(candidate.computeStaticAbilityScore());
+                candidate.setCreatedAt(LocalDateTime.now());
+                candidate.setUpdatedAt(LocalDateTime.now());
+                candidate.setIsDeleted(0);
+                candidate = candidateRepository.save(candidate);
+            } else {
+                // 更新已有候选人的解析信息
+                if (candidate.getEduLevel() == null && eduLevel > 0) candidate.setEduLevel(eduLevel);
+                if (candidate.getMobile() == null && !parsedPhone.isBlank()) candidate.setMobile(parsedPhone);
+                if (candidate.getEmail() == null && !parsedEmail.isBlank()) candidate.setEmail(parsedEmail);
+                candidate.setStaticAbilityScore(candidate.computeStaticAbilityScore());
+                candidate.setUpdatedAt(LocalDateTime.now());
+                candidateRepository.save(candidate);
+            }
+
             if (note != null && !note.isBlank()) {
                 candidate.setNote(note);
                 candidate.setUpdatedAt(LocalDateTime.now());
                 candidateRepository.save(candidate);
             }
 
+            String parseJson;
+            try {
+                parseJson = objectMapper.writeValueAsString(parsed);
+            } catch (Exception e) {
+                parseJson = "{}";
+            }
+
             Resume resume = new Resume();
             resume.setCandidateId(candidate.getId());
             resume.setResumeFileId(fe.getId());
             resume.setStorageTime(LocalDateTime.now());
+            resume.setExtractJson(parseJson);
             resume.setBaseScore(BigDecimal.ZERO);
             resume.setCreatedAt(LocalDateTime.now());
             resume.setUpdatedAt(LocalDateTime.now());
@@ -624,8 +738,9 @@ public class TalentService {
             out.put("resumeId", resume.getId());
             out.put("fileName", original);
             out.put("fileId", fe.getId());
-            out.put("status", "解析待 AI 服务接入");
-            out.put("_fallback", true);
+            out.put("parsed", parsed);
+            out.put("status", "解析完成");
+            out.put("_fallback", false);
             return out;
         } catch (BusinessException e) {
             throw e;
@@ -781,6 +896,102 @@ public class TalentService {
         m.put("note", c.getNote() != null ? c.getNote() : "");
         m.put("locked", "locked".equals(status));
         return m;
+    }
+
+    /**
+     * 给人才库列表附上 linkedDemands / targetPosition（对齐 Flask talent_service._attach_linked_demands）。
+     * linkedDemands: [{demandNo, position, matchScore, processStatus}]；无流程时回退简历 extract_json 的 target_position。
+     */
+    private void attachLinkedDemands(List<Map<String, Object>> list, List<Candidate> candidates) {
+        if (candidates == null || candidates.isEmpty()) {
+            return;
+        }
+        try {
+            List<Long> ids = candidates.stream().map(Candidate::getId).toList();
+
+            // 1. 招聘流程（候选人 → 需求 + 简历）
+            List<RecruitProcess> processes = recruitProcessRepository.findByCandidateIdInAndIsDeleted(ids, 0);
+
+            // 2. 需求表（原生 SQL，避免 hr-talent 依赖 hr-demand）
+            Set<Long> demandIds = processes.stream().map(RecruitProcess::getDemandId)
+                    .filter(Objects::nonNull).collect(Collectors.toSet());
+            Map<Long, String[]> demandMap = new HashMap<>();
+            if (!demandIds.isEmpty()) {
+                String sql = "SELECT id, demand_no, position_name FROM t_hr_recruit_demand WHERE id IN ("
+                        + String.join(",", Collections.nCopies(demandIds.size(), "?"))
+                        + ") AND is_deleted = 0";
+                jdbcTemplate.query(sql, rs -> {
+                    demandMap.put(rs.getLong("id"),
+                            new String[]{rs.getString("demand_no"), rs.getString("position_name")});
+                }, demandIds.toArray());
+            }
+
+            // 3. 匹配分 (resumeId:demandId -> score)
+            Set<Long> resumeIds = processes.stream().map(RecruitProcess::getResumeId)
+                    .filter(Objects::nonNull).collect(Collectors.toSet());
+            Map<String, Double> matchMap = new HashMap<>();
+            if (!resumeIds.isEmpty()) {
+                for (ResumeMatch m : resumeMatchRepository.findByResumeIdInAndIsDeleted(resumeIds, 0)) {
+                    String key = m.getResumeId() + ":" + m.getDemandId();
+                    if (m.getMatchScore() != null && !matchMap.containsKey(key)) {
+                        matchMap.put(key, m.getMatchScore().doubleValue());
+                    }
+                }
+            }
+
+            // 4. 按候选人组装 linkedDemands（同一候选人+同一需求只保留一条，避免重复投递记录导致重复显示）
+            Map<Long, List<Map<String, Object>>> byCandidate = new HashMap<>();
+            Set<String> seenProcess = new HashSet<>();
+            for (RecruitProcess p : processes) {
+                String[] d = demandMap.get(p.getDemandId());
+                if (d == null) {
+                    continue;
+                }
+                if (!seenProcess.add(p.getCandidateId() + ":" + p.getDemandId())) {
+                    continue;
+                }
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("demandNo", d[0]);
+                item.put("position", (d[1] != null && !d[1].isBlank()) ? d[1] : "—");
+                Double score = matchMap.get(p.getResumeId() + ":" + p.getDemandId());
+                item.put("matchScore", score != null ? Math.round(score * 10) / 10.0 : null);
+                item.put("processStatus", p.getProcessStatus());
+                byCandidate.computeIfAbsent(p.getCandidateId(), k -> new ArrayList<>()).add(item);
+            }
+
+            // 5. 无流程候选人：取最新简历 extract_json 的 target_position 兜底
+            Map<Long, String> targetPosMap = new HashMap<>();
+            List<Long> missing = candidates.stream().map(Candidate::getId)
+                    .filter(id -> !byCandidate.containsKey(id)).toList();
+            if (!missing.isEmpty()) {
+                for (Resume r : resumeRepository.findByCandidateIdInAndIsDeletedOrderByStorageTimeDesc(missing, 0)) {
+                    if (targetPosMap.containsKey(r.getCandidateId())) {
+                        continue;
+                    }
+                    JsonNode ext = parseJson(r.getExtractJson());
+                    String tp = ext != null ? ext.path("target_position").asText("") : "";
+                    if (!tp.isBlank()) {
+                        targetPosMap.put(r.getCandidateId(), tp);
+                    }
+                }
+            }
+
+            // 6. 写回列表
+            for (int i = 0; i < candidates.size() && i < list.size(); i++) {
+                List<Map<String, Object>> linked = byCandidate.getOrDefault(candidates.get(i).getId(), List.of());
+                Map<String, Object> item = list.get(i);
+                item.put("linkedDemands", linked);
+                item.put("targetPosition", !linked.isEmpty()
+                        ? linked.get(0).get("position")
+                        : targetPosMap.getOrDefault(candidates.get(i).getId(), ""));
+            }
+        } catch (Exception e) {
+            log.warn("attach linked demands failed (best-effort): {}", e.getMessage());
+            for (Map<String, Object> item : list) {
+                item.putIfAbsent("linkedDemands", List.of());
+                item.putIfAbsent("targetPosition", "");
+            }
+        }
     }
 
     private Map<String, Object> toEmployeeMap(Employee e) {
@@ -1037,6 +1248,28 @@ public class TalentService {
             return phone != null ? phone : "—";
         }
         return phone.substring(0, 3) + "****" + phone.substring(phone.length() - 4);
+    }
+
+    /** 学历文本 → 数字编码 (1大专 2本科 3硕士 4博士) */
+    private static int mapEduLevel(String label) {
+        return switch (label) {
+            case "博士" -> 4;
+            case "硕士" -> 3;
+            case "本科" -> 2;
+            case "大专" -> 1;
+            default -> 2;
+        };
+    }
+
+    /** 学校层次文本 → 数字编码 (1普通 2:211 3:985 4:C9) */
+    private static int mapSchoolLevel(String label) {
+        return switch (label) {
+            case "C9" -> 4;
+            case "985" -> 3;
+            case "211" -> 2;
+            case "普通" -> 1;
+            default -> 1;
+        };
     }
 
     private Map<String, Object> pageData(List<Map<String, Object>> data, long total, int page, int pageSize) {

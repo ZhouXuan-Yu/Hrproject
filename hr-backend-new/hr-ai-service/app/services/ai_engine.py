@@ -49,10 +49,15 @@ def parse_resume(text: str) -> dict:
 
 
 def match_job(candidate: dict, jd_text: str) -> dict:
-    """基于规则的岗位匹配评分（技能 50% / 经验 30% / 学历 20%）。"""
+    """基于规则的岗位匹配评分（技能 50% / 经验 30% / 学历 20%）。
+
+    返回结构对齐前端 AiTabMatch.vue 消费字段：
+    overall_score / profile_score / match_score / grade / strengths / missing_skills / reasons
+    """
     skill_keywords = _extract_skills(jd_text)
     skills = set(candidate.get("skills", []))
     matched = skills.intersection(skill_keywords)
+    missing = list(set(skill_keywords) - skills)
     skill_score = 100.0 * len(matched) / max(len(skill_keywords), 1)
     exp_score = 50.0  # 经验维度默认 50
     work_years = candidate.get("work_years") or 0
@@ -66,30 +71,108 @@ def match_job(candidate: dict, jd_text: str) -> dict:
     edu_score = _education_score(candidate.get("education", ""))
 
     total = round(skill_score * 0.5 + exp_score * 0.3 + edu_score * 0.2, 1)
+    # 画像分 = 经验 60% + 学历 40%
+    profile_score = round(exp_score * 0.6 + edu_score * 0.4, 1)
+    match_score = round(skill_score, 1)
+
+    grade = "S" if total >= 85 else "A" if total >= 70 else "B" if total >= 55 else "C"
+
+    strengths = [f"匹配技能 {s}" for s in sorted(matched)] or ["候选人具备岗位所需的基础技能"]
+    missing_skills = [{"skill": s, "importance": "必备", "note": "建议补充相关经验或项目实践"} for s in missing]
+    reasons = [
+        f"技能匹配度 {match_score} 分（命中 {len(matched)}/{len(skill_keywords)} 项岗位技能）",
+        f"经验维度 {exp_score} 分（工作年限 {work_years or 0} 年）",
+        f"学历维度 {edu_score} 分（{candidate.get('education') or '未填写'}）",
+    ]
+
     return {
-        "score": total,
-        "matchedSkills": list(matched),
-        "missingSkills": list(set(skill_keywords) - skills),
-        "dimensions": {
-            "skill": round(skill_score, 1),
-            "experience": round(exp_score, 1),
-            "education": round(edu_score, 1),
-        },
+        "overall_score": total,
+        "profile_score": profile_score,
+        "match_score": match_score,
+        "grade": grade,
+        "strengths": strengths,
+        "missing_skills": missing_skills,
+        "reasons": reasons,
         "_fallback": True,
         "disclaimer": "此内容由AI生成，请人工审核确认后使用",
     }
 
 
 def generate_questions(jd_text: str, resume: dict, round_num: int = 1) -> dict:
-    """从题库中挑选 5 道面试题。"""
+    """从题库中挑选 5 道面试题。
+
+    返回结构对齐前端 AiTabInterview.vue 消费字段：questions[{question, dimension, expected_answer_hints}]
+    """
     selected = QUESTION_POOL[:5]
-    questions = [{"question": q, "focus": focus} for q, focus in selected]
+    questions = [
+        {
+            "question": q,
+            "dimension": _dimension_label(focus),
+            "expected_answer_hints": _question_hints(focus),
+        }
+        for q, focus in selected
+    ]
     return {
-        "round": round_num,
         "questions": questions,
         "_fallback": True,
         "disclaimer": "此内容由AI生成，请人工审核确认后使用",
     }
+
+
+# ── 面试题维度映射 ───────────────────────────────────────────────────────
+
+_DIMENSION_LABELS = {
+    "experience": "项目经验",
+    "motivation": "职业动机",
+    "role": "岗位理解",
+    "problem_solving": "解决问题",
+    "work_style": "工作方式",
+    "teamwork": "团队协作",
+    "career": "职业规划",
+    "self_awareness": "自我认知",
+    "plan": "目标规划",
+    "priority": "优先级管理",
+    "learning": "学习能力",
+    "salary": "薪酬期望",
+    "skill": "专业技能",
+    "stress": "抗压能力",
+    "failure": "复盘能力",
+    "communication": "沟通表达",
+    "industry": "行业认知",
+    "change": "应变能力",
+    "integrity": "职业操守",
+}
+
+_DIMENSION_HINTS = {
+    "experience": "用 STAR 法则：背景、任务、行动、结果，突出你的具体贡献",
+    "motivation": "说明真实离职原因与对新岗位的诉求，避免负面评价前司",
+    "role": "结合 JD 拆解岗位核心职责，体现你对岗位的理解深度",
+    "problem_solving": "讲清问题定位、你推动的关键动作和可量化结果",
+    "work_style": "结合真实工作节奏表达，避免空泛",
+    "teamwork": "聚焦你在冲突中的具体做法和结果",
+    "career": "短期目标要与应聘岗位有承接关系",
+    "self_awareness": "优点用事例支撑，缺点选非核心短板并说明改进",
+    "plan": "给出可落地的分阶段目标",
+    "priority": "说明你的判断标准与取舍逻辑",
+    "learning": "举出最近一次学习到落地的完整闭环",
+    "salary": "结合市场行情和自身价值给区间，表达可谈",
+    "skill": "讲清技能深度、应用场景和产出",
+    "stress": "说明压力来源、应对方式和结果",
+    "failure": "重点在复盘与成长，而非过程",
+    "communication": "用具体场景体现表达与倾听能力",
+    "industry": "展现对行业趋势和竞品的了解",
+    "change": "体现你的适应性和快速调整能力",
+    "integrity": "体现原则性与对团队的影响",
+}
+
+
+def _dimension_label(focus: str) -> str:
+    return _DIMENSION_LABELS.get(focus, "综合考察")
+
+
+def _question_hints(focus: str) -> list:
+    hint = _DIMENSION_HINTS.get(focus)
+    return [hint] if hint else ["结合真实经历，用具体事例回答"]
 
 
 # ── 正则提取工具 ────────────────────────────────────────────────────────

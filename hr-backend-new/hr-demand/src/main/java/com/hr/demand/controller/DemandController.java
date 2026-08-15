@@ -72,7 +72,12 @@ public class DemandController {
 
     @PostMapping("/{id}/candidates/{name}/link")
     public ApiResponse<Map<String, Object>> linkCandidate(@PathVariable String id,
-                                                          @PathVariable String name) {
+                                                          @PathVariable String name,
+                                                          @RequestBody(required = false) Map<String, Object> body) {
+        boolean link = body == null || !Boolean.FALSE.equals(body.get("link"));
+        if (!link) {
+            return ApiResponse.success(demandService.unlinkCandidate(demandService.resolveDemandId(id), name));
+        }
         return ApiResponse.success(demandService.linkCandidate(demandService.resolveDemandId(id), name));
     }
 
@@ -92,8 +97,10 @@ public class DemandController {
                                                     @RequestBody(required = false) Map<String, Object> body) {
         String opinion = body != null && body.get("opinion") != null
                 ? String.valueOf(body.get("opinion")) : null;
+        Integer level = body != null && body.get("level") instanceof Number n
+                ? n.intValue() : null;
         return ApiResponse.success(demandService.approve(demandService.resolveDemandId(id), SecurityUtils.getUserId(),
-                SecurityUtils.getRoleCode(), opinion));
+                SecurityUtils.getRoleCode(), opinion, level));
     }
 
     @PostMapping("/{id}/reject")
@@ -101,8 +108,10 @@ public class DemandController {
                                                    @RequestBody(required = false) Map<String, Object> body) {
         String opinion = body != null && body.get("opinion") != null
                 ? String.valueOf(body.get("opinion")) : null;
+        Integer level = body != null && body.get("level") instanceof Number n
+                ? n.intValue() : null;
         return ApiResponse.success(demandService.reject(demandService.resolveDemandId(id), SecurityUtils.getUserId(),
-                SecurityUtils.getRoleCode(), opinion));
+                SecurityUtils.getRoleCode(), opinion, level));
     }
 
     @PostMapping("/{id}/close")

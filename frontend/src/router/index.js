@@ -9,7 +9,7 @@ import RecruitDemandDetail from '../views/RecruitDemandDetail.vue';
 import RecruitDashboard from '../views/RecruitDashboard.vue';
 import HomePage from '../views/HomePage.vue';
 import LoginPage from '../views/LoginPage.vue';
-import { ROLE_MENUS, MENU_TO_ROUTE, getRole, getRoleLanding } from '../composables/useAuth.js';
+import { MENU_TO_ROUTE, getRoleLanding, getAllowedMenuIds } from '../composables/useAuth.js';
 
 // ── Auth guard ──────────────────────────────────────────────────────────
 const AUTH_GUARD_ENABLED = true;
@@ -27,8 +27,7 @@ async function checkAuth(to) {
   const token = localStorage.getItem('hr_token');
   if (!token) return '/login';
 
-  const role = localStorage.getItem('hr_role') || getRole() || 'no_recruit';
-  const allowedMenus = ROLE_MENUS[role] || [];
+  const allowedMenus = getAllowedMenuIds();
 
   // Check if the route is a sub-route of an allowed menu
   const parentMenu = SUB_ROUTES[to.path];
