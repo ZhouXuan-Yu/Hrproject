@@ -721,15 +721,14 @@ async function doReMatch() {
     return;
   }
   try {
-    const { default: api } = await import('../api/index.js');
-    await api.post(`/demand/${demandId}/match`, { includeTalentPool: true, topN: matchTopN.value }, { timeout: 120000 });
-    const { fetchDemandCandidates } = await import('../api/demand.js');
-    const fresh = await fetchDemandCandidates(demandId);
-    if (Array.isArray(fresh)) {
+    const { previewDemandMatch } = await import('../api/demand.js');
+    const preview = await previewDemandMatch(demandId, matchTopN.value);
+    const fresh = Array.isArray(preview?.candidates) ? preview.candidates : [];
+    if (fresh.length >= 0) {
       candidates.value = fresh;
-      toast.success('重新匹配完成！共匹配到 ' + fresh.length + ' 位候选人');
+      toast.success('匹配预览完成：' + fresh.length + ' 位候选人，尚未加入招聘流程');
     } else {
-      toast.success('重新匹配完成！');
+      toast.success('匹配预览完成');
     }
   } catch (e) {
     handleError(e, 'RecruitDemandDetail.reMatch');

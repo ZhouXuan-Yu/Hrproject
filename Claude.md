@@ -57,3 +57,9 @@ font-variant-numeric: tabular-nums;
 | hover 才显示操作 | 可见按钮或溢出菜单 |
 | 编造真实数据 | `[sample]` 标记 |
 | AI 外呼/自动拨打 | 联系话术辅助、人工确认 |
+
+<!-- TERSE-GRAPH:BEGIN -->
+## 🗺️ Terse Knowledge Graph
+A compact, always-current map of this repo's symbols and how they connect lives at `.terse/graph.md`.
+**Before grepping or reading files to understand structure, read `.terse/graph.md` first** — it lists every function/class, what it calls, and how modules relate, at a fraction of the token cost. Terse keeps it up to date automatically.
+<!-- TERSE-GRAPH:END -->

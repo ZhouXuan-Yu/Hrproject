@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -85,6 +86,17 @@ public class DemandController {
     public ApiResponse<Map<String, Object>> match(@PathVariable String id,
                                                   @RequestBody(required = false) Map<String, Object> body) {
         return ApiResponse.success(demandService.matchCandidates(demandService.resolveDemandId(id), body));
+    }
+
+    /** 匹配预览：只计算候选人，不写入招聘流程。 */
+    @PostMapping("/{id}/match/preview")
+    public ApiResponse<Map<String, Object>> matchPreview(@PathVariable String id,
+                                                         @RequestBody(required = false) Map<String, Object> body) {
+        Map<String, Object> previewBody = new LinkedHashMap<>();
+        if (body != null) previewBody.putAll(body);
+        previewBody.put("includeTalentPool", true);
+        previewBody.put("previewOnly", true);
+        return ApiResponse.success(demandService.matchCandidates(demandService.resolveDemandId(id), previewBody));
     }
 
     @PostMapping("/{id}/submit")

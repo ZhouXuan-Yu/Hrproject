@@ -3,6 +3,7 @@
 
 export const MENU_ROUTES = [
   { id:'home',              label:'首页',       href:'/home' },
+  { id:'my-profile',       label:'我的档案',   href:'/my-profile' },
   { id:'recruit-dashboard', label:'招聘看板',   href:'/recruit-dashboard' },
   { id:'recruit-demand',    label:'需求管理',   href:'/recruit-demand' },
   { id:'recruit-talent',    label:'人才库',     href:'/recruit-talent' },
@@ -25,13 +26,13 @@ export function getRoleLanding(role) {
 
 export const ROLE_MENUS = {
   no_recruit:       [],
-  employee:         ['recruit-demand'],
-  temp_interviewer: ['recruit-interview'],
-  interviewer:      ['recruit-interview', 'recruit-talent'],
-  dept_head:        ['recruit-demand', 'recruit-talent', 'recruit-interview'],
-  director:         ['home', 'recruit-dashboard', 'recruit-demand'],
-  hr:               ['home', 'recruit-dashboard', 'recruit-demand', 'recruit-talent', 'recruit-interview', 'recruit-ai'],
-  admin:            ['home', 'recruit-dashboard', 'recruit-demand', 'recruit-talent', 'recruit-interview', 'recruit-ai', 'recruit-config', 'recruit-accounts'],
+  employee:         ['my-profile', 'recruit-demand'],
+  temp_interviewer: ['my-profile', 'recruit-interview'],
+  interviewer:      ['my-profile', 'recruit-interview', 'recruit-talent'],
+  dept_head:        ['my-profile', 'recruit-demand', 'recruit-talent', 'recruit-interview'],
+  director:         ['my-profile', 'home', 'recruit-dashboard', 'recruit-demand'],
+  hr:               ['my-profile', 'home', 'recruit-dashboard', 'recruit-demand', 'recruit-talent', 'recruit-interview', 'recruit-ai'],
+  admin:            ['my-profile', 'home', 'recruit-dashboard', 'recruit-demand', 'recruit-talent', 'recruit-interview', 'recruit-ai', 'recruit-config', 'recruit-accounts'],
 };
 
 export const ROLE_LABELS = {

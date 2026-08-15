@@ -8,6 +8,16 @@ export async function fetchTalent(params = {}) {
   return { ext: Array.isArray(r.data) ? r.data : [], total: r.total ?? 0 };
 }
 
+export async function fetchEmployees(params = {}) {
+  const query = Object.fromEntries(
+    Object.entries({ pageSize: 20, tab: 'internal', ...params })
+      .filter(([, value]) => value !== undefined && value !== null && value !== '')
+  );
+  const qs = new URLSearchParams(query).toString();
+  const r = await api.get(`/talent/list?${qs}`);
+  return { data: Array.isArray(r.data) ? r.data : [], total: r.total ?? 0 };
+}
+
 export async function updateTalentNote(id, note) {
   const r = await api.patch(`/talent/${id}/note`, { note });
   return r.data;
@@ -25,6 +35,11 @@ export async function fetchCandidateDetail(candidateId) {
 
 export async function fetchEmployeeDetail(employeeId) {
   const r = await api.get(`/talent/employee/${employeeId}`);
+  return r.data;
+}
+
+export async function fetchMyEmployeeProfile() {
+  const r = await api.get('/talent/me');
   return r.data;
 }
 

@@ -666,6 +666,7 @@ public class DemandService {
     @Transactional
     public Map<String, Object> matchCandidates(Long demandId, Map<String, Object> body) {
         boolean includePool = body != null && Boolean.TRUE.equals(body.get("includeTalentPool"));
+        boolean previewOnly = body != null && Boolean.TRUE.equals(body.get("previewOnly"));
         boolean applyHardFilter = body != null && Boolean.TRUE.equals(body.get("applyHardFilter"));
         int topN = body != null && body.get("topN") != null ? toInt(body.get("topN")) : 5;
 
@@ -694,6 +695,7 @@ public class DemandService {
                     "passedCount", filterResult.get("passedCount"),
                     "filteredCount", filterResult.get("filteredCount"),
                     "filtered", filterResult.get("filtered")));
+            out.put("previewOnly", true);
             return out;
         }
 
@@ -720,8 +722,14 @@ public class DemandService {
             // 基于岗位要求的真实匹配打分，替代伪随机 hash
             int matchScore = computeMatchScore(c, demand);
             item.put("matchScore", matchScore);
+            item.put("profileGrade", profileGrade(item.get("profileScore") instanceof Number n ? n.intValue() : 0));
             item.put("edu", eduLabel(c.getEduLevel()));
             item.put("years", yearsLabel(c.getWorkYears()));
+            item.put("source", "pool");
+            item.put("sourceLabel", "人才库");
+            item.put("status", "available");
+            item.put("statusLabel", "可联系");
+            item.putAll(skillSignals(c, demand));
             matched.add(item);
         }
         matched.sort((a, b) -> Integer.compare(
@@ -731,7 +739,7 @@ public class DemandService {
             matched = new ArrayList<>(matched.subList(0, topN));
         }
 
-        if (includePool) {
+        if (includePool && !previewOnly) {
             List<Map<String, Object>> linked = new ArrayList<>();
             for (Map<String, Object> item : matched) {
                 try {
@@ -751,12 +759,14 @@ public class DemandService {
             out.put("demandId", demandId);
             out.put("candidates", matched);
             out.put("linked", linked);
+            out.put("previewOnly", false);
             return out;
         }
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("demandId", demandId);
         result.put("candidates", matched);
+        result.put("previewOnly", previewOnly);
         return result;
     }
 
@@ -1357,8 +1367,14 @@ public class DemandService {
             item.put("name", c.getCandidateName());
             item.put("profileScore", c.getStaticAbilityScore() != null ? c.getStaticAbilityScore().intValue() : 0);
             item.put("matchScore", computeMatchScore(c, demand));
+            item.put("profileGrade", profileGrade(item.get("profileScore") instanceof Number n ? n.intValue() : 0));
             item.put("edu", eduLabel(c.getEduLevel()));
             item.put("years", yearsLabel(c.getWorkYears()));
+            item.put("source", "pool");
+            item.put("sourceLabel", "人才库");
+            item.put("status", "available");
+            item.put("statusLabel", "可联系");
+            item.putAll(skillSignals(c, demand));
             matched.add(item);
         }
         matched.sort((a, b) -> Integer.compare(
@@ -1372,7 +1388,8 @@ public class DemandService {
 
     /**
      * 基于岗位需求与候选人画像的真实匹配打分（对齐 Python match_service）。
-     * 画像分(0-45) + 学历匹配(0-20) + 经验匹配(0-20) + 岗位JD相关性(0-10) + 小扰动(0-4)
+     * 画像分(0-45) + 学历匹配(0-20) + 经验匹配(0-20) + 需求技能命中(0-15)。
+     * 不再使用固定 JD 分或哈希扰动，避免把没有依据的分数展示成真实匹配结果。
      */
     private int computeMatchScore(Candidate c, RecruitDemand demand) {
         // ── 1. 画像分 (0-45) ──
@@ -1411,15 +1428,69 @@ public class DemandService {
             expMatch = 12; // 无经验要求 → 中性分
         }
 
-        // ── 4. JD 关键词命中 (0-10) ──
-        int jdHit = 5; // 有 JD 即给基础分
-        String jd = demand.getJdContent();
-        if (jd == null || jd.isBlank()) jdHit = 5; // 无 JD 给基础分
+        Map<String, Object> skills = skillSignals(c, demand);
+        int skillHit = skills.get("skillScore") instanceof Number n ? n.intValue() : 0;
+        return Math.min(100, Math.max(0, profileScore + eduMatch + expMatch + skillHit));
+    }
 
-        // ── 5. 微扰动，基于 demand:candidate 哈希 (0-4)，打破同分顺序 ──
-        int perturbation = Math.abs((demand.getId() + ":" + c.getId()).hashCode()) % 5;
+    private Map<String, Object> skillSignals(Candidate candidate, RecruitDemand demand) {
+        Set<String> required = jsonStringSet(demand.getRequiredSkills());
+        Set<String> plus = jsonStringSet(demand.getPlusSkills());
+        Set<String> candidateSkills = candidateSkills(candidate);
+        Set<String> matchedRequired = matchedSkills(required, candidateSkills);
+        Set<String> matchedPlus = matchedSkills(plus, candidateSkills);
+        int skillScore = required.isEmpty() ? 0
+                : (int) Math.round(10.0 * matchedRequired.size() / required.size());
+        skillScore += plus.isEmpty() ? 0
+                : (int) Math.round(5.0 * matchedPlus.size() / plus.size());
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("skillScore", skillScore);
+        result.put("matchedSkills", matchedRequired);
+        result.put("missingSkills", required.stream().filter(s -> !matchedRequired.contains(s)).toList());
+        result.put("matchedPlusSkills", matchedPlus);
+        return result;
+    }
 
-        return Math.min(99, Math.max(30, profileScore + eduMatch + expMatch + jdHit + perturbation));
+    private Set<String> candidateSkills(Candidate candidate) {
+        List<Resume> resumes = resumeRepository.findByCandidateIdAndIsDeletedOrderByStorageTimeDesc(candidate.getId(), 0);
+        if (resumes.isEmpty()) return Set.of();
+        Object parsed = parseJson(resumes.get(0).getExtractJson());
+        if (!(parsed instanceof Map<?, ?> map)) return Set.of();
+        for (String key : List.of("skills", "tech_stack", "skill_tags", "tags", "keywords")) {
+            Object raw = map.get(key);
+            if (raw instanceof List<?> list) {
+                return list.stream().map(String::valueOf).map(String::trim).filter(s -> !s.isBlank()).collect(java.util.stream.Collectors.toSet());
+            }
+            if (raw instanceof String text && !text.isBlank()) {
+                return java.util.Arrays.stream(text.split(",|，|、|\\n"))
+                        .map(String::trim).filter(s -> !s.isBlank()).collect(java.util.stream.Collectors.toSet());
+            }
+        }
+        return Set.of();
+    }
+
+    private Set<String> jsonStringSet(String json) {
+        Object parsed = parseJson(json);
+        if (parsed instanceof List<?> list) {
+            return list.stream().map(String::valueOf).map(String::trim).filter(s -> !s.isBlank()).collect(java.util.stream.Collectors.toSet());
+        }
+        if (parsed instanceof String text && !text.isBlank()) {
+            return java.util.Arrays.stream(text.split(",|，|、|\\n"))
+                    .map(String::trim).filter(s -> !s.isBlank()).collect(java.util.stream.Collectors.toSet());
+        }
+        return Set.of();
+    }
+
+    private Set<String> matchedSkills(Set<String> required, Set<String> actual) {
+        Set<String> matched = new HashSet<>();
+        for (String expected : required) {
+            String e = expected.replaceAll("\\s+", "").toLowerCase();
+            if (actual.stream().map(s -> s.replaceAll("\\s+", "").toLowerCase())
+                    .anyMatch(a -> a.contains(e) || e.contains(a))) {
+                matched.add(expected);
+            }
+        }
+        return matched;
     }
 
     /** 学历文本 → 层级数值 */

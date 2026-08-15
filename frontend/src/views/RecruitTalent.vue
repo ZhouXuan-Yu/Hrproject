@@ -62,7 +62,7 @@
         <DataLoadingOverlay :visible="talentLoading" />
         <table v-if="extFiltered.length > 0"><thead><tr>
           <th style="width:34px"><input type="checkbox" id="checkAllExt" @change="toggleAllExt"></th>
-          <th>编号</th><th>姓名</th><th>画像</th><th>学历</th><th>年限</th><th>核心技能</th><th>最近公司</th><th>应聘岗位/匹配</th><th>来源</th><th>入库</th><th>状态</th><th>备注</th><th>操作</th>
+          <th>编号</th><th>姓名</th><th>画像</th><th>学历</th><th>年限</th><th>核心技能</th><th>最近公司</th><th>应聘岗位</th><th>已匹配岗位</th><th>来源</th><th>入库</th><th>状态</th><th>备注</th><th>操作</th>
         </tr></thead><tbody>
           <tr v-for="c in extFiltered" :key="c.id" :class="rowClass(c)">
             <td><input type="checkbox" class="ext-check" v-model="checkedExt[c.id]" :disabled="c.locked" @change="onCheckExt"></td>
@@ -78,13 +78,16 @@
             </td>
             <td>{{ c.company }}</td>
             <td>
+              <span v-if="c.appliedPosition || c.targetPosition" style="font-size:11px;color:var(--c-sub)">{{ c.appliedPosition || c.targetPosition }}</span>
+              <span v-else style="color:var(--c-sub)">—</span>
+            </td>
+            <td>
               <template v-if="c.linkedDemands && c.linkedDemands.length">
                 <div v-for="ld in c.linkedDemands" :key="ld.demandNo" style="font-size:11px;line-height:1.6">
                   <span style="font-weight:600">{{ ld.position }}</span>
                   <span v-if="ld.matchScore != null" class="portrait-score" :class="ld.matchScore >= 80 ? 'score-high' : (ld.matchScore >= 60 ? 'score-mid' : 'score-low')" style="margin-left:4px">{{ ld.matchScore }}</span>
                 </div>
               </template>
-              <span v-else-if="c.targetPosition" style="font-size:11px;color:var(--c-sub)">{{ c.targetPosition }}</span>
               <span v-else style="color:var(--c-sub)">—</span>
             </td>
             <td>{{ c.source }}</td><td>{{ c.inDate }}</td>
@@ -158,10 +161,14 @@
             <td><input type="checkbox" class="int-check" v-model="checkedInt[e.id]" @change="onCheckInt"></td>
             <td>{{ e.id }}</td>
             <td><a href="javascript:void(0)" style="font-weight:600;color:var(--c-primary)" @click="openEmployeeDrawer(e.name)">{{ e.name }}</a></td>
-            <td v-html="e.scoreHtml"></td>
+            <td>{{ e.score || '—' }}</td>
             <td>{{ e.dept }}</td><td>{{ e.pos }}</td><td>{{ e.years }}</td>
             <td><span style="color:var(--c-done);font-weight:700">{{ e.perf }}</span></td>
-            <td v-html="e.matchHtml"></td><td v-html="e.tagsHtml"></td>
+            <td>{{ e.lastMatchScore || '—' }}</td>
+            <td>
+              <span v-if="e.tags && e.tags.length" v-for="tag in e.tags" :key="tag" class="tag-item tag-hit">{{ tag }}</span>
+              <span v-else style="color:var(--c-sub)">—</span>
+            </td>
             <td><StatusBadge :type="e.transfer ? 'done' : 'warn'">{{ e.transfer ? '可调' : '不可调' }}</StatusBadge></td>
             <td>
               <template v-if="e.note">
@@ -245,10 +252,7 @@
             <label style="font-size:13px;font-weight:600;white-space:nowrap">目标岗位</label>
             <select id="matchPosition" v-model="matchPosition" style="flex:1;padding:8px 12px;border:1px solid var(--c-border);border-radius:6px;font-size:13px">
               <option value="">请选择岗位...</option>
-              <option value="java">高级Java工程师（架构方向）&middot; 技术部 &middot; 招聘中</option>
-              <option value="frontend">前端工程师 &middot; 技术部 &middot; 招聘中</option>
-              <option value="pm">产品经理 &middot; 产品部 &middot; 审批中</option>
-              <option value="data">数据分析师 &middot; 数据部 &middot; 草稿</option>
+              <option v-for="d in demandOptions" :key="d.id" :value="d.id">{{ d.position }} · {{ d.dept }} · {{ d.statusLabel }}</option>
             </select>
             <button class="btn btn-primary btn-sm" @click="runMatch">开始匹配</button>
           </div>
@@ -381,7 +385,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import WorkbenchLayout from '../layouts/WorkbenchLayout.vue';
-import { fetchTalent, updateTalentNote, fetchMatchResults, uploadResumeFile } from '../api/talent.js';
+import { fetchTalent, fetchEmployees, updateTalentNote, fetchMatchResults, uploadResumeFile } from '../api/talent.js';
 import { fetchDemands, linkCandidateToDemand } from '../api/demand.js';
 import { fetchPositions } from '../api/auth.js';
 import { useToast } from '../composables/useToast.js';
@@ -430,7 +434,7 @@ const selectedCandidates = computed(() =>
     .map(c => ({
       id: c.id,
       name: c.name,
-      targetPosition: c.targetPosition || '',
+      targetPosition: c.appliedPosition || c.targetPosition || '',
       linkedDemands: Array.isArray(c.linkedDemands) ? c.linkedDemands : [],
     }))
 );
@@ -502,11 +506,14 @@ async function loadFromApi() {
     if (extFilters.status !== 'all') params.status = extFilters.status;
     if (extFilters.source !== 'all') params.source = extFilters.source;
     if (extFilters.edu !== 'all') params.edu = extFilters.edu;
-    const talentData = await fetchTalent(params);
+    const [talentData, employeeData] = await Promise.all([
+      fetchTalent(params),
+      fetchEmployees({ page: 1, pageSize: 100, keyword: intFilters.search || undefined }),
+    ]);
     if (talentData) {
       const ext = talentData.ext ?? talentData.external ?? null;
       apiExtData.value = Array.isArray(ext) ? [...ext] : null;
-      apiIntData.value = Array.isArray(talentData.int ?? talentData.internal) ? (talentData.int ?? talentData.internal) : [];
+      apiIntData.value = employeeData?.data ?? [];
       apiBlacklistData.value = Array.isArray(talentData.blacklist) ? talentData.blacklist : [];
       extTotal.value = talentData.total ?? 0;
     }
@@ -690,8 +697,8 @@ async function saveNote() {
 function closeMatchModal() { showMatchModal.value = false; matchResults.value = []; }
 async function runMatch() {
   if (!matchPosition.value) { toast.warning('请先选择一个目标岗位'); return; }
-  const posNames = { java: '高级Java工程师（架构方向）', frontend: '前端工程师', pm: '产品经理', data: '数据分析师' };
-  const posName = posNames[matchPosition.value] || matchPosition.value;
+  const demand = demandOptions.value.find(d => String(d.id) === String(matchPosition.value));
+  const posName = demand?.position || matchPosition.value;
 
   try {
     const resp = await fetchMatchResults(matchPosition.value);
@@ -704,7 +711,7 @@ async function runMatch() {
     console.warn('[RecruitTalent] fetchMatchResults failed:', e);
     matchResults.value = [];
   }
-  matchSummary.value = '匹配岗位：' + posName + ' · 匹配 ' + matchResults.value.length + ' 人（基于真实数据运算）';
+  matchSummary.value = '匹配岗位：' + posName + ' · 匹配 ' + matchResults.value.length + ' 人（基于员工档案与需求数据）';
 }
 
 // Candidate/Employee Drawer state

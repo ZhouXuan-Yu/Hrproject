@@ -51,6 +51,9 @@ public class TalentController {
         if ("internal".equals(tab)) {
             return talentService.listEmployees(page, pageSize, keyword);
         }
+        if (!SecurityUtils.hasAnyRole("admin", "hr", "director", "dept_head", "interviewer", "temp_interviewer")) {
+            throw BusinessException.forbidden();
+        }
         return talentService.listCandidates(page, pageSize, keyword, status);
     }
 
@@ -68,6 +71,12 @@ public class TalentController {
     @GetMapping("/employee/{id}")
     public ApiResponse<Map<String, Object>> employeeDetail(@PathVariable Long id) {
         return ApiResponse.success(talentService.getEmployeeDetail(id));
+    }
+
+    /** 当前登录员工自己的档案。 */
+    @GetMapping("/me")
+    public ApiResponse<Map<String, Object>> myProfile() {
+        return ApiResponse.success(talentService.getMyEmployeeProfile());
     }
 
     /**

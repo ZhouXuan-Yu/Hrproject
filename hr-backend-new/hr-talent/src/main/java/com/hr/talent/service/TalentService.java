@@ -8,7 +8,9 @@ import com.hr.auth.entity.IamUser;
 import com.hr.auth.repository.IamDeptRepository;
 import com.hr.auth.repository.IamPositionRepository;
 import com.hr.auth.repository.IamUserRepository;
+import com.hr.auth.service.DataScopeService;
 import com.hr.common.exception.BusinessException;
+import com.hr.common.util.LoginUser;
 import com.hr.common.util.SecurityUtils;
 import com.hr.talent.entity.Candidate;
 import com.hr.talent.entity.Employee;
@@ -88,6 +90,7 @@ public class TalentService {
     private final ResumeMatchRepository resumeMatchRepository;
     private final FileEntityRepository fileEntityRepository;
     private final MailLogRepository mailLogRepository;
+    private final DataScopeService dataScopeService;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final JdbcTemplate jdbcTemplate;
 
@@ -135,11 +138,11 @@ public class TalentService {
     /**
      * 内部员工列表（分页，keyword 匹配员工姓名）。
      */
-    @org.springframework.cache.annotation.Cacheable(cacheNames = "list", key = "'employees:' + #page + ':' + #pageSize + ':' + (#keyword != null ? #keyword : '')")
     public Map<String, Object> listEmployees(int page, int pageSize, String keyword) {
         Specification<Employee> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
             predicates.add(cb.equal(root.get("isDeleted"), 0));
+            applyEmployeeScope(root, cb, predicates);
             if (keyword != null && !keyword.isBlank()) {
                 String like = "%" + keyword.trim() + "%";
                 jakarta.persistence.criteria.Subquery<Long> sub = query.subquery(Long.class);
@@ -194,6 +197,24 @@ public class TalentService {
         Employee e = employeeRepository.findById(employeeId)
                 .filter(x -> x.getIsDeleted() == null || x.getIsDeleted() == 0)
                 .orElseThrow(() -> BusinessException.notFound("员工不存在"));
+        ensureEmployeeVisible(e);
+
+        return employeeDetailMap(e);
+    }
+
+    /** 当前登录用户自己的员工档案。 */
+    public Map<String, Object> getMyEmployeeProfile() {
+        Long userId = SecurityUtils.getUserId();
+        if (userId == null) {
+            throw BusinessException.unauthorized();
+        }
+        Employee e = employeeRepository.findByUserId(userId)
+                .filter(x -> x.getIsDeleted() == null || x.getIsDeleted() == 0)
+                .orElseThrow(() -> BusinessException.notFound("当前用户没有关联员工档案"));
+        return employeeDetailMap(e);
+    }
+
+    private Map<String, Object> employeeDetailMap(Employee e) {
 
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", "EMP" + String.format("%03d", e.getId()));
@@ -208,6 +229,57 @@ public class TalentService {
         m.put("restrictReason", e.getTransferRestrictReason() != null ? e.getTransferRestrictReason() : "");
         m.put("lastPromote", e.getLastPromoteDate() != null ? e.getLastPromoteDate().toString().substring(0, 7) : "—");
         return m;
+    }
+
+    private void applyEmployeeScope(jakarta.persistence.criteria.Root<Employee> root,
+                                     jakarta.persistence.criteria.CriteriaBuilder cb,
+                                     List<Predicate> predicates) {
+        LoginUser current = SecurityUtils.getCurrentUser();
+        if (current == null || current.getUserId() == null) {
+            predicates.add(cb.disjunction());
+            return;
+        }
+
+        String scope = dataScopeService.resolveScope(current.getRoleCode(), current.getUserId());
+        switch (scope) {
+            case DataScopeService.ALL -> { }
+            case DataScopeService.DEPT -> {
+                if (current.getDeptId() == null) {
+                    predicates.add(cb.disjunction());
+                } else {
+                    predicates.add(cb.equal(root.get("deptId"), current.getDeptId()));
+                }
+            }
+            case DataScopeService.DEPT_AND_SELF -> {
+                Predicate self = cb.equal(root.get("userId"), current.getUserId());
+                Predicate sameDept = current.getDeptId() == null
+                        ? cb.disjunction()
+                        : cb.equal(root.get("deptId"), current.getDeptId());
+                predicates.add(cb.or(self, sameDept));
+            }
+            case DataScopeService.SELF -> predicates.add(cb.equal(root.get("userId"), current.getUserId()));
+            default -> predicates.add(cb.disjunction());
+        }
+    }
+
+    private void ensureEmployeeVisible(Employee employee) {
+        LoginUser current = SecurityUtils.getCurrentUser();
+        if (current == null || current.getUserId() == null) {
+            throw BusinessException.unauthorized();
+        }
+        String scope = dataScopeService.resolveScope(current.getRoleCode(), current.getUserId());
+        boolean visible = switch (scope) {
+            case DataScopeService.ALL -> true;
+            case DataScopeService.DEPT -> current.getDeptId() != null
+                    && Objects.equals(current.getDeptId(), employee.getDeptId());
+            case DataScopeService.DEPT_AND_SELF -> Objects.equals(current.getUserId(), employee.getUserId())
+                    || (current.getDeptId() != null && Objects.equals(current.getDeptId(), employee.getDeptId()));
+            case DataScopeService.SELF -> Objects.equals(current.getUserId(), employee.getUserId());
+            default -> false;
+        };
+        if (!visible) {
+            throw BusinessException.forbidden();
+        }
     }
 
     /**
@@ -236,6 +308,11 @@ public class TalentService {
         if (demandId == null || demandId.isBlank()) {
             throw BusinessException.invalidInput("缺少 demandId 参数");
         }
+        Map<String, Object> demand = resolveDemandForMatching(demandId);
+        String demandPosition = Objects.toString(demand.get("positionName"), "");
+        Set<String> requiredSkills = jsonStringSet(demand.get("requiredSkills"));
+        Set<String> plusSkills = jsonStringSet(demand.get("plusSkills"));
+        int minimumYears = demand.get("expMin") instanceof Number n ? n.intValue() : 0;
         List<Employee> employees = employeeRepository.findByIsDeleted(0);
         // 批量预取用户/部门/岗位名称，避免循环内 3 次查询（N+1）
         Map<Long, String> userNames = fetchUserNames(
@@ -248,22 +325,105 @@ public class TalentService {
         List<Map<String, Object>> results = new ArrayList<>();
         for (Employee e : employees) {
             String name = resolveUserName(e.getUserId(), userNames);
-            int seed = Math.abs((demandId + ":" + e.getId()).hashCode());
-            int score = 50 + (seed % 46); // 50-95
+            String currentPosition = resolvePositionName(e.getPositionId(), positionNames);
+            Set<String> employeeTags = new HashSet<>(resolveEmployeeTags(e.getId()));
+            Set<String> matchedRequired = matchedSkills(requiredSkills, employeeTags, currentPosition);
+            Set<String> matchedPlus = matchedSkills(plusSkills, employeeTags, currentPosition);
+            int skillScore = requiredSkills.isEmpty()
+                    ? 0
+                    : (int) Math.round(35.0 * matchedRequired.size() / requiredSkills.size());
+            skillScore += plusSkills.isEmpty() ? 0 : (int) Math.round(5.0 * matchedPlus.size() / plusSkills.size());
+            boolean positionMatched = textMatches(demandPosition, currentPosition);
+            int positionScore = positionMatched ? 20 : 0;
+            int experienceScore = minimumYears <= 0
+                    ? 15
+                    : Math.min(20, (int) Math.round(20.0 * Math.min(e.getWorkYears() == null ? 0 : e.getWorkYears(), minimumYears) / minimumYears));
+            double perf = e.getPerfScore() == null ? 0 : e.getPerfScore().doubleValue();
+            int performanceScore = (int) Math.round(Math.min(15, Math.max(0, perf / 5.0 * 15)));
+            int transferScore = e.getCanTransfer() != null && e.getCanTransfer() == 1 ? 10 : 0;
+            int score = Math.min(100, skillScore + positionScore + experienceScore + performanceScore + transferScore);
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", "EMP" + String.format("%03d", e.getId()));
             m.put("name", name);
             m.put("dept", resolveDeptName(e.getDeptId(), deptNames));
-            m.put("curPos", resolvePositionName(e.getPositionId(), positionNames));
+            m.put("curPos", currentPosition);
             m.put("perf", perfLabel(e.getPerfScore()));
             m.put("score", score);
             m.put("transferable", e.getCanTransfer() != null && e.getCanTransfer() == 1);
+            m.put("matchedSkills", matchedRequired);
+            m.put("missingSkills", requiredSkills.stream().filter(s -> !matchedRequired.contains(s)).toList());
+            m.put("scoreBreakdown", Map.of(
+                    "skills", skillScore,
+                    "position", positionScore,
+                    "experience", experienceScore,
+                    "performance", performanceScore,
+                    "transfer", transferScore));
             results.add(m);
         }
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("demandId", demandId);
+        out.put("demandNo", demand.get("demandNo"));
+        out.put("position", demandPosition);
         out.put("results", results);
         return out;
+    }
+
+    private Map<String, Object> resolveDemandForMatching(String demandId) {
+        try {
+            return jdbcTemplate.queryForMap(
+                    "SELECT demand_no AS demandNo, position_name AS positionName, exp_min AS expMin, "
+                            + "required_skills AS requiredSkills, plus_skills AS plusSkills "
+                            + "FROM t_hr_recruit_demand WHERE is_deleted = 0 "
+                            + "AND (demand_no = ? OR CAST(id AS CHAR) = ?) LIMIT 1",
+                    demandId, demandId);
+        } catch (Exception e) {
+            throw BusinessException.notFound("招聘需求不存在或已删除");
+        }
+    }
+
+    private Set<String> jsonStringSet(Object value) {
+        if (value == null) {
+            return Set.of();
+        }
+        JsonNode node = value instanceof String s ? parseJson(s) : objectMapper.valueToTree(value);
+        if (node == null || !node.isArray()) {
+            return Set.of();
+        }
+        Set<String> result = new HashSet<>();
+        node.forEach(item -> {
+            String text = item.asText("").trim();
+            if (!text.isBlank()) {
+                result.add(text);
+            }
+        });
+        return result;
+    }
+
+    private List<String> resolveEmployeeTags(Long employeeId) {
+        return jdbcTemplate.query(
+                "SELECT d.tag_name FROM t_hr_employee_tag_rel r "
+                        + "JOIN t_hr_tag_dict d ON d.id = r.tag_id "
+                        + "WHERE r.employee_id = ? AND r.is_deleted = 0 AND d.is_deleted = 0 AND d.status = 1",
+                (rs, rowNum) -> rs.getString("tag_name"), employeeId);
+    }
+
+    private Set<String> matchedSkills(Set<String> required, Set<String> employeeTags, String currentPosition) {
+        Set<String> matched = new HashSet<>();
+        for (String skill : required) {
+            if (employeeTags.stream().anyMatch(tag -> textMatches(skill, tag)) || textMatches(skill, currentPosition)) {
+                matched.add(skill);
+            }
+        }
+        return matched;
+    }
+
+    private boolean textMatches(String expected, String actual) {
+        if (expected == null || actual == null || expected.isBlank() || actual.isBlank() || "—".equals(actual)) {
+            return false;
+        }
+        String e = expected.replaceAll("\\s+", "").toLowerCase();
+        String a = actual.replaceAll("\\s+", "").toLowerCase();
+        return e.contains(a) || a.contains(e);
     }
 
     /**
@@ -959,20 +1119,17 @@ public class TalentService {
                 byCandidate.computeIfAbsent(p.getCandidateId(), k -> new ArrayList<>()).add(item);
             }
 
-            // 5. 无流程候选人：取最新简历 extract_json 的 target_position 兜底
+            // 5. 所有候选人都保留最新简历中的原始应聘岗位。
+            //    它与 linkedDemands 是两个不同业务概念，不能互相覆盖。
             Map<Long, String> targetPosMap = new HashMap<>();
-            List<Long> missing = candidates.stream().map(Candidate::getId)
-                    .filter(id -> !byCandidate.containsKey(id)).toList();
-            if (!missing.isEmpty()) {
-                for (Resume r : resumeRepository.findByCandidateIdInAndIsDeletedOrderByStorageTimeDesc(missing, 0)) {
-                    if (targetPosMap.containsKey(r.getCandidateId())) {
-                        continue;
-                    }
-                    JsonNode ext = parseJson(r.getExtractJson());
-                    String tp = ext != null ? ext.path("target_position").asText("") : "";
-                    if (!tp.isBlank()) {
-                        targetPosMap.put(r.getCandidateId(), tp);
-                    }
+            for (Resume r : resumeRepository.findByCandidateIdInAndIsDeletedOrderByStorageTimeDesc(ids, 0)) {
+                if (targetPosMap.containsKey(r.getCandidateId())) {
+                    continue;
+                }
+                JsonNode ext = parseJson(r.getExtractJson());
+                String tp = ext != null ? ext.path("target_position").asText("") : "";
+                if (!tp.isBlank()) {
+                    targetPosMap.put(r.getCandidateId(), tp);
                 }
             }
 
@@ -981,14 +1138,16 @@ public class TalentService {
                 List<Map<String, Object>> linked = byCandidate.getOrDefault(candidates.get(i).getId(), List.of());
                 Map<String, Object> item = list.get(i);
                 item.put("linkedDemands", linked);
-                item.put("targetPosition", !linked.isEmpty()
-                        ? linked.get(0).get("position")
-                        : targetPosMap.getOrDefault(candidates.get(i).getId(), ""));
+                String appliedPosition = targetPosMap.getOrDefault(candidates.get(i).getId(), "");
+                item.put("appliedPosition", appliedPosition);
+                // 兼容旧客户端：targetPosition 只保留原始应聘岗位，不再写入匹配岗位。
+                item.put("targetPosition", appliedPosition);
             }
         } catch (Exception e) {
             log.warn("attach linked demands failed (best-effort): {}", e.getMessage());
             for (Map<String, Object> item : list) {
                 item.putIfAbsent("linkedDemands", List.of());
+                item.putIfAbsent("appliedPosition", "");
                 item.putIfAbsent("targetPosition", "");
             }
         }

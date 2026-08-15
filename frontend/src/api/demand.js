@@ -33,6 +33,11 @@ export async function fetchDemandCandidates(id, params = {}) {
   return r.data;
 }
 
+export async function previewDemandMatch(id, topN) {
+  const r = await api.post(`/demand/${id}/match/preview`, { includeTalentPool: true, topN });
+  return r.data;
+}
+
 export async function createDemand(data) {
   const r = await api.post('/demand/create', data);
   return r.data;
