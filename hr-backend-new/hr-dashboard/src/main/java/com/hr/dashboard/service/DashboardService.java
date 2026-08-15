@@ -35,6 +35,13 @@ public class DashboardService {
 
     @Cacheable(cacheNames = "dashboard", key = "'kpi:' + #role + ':' + #userId")
     public List<Map<String, Object>> getKpi(String role, Long userId) {
+        if ("employee".equals(role)) {
+            // Employees use the self-profile workflow; do not expose company-wide KPI aggregates.
+            return List.of();
+        }
+        if ("interviewer".equals(role) || "temp_interviewer".equals(role)) {
+            return interviewerKpi(userId);
+        }
         try {
             long candidates = count("SELECT COUNT(*) FROM t_hr_candidate WHERE status != 'archived' AND is_deleted = 0");
             long openDemands = count("SELECT COUNT(*) FROM t_hr_recruit_demand WHERE demand_status = 2 AND is_deleted = 0");
@@ -55,7 +62,6 @@ public class DashboardService {
                         kpi(pendingEvals, "待评价面试", "实时"),
                         kpi(pendingApprovals, "待审批岗位", "实时"),
                         kpi(monthlyHires, "本月入职总量", "实时")));
-                case "interviewer" -> kpis.addAll(interviewerKpi(userId));
                 default -> kpis.addAll(List.of(
                         kpi(totalInterviews, "全公司待面试", "实时"),
                         kpi(pendingEvals, "待评价", "实时"),

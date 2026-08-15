@@ -38,8 +38,9 @@ class WorkflowRequest(BaseModel):
 
 
 @router.get("/capabilities")
-def capabilities():
+def capabilities(request: Request):
     """返回 AI 能力清单。"""
+    _require_internal(request)
     return {
         "data": [
             {"name": "jd-generate", "label": "JD 生成", "enabled": True},
@@ -56,6 +57,7 @@ def capabilities():
 @router.post("/run/{workflow}")
 def run(workflow: str, req: WorkflowRequest, request: Request):
     """执行指定 AI 工作流。"""
+    _require_internal(request)
     set_request_api_key(request.headers.get("X-DeepSeek-Key", ""))
     set_request_dify_key(request.headers.get("X-Dify-Key", ""))
     if workflow not in WORKFLOWS:
@@ -73,6 +75,7 @@ def run(workflow: str, req: WorkflowRequest, request: Request):
 @router.post("/stream/{workflow}")
 async def stream(workflow: str, req: WorkflowRequest, request: Request):
     """SSE 流式执行工作流。"""
+    _require_internal(request)
     set_request_api_key(request.headers.get("X-DeepSeek-Key", ""))
     set_request_dify_key(request.headers.get("X-Dify-Key", ""))
     if workflow not in STREAM_WORKFLOWS:
@@ -98,6 +101,13 @@ def health():
         "status": "ok",
         "deepseek_configured": bool(settings.DEEPSEEK_API_KEY),
     }
+
+
+def _require_internal(request: Request) -> None:
+    """Keep the Python service private when an internal token is configured."""
+    from app.core.config import settings
+    if settings.INTERNAL_TOKEN and request.headers.get("X-Internal-AI-Token") != settings.INTERNAL_TOKEN:
+        raise HTTPException(status_code=401, detail={"code": "AI_UNAUTHORIZED", "message": "内部服务认证失败"})
 
 
 def _build_stream_messages(workflow: str, data: dict) -> list:

@@ -25,8 +25,8 @@ async function checkAuth(to) {
   if (!AUTH_GUARD_ENABLED) return null;
   if (PUBLIC_ROUTES.has(to.path)) return null;
 
-  const token = localStorage.getItem('hr_token');
-  if (!token) return '/login';
+  const session = localStorage.getItem('hr_session') || localStorage.getItem('hr_token');
+  if (!session) return '/login';
 
   const allowedMenus = getAllowedMenuIds();
 

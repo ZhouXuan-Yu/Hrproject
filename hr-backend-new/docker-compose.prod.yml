@@ -1,0 +1,70 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: hr-redis-prod
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD is required}"]
+    expose:
+      - "6379"
+    volumes:
+      - redis-prod-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  hr-business:
+    build: .
+    container_name: hr-business-prod
+    expose:
+      - "8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      DATABASE_USER: ${DATABASE_USER:?DATABASE_USER is required}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD is required}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
+      PASSWORD_SALT: ${PASSWORD_SALT:?PASSWORD_SALT is required}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
+      APP_ALLOWED_ORIGINS: ${APP_ALLOWED_ORIGINS:?APP_ALLOWED_ORIGINS is required}
+      APP_COOKIE_SECURE: "true"
+      APP_HSTS_ENABLED: "true"
+      AI_SERVICE_URL: http://hr-ai:8100
+      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:?AI_INTERNAL_TOKEN is required}
+      APP_BASE_URL: ${APP_BASE_URL:?APP_BASE_URL is required}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DIFY_API_KEY: ${DIFY_API_KEY:-}
+    volumes:
+      - uploads-prod-data:/app/uploads
+    depends_on:
+      redis:
+        condition: service_healthy
+      hr-ai:
+        condition: service_healthy
+
+  hr-ai:
+    build: ./hr-ai-service
+    container_name: hr-ai-prod
+    expose:
+      - "8100"
+    environment:
+      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:?AI_INTERNAL_TOKEN is required}
+      AI_ALLOWED_ORIGINS: ${APP_ALLOWED_ORIGINS:?APP_ALLOWED_ORIGINS is required}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+      DIFY_API_KEY: ${DIFY_API_KEY:-}
+      DIFY_BASE_URL: ${DIFY_BASE_URL:-https://api.dify.ai/v1}
+      AI_SERVICE_PORT: 8100
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/api/ai/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  redis-prod-data:
+  uploads-prod-data:

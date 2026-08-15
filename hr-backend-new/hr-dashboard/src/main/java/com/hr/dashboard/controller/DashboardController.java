@@ -19,7 +19,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/dashboard")
 @RequiredArgsConstructor
-@RequireRole({"admin", "hr", "dept_head", "director", "employee"})
+@RequireRole({"admin", "hr", "dept_head", "director"})
 public class DashboardController {
 
     private final DashboardService dashboardService;
@@ -63,6 +63,7 @@ public class DashboardController {
      * 对齐 Flask GET /api/dashboard/home。
      */
     @GetMapping("/home")
+    @RequireRole({"admin", "hr", "dept_head", "director", "employee", "interviewer", "temp_interviewer"})
     public ApiResponse<Map<String, Object>> home() {
         return ApiResponse.success(dashboardService.getHomeData(
                 SecurityUtils.getRoleCode(), SecurityUtils.getUserId()));

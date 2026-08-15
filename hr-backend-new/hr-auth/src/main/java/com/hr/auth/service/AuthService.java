@@ -149,7 +149,7 @@ public class AuthService {
         if ("phone".equals(channel) && user.getMobile() != null && !user.getMobile().isBlank()) {
             effectiveChannel = "phone";
             target = maskMobile(user.getMobile());
-            log.info("[PASSWORD_RESET] phone={} code={} user={}", user.getMobile(), code, username);
+            log.info("[PASSWORD_RESET] channel=phone userId={}", user.getUserId());
         } else if (user.getEmail() != null && !user.getEmail().isBlank()) {
             effectiveChannel = "email";
             target = maskEmail(user.getEmail());
@@ -248,7 +248,7 @@ public class AuthService {
         String lookupKey = isPhone ? "mobile" : "email";
 
         // 查重
-        boolean exists = userRepository.findAll((root, query, cb) -> {
+        boolean exists = userRepository.exists((root, query, cb) -> {
             var predicates = new java.util.ArrayList<jakarta.persistence.criteria.Predicate>();
             predicates.add(cb.equal(root.get("isDeleted"), 0));
             if (isPhone) {
@@ -257,7 +257,7 @@ public class AuthService {
                 predicates.add(cb.equal(root.get("email"), target));
             }
             return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
-        }).stream().findAny().isPresent();
+        });
         if (exists) {
             throw new BusinessException("DUPLICATE", "该账号已注册", 409);
         }
@@ -276,8 +276,8 @@ public class AuthService {
         resetTokenRepository.save(reset);
 
         // 判断角色：第一个用户为 admin
-        long totalUsers = userRepository.findAll((root, query, cb) ->
-                cb.equal(root.get("isDeleted"), 0)).size();
+        long totalUsers = userRepository.count((root, query, cb) ->
+                cb.equal(root.get("isDeleted"), 0));
         String roleCode = totalUsers == 0 ? "admin" : "employee";
 
         // 生成 username
@@ -325,11 +325,10 @@ public class AuthService {
      * GET /api/auth/setup-status — 系统是否需要首次管理员设置。
      */
     public Map<String, Object> setupStatus() {
-        long adminCount = userRepository.findAll((root, query, cb) -> cb.and(
+        long adminCount = userRepository.count((root, query, cb) -> cb.and(
                         cb.equal(root.get("roleCode"), "admin"),
                         cb.equal(root.get("status"), 1),
-                        cb.equal(root.get("isDeleted"), 0)))
-                .size();
+                        cb.equal(root.get("isDeleted"), 0)));
         return Map.of("needsSetup", adminCount == 0, "hasAdmin", adminCount > 0);
     }
 
@@ -338,11 +337,10 @@ public class AuthService {
      */
     @Transactional
     public Map<String, Object> firstTimeSetup(Map<String, Object> body) {
-        long existing = userRepository.findAll((root, query, cb) -> cb.and(
+        long existing = userRepository.count((root, query, cb) -> cb.and(
                         cb.equal(root.get("roleCode"), "admin"),
                         cb.equal(root.get("status"), 1),
-                        cb.equal(root.get("isDeleted"), 0)))
-                .size();
+                        cb.equal(root.get("isDeleted"), 0)));
         if (existing > 0) {
             throw new BusinessException("FORBIDDEN", "系统已完成初始化，请使用管理员账号登录", 403);
         }
@@ -452,8 +450,8 @@ public class AuthService {
     /** 邮件发送：SMTP 未配置时返回 false，引导用户联系管理员。 */
     private boolean sendResetMail(IamUser user, String code) {
         if (mailSender == null) {
-            log.info("[PASSWORD_RESET] email={} code={} user={} (SMTP 未配置，跳过真实发送)",
-                    user.getEmail(), code, user.getUsername());
+            log.info("[PASSWORD_RESET] email delivery skipped userId={} (SMTP not configured)",
+                    user.getUserId());
             return false;
         }
         try {
@@ -473,10 +471,10 @@ public class AuthService {
                     user.getRealName() != null ? user.getRealName() : user.getUsername(),
                     code));
             mailSender.send(msg);
-            log.info("[PASSWORD_RESET] 验证码邮件已发送至 {}", user.getEmail());
+            log.info("[PASSWORD_RESET] email sent userId={}", user.getUserId());
             return true;
         } catch (Exception e) {
-            log.error("[PASSWORD_RESET] 邮件发送失败 email={} error={}", user.getEmail(), e.getMessage());
+            log.error("[PASSWORD_RESET] email delivery failed userId={}", user.getUserId());
             return false;
         }
     }

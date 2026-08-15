@@ -6,6 +6,7 @@ import com.hr.auth.entity.IamUser;
 import com.hr.auth.repository.IamDeptRepository;
 import com.hr.auth.repository.IamPositionRepository;
 import com.hr.auth.repository.IamUserRepository;
+import com.hr.auth.security.WerkzeugPasswordEncoder;
 import com.hr.common.exception.BusinessException;
 import com.hr.common.util.SecurityUtils;
 import jakarta.persistence.EntityManager;
@@ -13,6 +14,10 @@ import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.bouncycastle.crypto.generators.SCrypt;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,9 +27,12 @@ import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
@@ -46,6 +54,7 @@ public class UserManagementService {
     private final IamDeptRepository deptRepository;
     private final IamPositionRepository positionRepository;
     private final EntityManager entityManager;
+    private final WerkzeugPasswordEncoder passwordEncoder;
 
     /** 原生查询跨模块统计需求数（避免模块间依赖） */
     private long countDemandsByField(String field, Object value) {
@@ -84,7 +93,7 @@ public class UserManagementService {
         page = Math.max(1, page);
         pageSize = Math.min(100, Math.max(1, pageSize));
 
-        var spec = userRepository.findAll((root, query, cb) -> {
+        Specification<IamUser> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
             predicates.add(cb.equal(root.get("isDeleted"), 0));
             if (keyword != null && !keyword.isBlank()) {
@@ -101,17 +110,30 @@ public class UserManagementService {
                 predicates.add(cb.equal(root.get("status"), statusFilter));
             }
             return cb.and(predicates.toArray(new Predicate[0]));
-        });
+        };
 
-        long total = spec.size();
-        int offset = (page - 1) * pageSize;
-        // manual pagination since we already fetched all for count
-        int fromIndex = Math.min(offset, spec.size());
-        int toIndex = Math.min(fromIndex + pageSize, spec.size());
-        List<IamUser> pageItems = spec.subList(fromIndex, toIndex);
+        Page<IamUser> pageResult = userRepository.findAll(spec,
+                PageRequest.of(page - 1, pageSize, Sort.by(Sort.Direction.DESC, "userId")));
+        long total = pageResult.getTotalElements();
+        List<IamUser> pageItems = pageResult.getContent();
+
+        Set<Long> deptIds = new HashSet<>();
+        Set<Long> positionIds = new HashSet<>();
+        for (IamUser user : pageItems) {
+            if (user.getDeptId() != null) deptIds.add(user.getDeptId());
+            if (user.getPositionId() != null) positionIds.add(user.getPositionId());
+        }
+        Map<Long, String> deptNames = new HashMap<>();
+        for (IamDept dept : deptRepository.findAllById(deptIds)) {
+            deptNames.put(dept.getDeptId(), dept.getDeptName());
+        }
+        Map<Long, String> positionNames = new HashMap<>();
+        for (IamPosition position : positionRepository.findAllById(positionIds)) {
+            positionNames.put(position.getPositionId(), position.getPositionName());
+        }
 
         List<Map<String, Object>> items = pageItems.stream()
-                .map(this::userToMap).toList();
+                .map(user -> userToMap(user, deptNames, positionNames)).toList();
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("data", items);
@@ -344,14 +366,10 @@ public class UserManagementService {
             // 检查是否已有 IamUser 账号（按 mobile 或 email 匹配）
             boolean hasAccount = false;
             if (mobile != null && !mobile.isEmpty()) {
-                hasAccount = userRepository.findAll((root, query, cb) -> cb.and(
-                        cb.equal(root.get("mobile"), mobile),
-                        cb.equal(root.get("isDeleted"), 0))).stream().findAny().isPresent();
+                hasAccount = userRepository.existsByMobileAndIsDeleted(mobile, 0);
             }
             if (!hasAccount && email != null && !email.isEmpty()) {
-                hasAccount = userRepository.findAll((root, query, cb) -> cb.and(
-                        cb.equal(root.get("email"), email),
-                        cb.equal(root.get("isDeleted"), 0))).stream().findAny().isPresent();
+                hasAccount = userRepository.existsByEmailAndIsDeleted(email, 0);
             }
 
             if (hasAccount) {
@@ -382,23 +400,19 @@ public class UserManagementService {
     }
 
     private Long nextUserId() {
-        Long max = userRepository.findAll().stream()
-                .map(IamUser::getUserId).filter(java.util.Objects::nonNull)
-                .max(Long::compareTo).orElse(0L);
+        Long max = userRepository.maxUserId();
         return Math.max(max, 9L) + 1; // 对齐 Flask：max+1，空库从 10 开始
     }
 
     private String generateEmployeeNo() {
         String yyyy = String.valueOf(LocalDateTime.now().getYear());
-        List<IamUser> all = userRepository.findAll((root, query, cb) -> cb.like(root.get("employeeNo"), yyyy + "%"));
         int maxSeq = 0;
-        for (IamUser u : all) {
-            String no = u.getEmployeeNo();
-            if (no != null && no.length() == 8 && no.startsWith(yyyy)) {
-                try {
-                    maxSeq = Math.max(maxSeq, Integer.parseInt(no.substring(4)));
-                } catch (NumberFormatException ignored) {
-                }
+        String maxNo = userRepository.maxEmployeeNoLike(yyyy + "%");
+        if (maxNo != null && maxNo.length() == 8 && maxNo.startsWith(yyyy)) {
+            try {
+                maxSeq = Integer.parseInt(maxNo.substring(4));
+            } catch (NumberFormatException ignored) {
+                // Ignore malformed legacy employee numbers.
             }
         }
         String candidate;
@@ -625,6 +639,11 @@ public class UserManagementService {
     }
 
     private Map<String, Object> userToMap(IamUser u) {
+        return userToMap(u, null, null);
+    }
+
+    private Map<String, Object> userToMap(IamUser u, Map<Long, String> deptNames,
+                                          Map<Long, String> positionNames) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("userId", u.getUserId());
         m.put("username", u.getUsername());
@@ -633,9 +652,11 @@ public class UserManagementService {
         m.put("roleCode", u.getRoleCode());
         m.put("dataScope", u.getDataScope());
         m.put("deptId", u.getDeptId());
-        m.put("deptName", resolveDeptName(u.getDeptId()));
+        m.put("deptName", deptNames != null && u.getDeptId() != null
+                ? deptNames.getOrDefault(u.getDeptId(), "—") : resolveDeptName(u.getDeptId()));
         m.put("positionId", u.getPositionId());
-        m.put("positionName", resolvePositionName(u.getPositionId()));
+        m.put("positionName", positionNames != null && u.getPositionId() != null
+                ? positionNames.getOrDefault(u.getPositionId(), "—") : resolvePositionName(u.getPositionId()));
         m.put("email", u.getEmail());
         m.put("mobile", u.getMobile());
         m.put("status", u.getStatus());
@@ -684,8 +705,7 @@ public class UserManagementService {
 
     /** 兼容 werkzeug scrypt / bcrypt / legacy sha256 的校验。 */
     public boolean verifyPassword(String raw, String stored) {
-        return new com.hr.auth.security.WerkzeugPasswordEncoder(
-                "default-salt-change-me").matches(raw, stored);
+        return passwordEncoder.matches(raw, stored);
     }
 
     private static String str(Object o) {

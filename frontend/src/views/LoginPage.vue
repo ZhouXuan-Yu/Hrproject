@@ -252,7 +252,8 @@ async function login() {
   loggingIn.value = true;
   try {
     const result = await apiLogin(username.value.trim(), password.value, rememberMe.value);
-    if (result?.token) localStorage.setItem('hr_token', result.token);
+    // The backend stores the JWT in an HttpOnly cookie; keep only a non-secret UI marker.
+    localStorage.setItem('hr_session', '1');
     if (Array.isArray(result?.menus)) localStorage.setItem('hr_menus', JSON.stringify(result.menus));
     if (result?.user) {
       localStorage.setItem('hr_role', result.user.role);

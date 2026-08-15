@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.hr.config.service.ConfigService;
+import com.hr.common.annotation.RequireRole;
+import com.hr.common.exception.BusinessException;
 import com.hr.demand.service.DemandService;
 import com.hr.talent.service.TalentService;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +30,7 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -38,8 +41,13 @@ import java.util.regex.Pattern;
 @Slf4j
 @RestController
 @RequestMapping("/api/ai")
+@RequireRole({"admin", "hr", "dept_head", "director", "interviewer", "temp_interviewer"})
 @RequiredArgsConstructor
 public class AiProxyController {
+
+    private static final Set<String> ALLOWED_WORKFLOWS = Set.of(
+            "jd-generate", "resume-parse", "match", "match-score",
+            "interview-questions", "interview-qa", "talent-search", "offer-email-generate");
 
     private final OkHttpClient httpClient = new OkHttpClient.Builder()
             .connectTimeout(Duration.ofSeconds(10))
@@ -54,10 +62,14 @@ public class AiProxyController {
     @Value("${ai-service.url:http://127.0.0.1:8100}")
     private String aiServiceUrl;
 
+    @Value("${ai-service.internal-token:}")
+    private String aiInternalToken;
+
     @GetMapping("/capabilities")
     public ResponseEntity<?> capabilities() throws IOException {
         Request req = new Request.Builder()
                 .url(aiServiceUrl + "/api/ai/capabilities")
+                .header("X-Internal-AI-Token", aiInternalToken == null ? "" : aiInternalToken)
                 .get()
                 .build();
         try (Response resp = httpClient.newCall(req).execute()) {
@@ -68,9 +80,11 @@ public class AiProxyController {
     @PostMapping("/run/{workflow}")
     public ResponseEntity<?> run(@PathVariable String workflow,
                                  @RequestBody(required = false) String body) throws IOException {
+        validateWorkflow(workflow);
         body = enrichBody(workflow, body);
         Request.Builder rb = new Request.Builder()
                 .url(aiServiceUrl + "/api/ai/run/" + workflow);
+        applyInternalToken(rb);
         applyDeepSeekKey(rb);
         applyDifyKey(rb);
         rb.post(body == null ? okhttp3.RequestBody.create(new byte[0])
@@ -84,9 +98,11 @@ public class AiProxyController {
     @PostMapping(value = "/stream/{workflow}", produces = "text/event-stream")
     public ResponseEntity<?> stream(@PathVariable String workflow,
                                     @RequestBody(required = false) String body) throws IOException {
+        validateWorkflow(workflow);
         body = enrichBody(workflow, body);
         Request.Builder rb = new Request.Builder()
                 .url(aiServiceUrl + "/api/ai/stream/" + workflow);
+        applyInternalToken(rb);
         applyDeepSeekKey(rb);
         applyDifyKey(rb);
         rb.post(body == null ? okhttp3.RequestBody.create(new byte[0])
@@ -121,6 +137,18 @@ public class AiProxyController {
         String dsKey = resolveDeepSeekKey();
         if (dsKey != null && !dsKey.isBlank()) {
             rb.header("X-DeepSeek-Key", dsKey);
+        }
+    }
+
+    private void applyInternalToken(Request.Builder rb) {
+        if (aiInternalToken != null && !aiInternalToken.isBlank()) {
+            rb.header("X-Internal-AI-Token", aiInternalToken);
+        }
+    }
+
+    private void validateWorkflow(String workflow) {
+        if (workflow == null || !ALLOWED_WORKFLOWS.contains(workflow)) {
+            throw new BusinessException("UNKNOWN_WORKFLOW", "不支持的 AI 工作流", 400);
         }
     }
 

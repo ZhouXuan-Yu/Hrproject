@@ -42,6 +42,7 @@ public class TalentController {
      * GET /api/talent/list — 候选人列表（tab=external 候选人 / tab=internal 内部员工）。
      */
     @GetMapping("/list")
+    @RequireRole({"admin", "hr", "director", "dept_head", "interviewer", "temp_interviewer", "employee"})
     public Map<String, Object> list(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int pageSize,
@@ -61,6 +62,7 @@ public class TalentController {
      * GET /api/talent/candidate/{id} — 候选人详情（支持 candidateNo 或数字主键）。
      */
     @GetMapping("/candidate/{id}")
+    @RequireRole({"admin", "hr", "director", "dept_head", "interviewer", "temp_interviewer"})
     public ApiResponse<Map<String, Object>> candidateDetail(@PathVariable String id) {
         return ApiResponse.success(talentService.getCandidateDetail(talentService.resolveCandidateId(id)));
     }
@@ -83,6 +85,7 @@ public class TalentController {
      * PATCH /api/talent/{id}/note — 更新候选人备注（支持 candidateNo 或数字主键）。
      */
     @PatchMapping("/{id}/note")
+    @RequireRole({"admin", "hr", "director", "dept_head"})
     public ApiResponse<Map<String, Object>> updateNote(@PathVariable String id,
                                                        @RequestBody Map<String, Object> body) {
         String note = body != null && body.get("note") != null
@@ -94,6 +97,7 @@ public class TalentController {
      * GET /api/talent/match — 内部员工人岗匹配结果。
      */
     @GetMapping("/match")
+    @RequireRole({"admin", "hr", "director", "dept_head"})
     public ApiResponse<Map<String, Object>> matchResults(@RequestParam String demandId) {
         return ApiResponse.success(talentService.getMatchResults(demandId));
     }
@@ -102,6 +106,7 @@ public class TalentController {
      * POST /api/talent/match — 计算候选人对需求的匹配分。
      */
     @PostMapping("/match")
+    @RequireRole({"admin", "hr", "director", "dept_head"})
     public ApiResponse<Map<String, Object>> createMatch(@RequestBody Map<String, Object> body) {
         return ApiResponse.success(talentService.createMatch(body));
     }
@@ -110,6 +115,7 @@ public class TalentController {
      * POST /api/talent/link — 批量关联候选人到需求。
      */
     @PostMapping("/link")
+    @RequireRole({"admin", "hr", "director", "dept_head"})
     public ApiResponse<Map<String, Object>> link(@RequestBody Map<String, Object> body) {
         return ApiResponse.success(talentService.linkToDemand(body));
     }
@@ -127,6 +133,7 @@ public class TalentController {
      * POST /api/talent/contact — 记录（可选发送）候选人联系动作。
      */
     @PostMapping("/contact")
+    @RequireRole({"admin", "hr", "director", "dept_head"})
     public ApiResponse<Map<String, Object>> contact(@RequestBody Map<String, Object> body) {
         return ApiResponse.success(talentService.recordContact(body));
     }
@@ -135,6 +142,7 @@ public class TalentController {
      * GET /api/talent/ingest-log — 最近简历入库记录。
      */
     @GetMapping("/ingest-log")
+    @RequireRole({"admin", "hr", "director", "dept_head"})
     public ApiResponse<Map<String, Object>> ingestLog(@RequestParam(defaultValue = "10") int limit) {
         return ApiResponse.success(Map.of("items", talentService.getIngestLog(limit)));
     }
@@ -143,6 +151,7 @@ public class TalentController {
      * GET /api/talent/mail-log — 系统外发邮件日志。
      */
     @GetMapping("/mail-log")
+    @RequireRole({"admin", "hr", "director", "dept_head"})
     public ApiResponse<Map<String, Object>> mailLog(@RequestParam(defaultValue = "50") int limit) {
         return ApiResponse.success(Map.of("items", talentService.getMailLog(limit)));
     }
@@ -151,6 +160,7 @@ public class TalentController {
      * POST /api/talent/upload-resume — 简历文件上传（multipart）。
      */
     @PostMapping(value = "/upload-resume", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @RequireRole({"admin", "hr", "dept_head", "director"})
     public ApiResponse<Map<String, Object>> uploadResume(
             @RequestParam("file") MultipartFile file,
             @RequestParam(required = false) String position,
@@ -183,6 +193,7 @@ public class TalentController {
      * GET /api/talent/candidate/{id}/export — 候选人数据导出（PIPL）。
      */
     @GetMapping("/candidate/{id}/export")
+    @RequireRole({"admin", "hr", "director"})
     public ApiResponse<Map<String, Object>> export(@PathVariable Long id) {
         return ApiResponse.success(talentService.exportCandidate(id));
     }

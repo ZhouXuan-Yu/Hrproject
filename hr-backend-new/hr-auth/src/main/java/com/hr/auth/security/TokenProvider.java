@@ -11,6 +11,7 @@ import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
+import java.util.UUID;
 
 /**
  * JWT 签发与校验，对齐 Flask middleware/auth.py 的 HS256 实现。
@@ -39,6 +40,7 @@ public class TokenProvider {
         long ttl = rememberMe ? rememberMeSeconds : expiresSeconds;
         Instant now = Instant.now();
         return Jwts.builder()
+                .id(UUID.randomUUID().toString())
                 .subject(String.valueOf(userId))
                 .claim("user_id", userId)
                 .claim("role", role)

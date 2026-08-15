@@ -143,7 +143,7 @@ public class ConfigService {
     }
 
     /** AES 加密密钥（与 MailService 共用同一个配置项）。 */
-    @Value("${crypto.secret-key:${SECRET_KEY:default-salt-change-me}}")
+    @Value("${crypto.secret-key:}")
     private String cryptoSecret;
 
     // ── 渠道 ────────────────────────────────────────────────
@@ -886,9 +886,9 @@ public class ConfigService {
             out.put("totalMessages", count);
             out.put("ingested", ingested);
             out.put("message", "扫描 " + count + " 封未读邮件，入库 " + ingested + " 份简历");
-            log.info("邮箱 {} 同步完成: 扫描{}封, 入库{}份", account.getEmailAddress(), count, ingested);
+            log.info("邮箱同步完成: 扫描{}封, 入库{}份", count, ingested);
         } catch (Exception e) {
-            log.error("邮箱 {} 同步失败: {}", account.getEmailAddress(), e.getMessage());
+            log.error("邮箱同步失败: {}", e.getMessage());
             out.put("status", "error");
             out.put("message", "连接失败: " + e.getMessage());
             out.put("totalMessages", count);
@@ -1156,9 +1156,9 @@ public class ConfigService {
                     .setParameter(10, now)
                     .executeUpdate();
 
-            log.info("邮件简历入库: name={}, phone={}, position={}", name, phone, targetPosition);
+            log.info("邮件简历入库完成");
         } catch (Exception e) {
-            log.warn("入库失败: name={}, error={}", name, e.getMessage());
+            log.warn("邮件简历入库失败: {}", e.getMessage());
         }
     }
 

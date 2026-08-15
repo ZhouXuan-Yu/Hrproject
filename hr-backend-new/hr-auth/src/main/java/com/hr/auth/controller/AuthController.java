@@ -4,11 +4,13 @@ import com.hr.auth.dto.LoginRequest;
 import com.hr.auth.dto.LoginResponse;
 import com.hr.auth.service.AuthService;
 import com.hr.auth.service.UserManagementService;
+import com.hr.auth.security.TokenRevocationService;
 import com.hr.common.dto.ApiResponse;
 import com.hr.common.util.SecurityUtils;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
+import org.springframework.beans.factory.annotation.Value;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
@@ -18,6 +20,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.web.csrf.CsrfToken;
 
 import java.time.Duration;
 import java.util.Map;
@@ -32,6 +35,18 @@ public class AuthController {
 
     private final AuthService authService;
     private final UserManagementService userManagementService;
+    private final TokenRevocationService tokenRevocationService;
+
+    @Value("${app.security.cookie-secure:false}")
+    private boolean cookieSecure;
+
+    @Value("${app.security.expose-token:false}")
+    private boolean exposeToken;
+
+    @GetMapping("/csrf")
+    public ApiResponse<Map<String, String>> csrf(CsrfToken token) {
+        return ApiResponse.success(Map.of("token", token.getToken()));
+    }
 
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<LoginResponse>> login(@Valid @RequestBody LoginRequest req,
@@ -44,23 +59,45 @@ public class AuthController {
         ResponseCookie cookie = ResponseCookie.from("hr_token", token)
                 .httpOnly(true)
                 .path("/")
+                .secure(cookieSecure)
                 .maxAge(Duration.ofSeconds(
                         Boolean.TRUE.equals(req.getRememberMe()) ? 2592000 : 86400))
                 .sameSite("Lax")
                 .build();
         response.addHeader("Set-Cookie", cookie.toString());
+        if (!exposeToken) {
+            result.getData().setToken(null);
+        }
         return ResponseEntity.ok(result);
     }
 
     @PostMapping("/logout")
-    public ApiResponse<Void> logout(HttpServletResponse response) {
+    public ApiResponse<Void> logout(HttpServletRequest request, HttpServletResponse response) {
+        tokenRevocationService.revoke(extractToken(request));
         ResponseCookie cookie = ResponseCookie.from("hr_token", "")
                 .httpOnly(true)
                 .path("/")
+                .secure(cookieSecure)
+                .sameSite("Lax")
                 .maxAge(0)
                 .build();
         response.addHeader("Set-Cookie", cookie.toString());
         return ApiResponse.success(null);
+    }
+
+    private String extractToken(HttpServletRequest request) {
+        String authorization = request.getHeader("Authorization");
+        if (authorization != null && authorization.startsWith("Bearer ")) {
+            return authorization.substring(7).trim();
+        }
+        if (request.getCookies() != null) {
+            for (jakarta.servlet.http.Cookie cookie : request.getCookies()) {
+                if ("hr_token".equals(cookie.getName())) {
+                    return cookie.getValue();
+                }
+            }
+        }
+        return null;
     }
 
     @GetMapping("/me")

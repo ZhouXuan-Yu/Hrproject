@@ -13,6 +13,10 @@ public interface IamUserRepository extends JpaRepository<IamUser, Long>, JpaSpec
 
     Optional<IamUser> findByEmployeeNo(String employeeNo);
 
+    boolean existsByMobileAndIsDeleted(String mobile, Integer isDeleted);
+
+    boolean existsByEmailAndIsDeleted(String email, Integer isDeleted);
+
     /** 按真实姓名查第一个有效用户（用于获取 feishu_open_id）。 */
     Optional<IamUser> findFirstByRealNameAndStatusAndIsDeleted(String realName, Integer status, Integer isDeleted);
 

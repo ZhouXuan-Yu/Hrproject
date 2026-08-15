@@ -28,6 +28,7 @@ import java.util.List;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final TokenProvider tokenProvider;
+    private final TokenRevocationService tokenRevocationService;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
@@ -36,6 +37,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         if (token != null) {
             try {
                 Claims claims = tokenProvider.parseToken(token);
+                if (tokenRevocationService.isRevoked(claims.getId())) {
+                    filterChain.doFilter(request, response);
+                    return;
+                }
                 Object userIdObj = claims.get("user_id");
                 Object roleObj = claims.get("role");
                 Object tenantObj = claims.get("tenant_id");

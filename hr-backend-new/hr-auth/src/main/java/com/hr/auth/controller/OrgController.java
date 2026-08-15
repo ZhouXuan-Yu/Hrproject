@@ -37,6 +37,9 @@ public class OrgController {
     @GetMapping("/departments")
     public ApiResponse<List<Map<String, Object>>> departments(
             @RequestParam(name = "all", defaultValue = "0") int all) {
+        if (all == 1 && !SecurityUtils.hasAnyRole("admin", "hr")) {
+            throw BusinessException.forbidden();
+        }
         // all=1 时返回含停用的全部未删除部门，否则仅启用部门
         List<IamDept> depts = (all == 1)
                 ? deptRepository.findByIsDeleted(0)
@@ -76,6 +79,9 @@ public class OrgController {
     @GetMapping("/positions")
     public ApiResponse<List<IamPosition>> positions(
             @RequestParam(name = "all", defaultValue = "0") int all) {
+        if (all == 1 && !SecurityUtils.hasAnyRole("admin", "hr")) {
+            throw BusinessException.forbidden();
+        }
         // all=1 返回全部（含停用），否则仅启用
         List<IamPosition> positions = (all == 1)
                 ? positionRepository.findByIsDeleted(0)

@@ -26,7 +26,7 @@ public class WerkzeugPasswordEncoder {
     private final BCryptPasswordEncoder bcrypt = new BCryptPasswordEncoder();
     private final String legacySalt;
 
-    public WerkzeugPasswordEncoder(@Value("${password.salt:default-salt-change-me}") String legacySalt) {
+    public WerkzeugPasswordEncoder(@Value("${password.salt:}") String legacySalt) {
         this.legacySalt = legacySalt;
     }
 

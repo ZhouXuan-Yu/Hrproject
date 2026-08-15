@@ -32,6 +32,7 @@ export function useAppError() {
     if (status === 401) {
       toast.error(HTTP_ERROR_MAP[401].message, 5000)
       localStorage.removeItem('hr_token')
+      localStorage.removeItem('hr_session')
       // Use dynamic import to avoid circular dependency with router
       setTimeout(async () => {
         try {

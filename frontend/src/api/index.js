@@ -11,6 +11,8 @@ const pendingRequests = new Map()
 
 // ── GET response cache ────────────────────────────────────────────────────
 const responseCache = new Map()
+let csrfRequest = null
+let csrfToken = ''
 
 // ── Loading state tracking ────────────────────────────────────────────────
 let _inFlightCount = 0
@@ -121,6 +123,41 @@ export function clearCache() {
   responseCache.clear()
 }
 
+function readCookie(name) {
+  if (typeof document === 'undefined') return ''
+  const prefix = `${name}=`
+  const value = document.cookie.split('; ').find(item => item.startsWith(prefix))
+  return value ? decodeURIComponent(value.slice(prefix.length)) : ''
+}
+
+function csrfExempt(path) {
+  return [
+    '/auth/login', '/auth/register', '/auth/setup',
+    '/auth/forgot-password', '/auth/verify-reset-code',
+  ].some(prefix => path === prefix || path.startsWith(`${prefix}/`))
+    || path.startsWith('/confirm/')
+}
+
+async function ensureCsrfToken() {
+  if (csrfToken) return csrfToken
+  if (!csrfRequest) {
+    csrfRequest = fetch(`${BASE}/auth/csrf`, {
+      method: 'GET',
+      credentials: 'same-origin',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    })
+      .then(resp => resp.ok ? resp.json() : null)
+      .then(json => {
+        // Spring Security may mask the token in the response while the cookie keeps the raw UUID.
+        // The response token is the value expected in X-XSRF-TOKEN.
+        csrfToken = json?.data?.token || json?.token || readCookie('XSRF-TOKEN') || ''
+        return csrfToken
+      })
+      .finally(() => { csrfRequest = null })
+  }
+  return csrfRequest
+}
+
 // ── Core request ──────────────────────────────────────────────────────────
 async function request(path, options = {}) {
   const url = `${BASE}${path}`
@@ -147,11 +184,10 @@ async function request(path, options = {}) {
     ...options.headers,
   }
 
-  // Auth: httpOnly cookie is sent automatically by the browser.
-  // For transitional compat, also send Authorization header if token is in localStorage.
-  const token = localStorage.getItem('hr_token')
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`
+  // JWT is carried by the HttpOnly cookie. Mutations require the double-submit CSRF token.
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && !csrfExempt(path)) {
+    const csrfToken = await ensureCsrfToken()
+    if (csrfToken) headers['X-XSRF-TOKEN'] = csrfToken
   }
 
   // ── Execute with retry ──
@@ -160,10 +196,11 @@ async function request(path, options = {}) {
     const timeoutId = setTimeout(() => controller.abort(), timeout)
 
     const config = {
+      ...options,
       headers,
       method,
       signal: controller.signal,
-      ...options,
+      credentials: 'same-origin',
     }
     // Remove non-fetch properties
     delete config.timeout

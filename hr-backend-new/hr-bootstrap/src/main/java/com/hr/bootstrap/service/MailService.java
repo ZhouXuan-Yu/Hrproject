@@ -42,7 +42,7 @@ public class MailService {
     private final NotifyTemplateRepository notifyTemplateRepository;
     private final MailLogRepository mailLogRepository;
 
-    @Value("${crypto.secret-key:${SECRET_KEY:default-salt-change-me}}")
+    @Value("${crypto.secret-key:}")
     private String cryptoSecret;
 
     @Value("${company.name:}")
@@ -295,7 +295,7 @@ public class MailService {
         }
         String password = decryptPassword(account);
         if (password == null || password.isBlank()) {
-            log.info("[MAIL] 跳过发送 — 发件邮箱 {} 未配置密码/授权码", account.getEmailAddress());
+            log.info("[MAIL] 跳过发送 — 发件邮箱未配置密码/授权码");
             writeMailLog(account, to, subject, mailType, false,
                     "发件邮箱 " + account.getEmailAddress() + " 未配置密码/授权码");
             return Map.of("ok", false, "message", "发件邮箱 " + account.getEmailAddress() + " 未配置密码/授权码");
@@ -330,12 +330,11 @@ public class MailService {
             msg.setSentDate(new Date());
             Transport.send(msg);
 
-            log.info("[MAIL] 发送成功 via {}: to={} subject={}", account.getEmailAddress(), to, subject);
+            log.info("[MAIL] 发送成功 subject={}", subject);
             writeMailLog(account, to, subject, mailType, true, null);
             return Map.of("ok", true, "message", "发送成功");
         } catch (Exception e) {
-            log.error("[MAIL] 发送失败 via {}: to={} subject={} error={}",
-                    account.getEmailAddress(), to, subject, e.getMessage());
+            log.error("[MAIL] 发送失败 subject={} error={}", subject, e.getMessage());
             writeMailLog(account, to, subject, mailType, false, e.getMessage());
             return Map.of("ok", false, "message", "发送失败: " + e.getMessage());
         }

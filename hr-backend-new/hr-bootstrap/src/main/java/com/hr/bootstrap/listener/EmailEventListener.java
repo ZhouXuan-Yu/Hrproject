@@ -39,11 +39,11 @@ public class EmailEventListener {
                         event.getPosition(), event.getInterviewTime(), event.getRound(),
                         event.getMethod(), event.getMeetingUrl(), event.getMeetingCode(),
                         event.getBookId());
-                log.info("[EMAIL] 面试邀请邮件已发送: bookId={} to={}", event.getBookId(), email);
+                log.info("[EMAIL] 面试邀请邮件已发送: bookId={}", event.getBookId());
             } else if ("reject".equals(event.getType())) {
                 mailService.sendInterviewRejectEmail(email, event.getCandidateName(),
                         event.getPosition());
-                log.info("[EMAIL] 面试淘汰邮件已发送: bookId={} to={}", event.getBookId(), email);
+                log.info("[EMAIL] 面试淘汰邮件已发送: bookId={}", event.getBookId());
             }
         } catch (Exception e) {
             log.warn("[EMAIL] 面试邮件发送失败 (best-effort): type={} bookId={} error={}",
@@ -61,7 +61,7 @@ public class EmailEventListener {
             }
             mailService.sendOfferEmail(email, event.getCandidateName(), event.getOfferNo(),
                     event.getOfferContent(), event.getValidDeadline());
-            log.info("[EMAIL] Offer 邮件已发送: offerNo={} to={}", event.getOfferNo(), email);
+            log.info("[EMAIL] Offer 邮件已发送: offerNo={}", event.getOfferNo());
         } catch (Exception e) {
             log.warn("[EMAIL] Offer 邮件发送失败 (best-effort): offerNo={} error={}",
                     event.getOfferNo(), e.getMessage());

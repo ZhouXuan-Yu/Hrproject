@@ -21,6 +21,10 @@ class Settings:
 
     # Redis
     REDIS_URL: str = os.getenv('REDIS_URL', 'redis://127.0.0.1:6379/2')
+    INTERNAL_TOKEN: str = os.getenv('AI_INTERNAL_TOKEN', '')
+    ALLOWED_ORIGINS: list[str] = [
+        item.strip() for item in os.getenv('AI_ALLOWED_ORIGINS', '').split(',') if item.strip()
+    ]
 
     LOG_LEVEL: str = os.getenv('LOG_LEVEL', 'INFO')
 

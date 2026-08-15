@@ -14,6 +14,7 @@ export async function login(username, password, rememberMe = false) {
 export async function logout() {
   await api.post('/auth/logout');
   localStorage.removeItem('hr_token');
+  localStorage.removeItem('hr_session');
   localStorage.removeItem('hr_role');
   localStorage.removeItem('hr_user');
   localStorage.removeItem('hr_menus');

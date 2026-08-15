@@ -58,6 +58,7 @@ deepseek:
 # Python AI 服务地址
 ai-service:
   url: ${AI_SERVICE_URL:http://127.0.0.1:8100}
+  internal-token: ${AI_INTERNAL_TOKEN:}
 
 # 飞书集成（会议预约、通知）
 feishu:
@@ -69,6 +70,11 @@ feishu:
 # 候选人确认页
 app:
   base-url: ${APP_BASE_URL:http://127.0.0.1:8080}
+  security:
+    allowed-origins: ${APP_ALLOWED_ORIGINS:http://localhost:7100,http://127.0.0.1:7100}
+    cookie-secure: ${APP_COOKIE_SECURE:false}
+    hsts-enabled: ${APP_HSTS_ENABLED:false}
+    expose-token: ${APP_EXPOSE_TOKEN:false}
 company:
   name: ${COMPANY_NAME:}
 offer:
@@ -77,5 +83,8 @@ offer:
 
 logging:
   level:
-    com.hr: DEBUG
+    com.hr: INFO
     org.hibernate.SQL: WARN
+
+crypto:
+  secret-key: ${SECRET_KEY:}

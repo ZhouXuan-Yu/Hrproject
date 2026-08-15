@@ -18,7 +18,7 @@ public class ConfigCredentials {
 
     private final ApiKeyConfigRepository apiKeyRepository;
 
-    @Value("${crypto.secret-key:${SECRET_KEY:default-salt-change-me}}")
+    @Value("${crypto.secret-key:}")
     private String cryptoSecretKey;
 
     public ConfigCredentials(ApiKeyConfigRepository apiKeyRepository) {
@@ -33,15 +33,11 @@ public class ConfigCredentials {
         }
         // 解密密钥优先级（对齐 Flask：SECRET_KEY env var 解密 t_hr_api_key 加密值）
         // 1) Spring 属性 crypto.secret-key（来自 env var 或 application.yml）
-        // 2) 系统环境变量
-        // 3) 硬编码兜底
+        // 2) 系统环境变量（开发环境兼容）；生产环境由 ProductionConfigGuard 强制注入。
         String[] secrets = {
                 cryptoSecretKey,                              // Spring 属性解析
                 System.getenv("SECRET_KEY"),
                 System.getenv("PASSWORD_SALT"),
-                "dev-secret-key-a7f3b9c2e1d4-change-in-production", // .env 开发默认值
-                "default-salt-change-me",
-                "change-me-in-production",
         };
         for (String secret : secrets) {
             if (secret == null || secret.isBlank()) {

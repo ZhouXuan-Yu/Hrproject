@@ -321,14 +321,16 @@ public class TalentService {
                 employees.stream().map(Employee::getDeptId).filter(java.util.Objects::nonNull).toList());
         Map<Long, String> positionNames = fetchPositionNames(
                 employees.stream().map(Employee::getPositionId).filter(java.util.Objects::nonNull).toList());
+        Map<Long, Set<String>> employeeTags = fetchEmployeeTags(
+                employees.stream().map(Employee::getId).filter(java.util.Objects::nonNull).toList());
 
         List<Map<String, Object>> results = new ArrayList<>();
         for (Employee e : employees) {
             String name = resolveUserName(e.getUserId(), userNames);
             String currentPosition = resolvePositionName(e.getPositionId(), positionNames);
-            Set<String> employeeTags = new HashSet<>(resolveEmployeeTags(e.getId()));
-            Set<String> matchedRequired = matchedSkills(requiredSkills, employeeTags, currentPosition);
-            Set<String> matchedPlus = matchedSkills(plusSkills, employeeTags, currentPosition);
+            Set<String> tags = employeeTags.getOrDefault(e.getId(), Set.of());
+            Set<String> matchedRequired = matchedSkills(requiredSkills, tags, currentPosition);
+            Set<String> matchedPlus = matchedSkills(plusSkills, tags, currentPosition);
             int skillScore = requiredSkills.isEmpty()
                     ? 0
                     : (int) Math.round(35.0 * matchedRequired.size() / requiredSkills.size());
@@ -399,12 +401,26 @@ public class TalentService {
         return result;
     }
 
-    private List<String> resolveEmployeeTags(Long employeeId) {
-        return jdbcTemplate.query(
-                "SELECT d.tag_name FROM t_hr_employee_tag_rel r "
-                        + "JOIN t_hr_tag_dict d ON d.id = r.tag_id "
-                        + "WHERE r.employee_id = ? AND r.is_deleted = 0 AND d.is_deleted = 0 AND d.status = 1",
-                (rs, rowNum) -> rs.getString("tag_name"), employeeId);
+    private Map<Long, Set<String>> fetchEmployeeTags(List<Long> employeeIds) {
+        Map<Long, Set<String>> result = new HashMap<>();
+        if (employeeIds == null || employeeIds.isEmpty()) {
+            return result;
+        }
+        String placeholders = String.join(",", Collections.nCopies(employeeIds.size(), "?"));
+        String sql = "SELECT r.employee_id, d.tag_name FROM t_hr_employee_tag_rel r "
+                + "JOIN t_hr_tag_dict d ON d.id = r.tag_id "
+                + "WHERE r.employee_id IN (" + placeholders + ") "
+                + "AND r.is_deleted = 0 AND d.is_deleted = 0 AND d.status = 1";
+        List<Object[]> rows = jdbcTemplate.query(sql, employeeIds.toArray(),
+                (rs, rowNum) -> new Object[]{rs.getLong("employee_id"), rs.getString("tag_name")});
+        for (Object[] row : rows) {
+            Long employeeId = ((Number) row[0]).longValue();
+            String tag = row[1] != null ? String.valueOf(row[1]) : "";
+            if (!tag.isBlank()) {
+                result.computeIfAbsent(employeeId, ignored -> new HashSet<>()).add(tag);
+            }
+        }
+        return result;
     }
 
     private Set<String> matchedSkills(Set<String> required, Set<String> employeeTags, String currentPosition) {
@@ -636,7 +652,7 @@ public class TalentService {
                 sendResult.put("sent", false);
                 sendResult.put("message", "邮件服务未配置(SMTP)，已记录");
                 sendResult.put("recipient", recipientEmail);
-                log.info("[CONTACT] email to={} (SMTP 未配置，仅记录)", recipientEmail);
+                log.info("[CONTACT] email delivery skipped (SMTP not configured)");
             } else {
                 try {
                     String subject = body.get("subject") != null
@@ -650,9 +666,9 @@ public class TalentService {
                     sendResult.put("sent", true);
                     sendResult.put("message", "sent");
                     sendResult.put("recipient", recipientEmail);
-                    log.info("[CONTACT] email sent to {}", recipientEmail);
+                    log.info("[CONTACT] email sent");
                 } catch (Exception e) {
-                    log.error("[CONTACT] email send failed to {}: {}", recipientEmail, e.getMessage());
+                    log.error("[CONTACT] email send failed");
                     sendResult.put("attempted", true);
                     sendResult.put("sent", false);
                     sendResult.put("message", "发送失败: " + e.getMessage());
@@ -691,11 +707,13 @@ public class TalentService {
                 PageRequest.of(0, n, Sort.by(Sort.Direction.DESC, "storageTime")))
                 .getContent();
         Map<Long, Candidate> cands = new HashMap<>();
-        for (Resume r : rows) {
-            if (r.getCandidateId() != null && !cands.containsKey(r.getCandidateId())) {
-                candidateRepository.findById(r.getCandidateId())
-                        .filter(c -> c.getIsDeleted() == null || c.getIsDeleted() == 0)
-                        .ifPresent(c -> cands.put(c.getId(), c));
+        Set<Long> candidateIds = rows.stream()
+                .map(Resume::getCandidateId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        for (Candidate candidate : candidateRepository.findAllById(candidateIds)) {
+            if (candidate.getIsDeleted() == null || candidate.getIsDeleted() == 0) {
+                cands.put(candidate.getId(), candidate);
             }
         }
         List<Map<String, Object>> items = new ArrayList<>();
